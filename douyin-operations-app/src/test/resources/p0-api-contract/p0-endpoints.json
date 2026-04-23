@@ -1,0 +1,26 @@
+{
+  "description": "P0 契约冒烟：无 Token 时须命中 AuthTokenFilter 返回 HTTP 200 + RESTResult.status=2001（未登录），不得 404/500。登录白名单路径单独断言非 5xx。",
+  "protectedPost": [
+    { "path": "/api/v1/product/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/product/search", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/live/session/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/live/script/search", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/auth/user/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/config/list", "body": {} },
+    { "path": "/api/v1/script/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/agent/chat", "body": { "message": "" } },
+    { "path": "/api/v1/ai/knowledge-base/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/payment/order/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/douyin/account/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/copy/library/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/short-video/project/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/system/external-api/list", "body": { "page": 0, "rows": 1 } },
+    { "path": "/api/v1/ai/brain/content-diagnosis", "body": {} },
+    { "path": "/api/v1/live/approval/pending", "body": {} },
+    { "path": "/api/v1/product/script/list-by-style", "body": { "productId": 1, "scriptType": "seed" } }
+  ],
+  "whitelistPost": [
+    { "path": "/api/v1/auth/login", "body": { "username": "__p0_contract__", "password": "__invalid__" } }
+  ],
+  "_openApiGet": [ { "path": "/v3/api-docs", "note": "由 P0ApiContractSmokeTest.openApiDocsAvailable() 覆盖" } ]
+}

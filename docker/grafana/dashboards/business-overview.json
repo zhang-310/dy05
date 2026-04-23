@@ -1,0 +1,120 @@
+{
+  "dashboard": {
+    "title": "dy01 业务概览",
+    "uid": "dy01-business-overview",
+    "editable": true,
+    "panels": [
+      {
+        "id": 1,
+        "title": "活跃直播场次",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "live_sessions_active",
+            "legendFormat": "active"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 10 },
+                { "color": "red", "value": 50 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "订阅用户数",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "payment_active_subscriptions",
+            "legendFormat": "subscriptions"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 }
+      },
+      {
+        "id": 3,
+        "title": "API 请求速率",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(http_server_requests_seconds_count[5m])",
+            "legendFormat": "req/s"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 }
+      },
+      {
+        "id": 4,
+        "title": "告警触发数",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(alert_triggered_total[1h])",
+            "legendFormat": "alerts/h"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 }
+      },
+      {
+        "id": 5,
+        "title": "AI生成延迟分布",
+        "type": "histogram",
+        "targets": [
+          {
+            "expr": "rate(ai_generation_latency_seconds_bucket[5m])",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }
+      },
+      {
+        "id": 6,
+        "title": "搜索QPS",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(ai_search_total[5m])",
+            "legendFormat": "QPS"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }
+      },
+      {
+        "id": 7,
+        "title": "HTTP 响应时间 (P95)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket[5m]))",
+            "legendFormat": "P95"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 }
+      },
+      {
+        "id": 8,
+        "title": "JVM 堆内存使用",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+            "legendFormat": "{{id}}"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 }
+      }
+    ],
+    "time": { "from": "now-1h", "to": "now" },
+    "refresh": "30s",
+    "schemaVersion": 39,
+    "tags": ["dy01", "business"]
+  }
+}

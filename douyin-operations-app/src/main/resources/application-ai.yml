@@ -1,0 +1,22 @@
+# AI 服务配置
+ai:
+  deepseek:
+    enabled: false  # 开发环境默认关闭，生产环境启用
+    api-key: ${DEEPSEEK_API_KEY:}
+    api-url: https://api.deepseek.com/v1/chat/completions
+    model: deepseek-chat
+    timeout: 30000  # 30 秒超时
+
+# Redis 缓存配置
+spring:
+  redis:
+    host: localhost
+    port: 6380
+    password: 
+    timeout: 2000
+    jedis:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms

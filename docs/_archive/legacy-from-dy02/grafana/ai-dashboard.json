@@ -1,0 +1,257 @@
+{
+  "dashboard": {
+    "title": "AI 模块监控 - P0/P1 升级",
+    "tags": ["ai", "knowledge-base", "performance"],
+    "timezone": "browser",
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "搜索延迟（P50/P95/P99）",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_search_duration_seconds{quantile=\"0.5\"}",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "ai_search_duration_seconds{quantile=\"0.95\"}",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "ai_search_duration_seconds{quantile=\"0.99\"}",
+            "legendFormat": "P99"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {
+                "params": [1],
+                "type": "gt"
+              },
+              "query": {
+                "params": ["A", "5m", "now"]
+              },
+              "reducer": {
+                "type": "avg"
+              },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "for": "5m",
+          "frequency": "1m",
+          "name": "搜索延迟过高",
+          "message": "P95 延迟超过 1 秒"
+        },
+        "thresholds": [
+          {"value": 0.5, "colorMode": "custom", "op": "gt", "fill": false, "line": true, "lineColor": "yellow"},
+          {"value": 1.0, "colorMode": "custom", "op": "gt", "fill": false, "line": true, "lineColor": "red"}
+        ],
+        "yaxes": [
+          {"format": "s", "label": "延迟"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "搜索 QPS",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_search_total[1m])",
+            "legendFormat": "QPS"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "请求/秒"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "熔断器状态",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 8, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "resilience4j_circuitbreaker_state{name=\"milvus\"}",
+            "legendFormat": "Milvus"
+          },
+          {
+            "expr": "resilience4j_circuitbreaker_state{name=\"elasticsearch\"}",
+            "legendFormat": "Elasticsearch"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "关闭", "color": "green"}}},
+              {"type": "value", "options": {"1": {"text": "打开", "color": "red"}}},
+              {"type": "value", "options": {"2": {"text": "半开", "color": "yellow"}}}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "red"},
+                {"value": 2, "color": "yellow"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "熔断次数",
+        "type": "graph",
+        "gridPos": {"x": 6, "y": 8, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "rate(resilience4j_circuitbreaker_state_transition_total{name=\"milvus\"}[5m])",
+            "legendFormat": "Milvus"
+          },
+          {
+            "expr": "rate(resilience4j_circuitbreaker_state_transition_total{name=\"elasticsearch\"}[5m])",
+            "legendFormat": "Elasticsearch"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "API 请求延迟（P95）",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{uri=~\"/api/v1/ai/.*\"}[5m]))",
+            "legendFormat": "{{uri}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "延迟"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "缓存命中率（向量/搜索）",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_cache_hit_total[5m]) / (rate(ai_cache_hit_total[5m]) + rate(ai_cache_miss_total[5m]))",
+            "legendFormat": "命中率"
+          }
+        ],
+        "yaxes": [
+          {"format": "percentunit", "label": "命中率", "min": 0, "max": 1},
+          {"format": "short"}
+        ],
+        "thresholds": [
+          {"value": 0.3, "colorMode": "custom", "op": "lt", "fill": true, "fillColor": "rgba(255, 0, 0, 0.1)", "line": true, "lineColor": "red"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "JVM 内存使用",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+            "legendFormat": "Heap Used"
+          },
+          {
+            "expr": "jvm_memory_max_bytes{area=\"heap\"}",
+            "legendFormat": "Heap Max"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "内存"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "系统负载",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 6},
+        "targets": [
+          {
+            "expr": "system_cpu_usage",
+            "legendFormat": "CPU 使用率"
+          },
+          {
+            "expr": "process_cpu_usage",
+            "legendFormat": "进程 CPU"
+          }
+        ],
+        "yaxes": [
+          {"format": "percentunit", "label": "CPU", "min": 0, "max": 1},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 9,
+        "title": "活跃线程数",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 24, "w": 6, "h": 6},
+        "targets": [
+          {
+            "expr": "jvm_threads_live_threads",
+            "legendFormat": "活跃线程"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 100, "color": "yellow"},
+                {"value": 200, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "数据库连接池",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 24, "w": 6, "h": 6},
+        "targets": [
+          {
+            "expr": "hikaricp_connections_active",
+            "legendFormat": "活跃连接"
+          },
+          {
+            "expr": "hikaricp_connections",
+            "legendFormat": "总连接"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 15, "color": "yellow"},
+                {"value": 25, "color": "red"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}

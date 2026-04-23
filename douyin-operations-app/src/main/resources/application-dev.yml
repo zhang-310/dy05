@@ -1,0 +1,67 @@
+spring:
+  devtools:
+    restart:
+      enabled: false
+      # 仅 Java/配置变更触发重启；改 static 下前端文件不触发重启
+      exclude: static/**,**/static/**,public/**,**/public/**
+  flyway:
+    # 开发环境默认跑迁移，避免 jpa.hibernate.ddl-auto=validate 报缺表（如 benchmark_account）
+    enabled: ${FLYWAY_ENABLED:true}
+    # 本地库若曾用旧版迁移脚本执行过，checksum 会与当前仓库不一致导致 Flyway 拒绝启动；开发环境跳过该校验
+    # 与生产对齐或修复历史记录：对目标库执行 flyway repair，或重建空库后全量 migrate
+    validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:false}
+  jpa:
+    show-sql: false
+  # 未启动 Docker Redis 时避免 @Cacheable 走 Redis；已启动 redis:6380 可改为 redis
+  cache:
+    type: simple
+  datasource:
+    # 落地环境 Postgres 映射到本机 5433（与 docker-compose 一致）；可用 DB_PORT 覆盖
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/douyin_operations
+    username: postgres
+    password: postgresql
+    driver-class-name: org.postgresql.Driver
+
+# Auth configuration（本地未起 Redis 时用 memory，管理后台登录不依赖 Redis）
+auth:
+  token-store: ${AUTH_TOKEN_STORE:memory}
+
+# 本地开发未设置环境变量时的 JWT 密钥兜底（生产必须通过 APP_TOKEN_SECRET 注入）
+app:
+  token:
+    secret: ${APP_TOKEN_SECRET:dev-local-jwt-secret-change-me-not-for-production}
+  # LLM 调用见 OpenAiCompatibleLlmClient：模型来自表 ai_model（status=1），密钥可在模型行填写或环境变量兜底（如 DEEPSEEK_API_KEY）。
+  # 开启方式（任选）：
+  # 1) 本地 Ollama：安装并运行 ollama，执行 ollama pull 某模型；管理端「模型配置」新增 provider=ollama、modelVersion 与 ollama 列表一致，无需 apiKey。
+  # 2) DeepSeek：设置环境变量 DEEPSEEK_API_KEY=sk-...，模型 provider=deepseek；或在 sys_config 配置键 ai.deepseek.api_key。
+  # 3) OpenAI 兼容其它云：在「模型配置」该行填写 apiKey，provider 与 baseUrl 与厂商一致。
+  ai:
+    ollama-url: ${OLLAMA_URL:http://127.0.0.1:11434}
+    timeout: ${AI_TIMEOUT:120000}
+    # 进化调度：开发环境默认关闭 ROI 降频；若需本地模拟生产降频，可设 EVOLVE_ROI_THROTTLE_ENABLED=true
+    evolve:
+      roi-throttle-enabled: ${EVOLVE_ROI_THROTTLE_ENABLED:false}
+  # 开发环境默认跑满深度分析管线（需 PATH 中有 ffmpeg、yt-dlp；whisper 可选，未装则 ASR 降级）
+  video-analysis:
+    enabled: ${VIDEO_ANALYSIS_ENABLED:true}
+    whisper-enabled: ${WHISPER_ENABLED:true}
+    # 抖音 yt-dlp 必须带 Netscape cookies；设环境变量 YT_DLP_COOKIES_FILE 优先，否则可用默认路径（文件须真实存在）
+    yt-dlp-cookies-file: ${YT_DLP_COOKIES_FILE:C:/secrets/douyin-cookies.txt}
+    # yt-dlp 常因 Fresh cookies 失败：设为 true 可在失败时自动走 Playwright 拦截 CDN（需: mvn exec:java ... install chromium）
+    playwright-enabled: ${PLAYWRIGHT_ENABLED:true}
+    douyin-yt-dlp-fallback-playwright: ${DOUYIN_YT_DLP_FALLBACK_PLAYWRIGHT:true}
+  evolution-fitness:
+    auto-merge-enabled: true
+logging:
+  level:
+    root: INFO
+    cn.gaifan: INFO
+    org.springframework: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+
+# Disable Neo4j health check
+management:
+  health:
+    neo4j:
+      enabled: false # 禁用 Neo4j 健康检查

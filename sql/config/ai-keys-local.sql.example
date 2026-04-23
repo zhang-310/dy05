@@ -1,0 +1,17 @@
+-- ============================================================
+-- AI API Key 本地配置 - 示例（复制为 ai-keys-local.sql 并填入真实 Key）
+-- 执行顺序：在 init-all 或 demo-all 之后执行
+-- 命令：psql -U postgres -d douyin_operations -f sql/config/ai-keys-local.sql
+-- ============================================================
+
+-- DeepSeek
+UPDATE sys_config SET config_value = 'sk-your-deepseek-api-key', update_time = CURRENT_TIMESTAMP
+WHERE config_key = 'ai.deepseek.api_key' AND deleted = 0;
+
+-- 智谱 OpenClaw
+UPDATE sys_config SET config_value = 'your-zhipu-api-key', update_time = CURRENT_TIMESTAMP
+WHERE config_key = 'ai.glm.api_key' AND deleted = 0;
+
+-- Minimax
+UPDATE sys_config SET config_value = 'sk-api-your-minimax-api-key', update_time = CURRENT_TIMESTAMP
+WHERE config_key = 'ai.minimax.api_key' AND deleted = 0;

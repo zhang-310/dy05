@@ -1,0 +1,66 @@
+# ============================================================
+# 高配机器配置（AMD 5995 / 256G / 2×RTX 8000 48G）
+# 激活方式：-Dspring.profiles.active=dev,highperf 或 prod,highperf
+# ============================================================
+
+app:
+  # API 限流：高配机器可承受更高 QPS
+  rate-limit:
+    api-per-minute: 500
+  ai:
+    # 每日 AI 调用额度
+    quota:
+      daily-max: 5000
+    # Embedding 并行度（64 核可开高）
+    embedding:
+      parallelism: 16
+      batch-size: 32
+    # 知识库导入并行度
+    kb:
+      import-parallelism: 16
+    # 进化调度：可选 0 0 * * * ?（每小时）或 0 */10 * * * ?（每 10 分钟）
+    evolve:
+      cron: "0 0 * * * ?"
+    # 深度进化：周三+周日，每次 12 个待深化问题
+    deep-evolve:
+      cron: "0 30 6 * * WED,SUN"
+      max-per-run: 12
+    # 索引队列：加快消费，充分利用 GPU/CPU
+    index-queue:
+      consumer:
+        interval-ms: 60000   # 1 分钟（默认 5 分钟）
+        batch-size: 20       # 每轮 20 条（默认 5）
+    # 双写补偿：加大批次
+    dual-write:
+      compensation:
+        batch-size: 20       # 默认 5
+
+# 异步线程池（高配可开大）
+  async:
+    evolve-core: 4
+    evolve-max: 8
+    ai-core: 8
+    ai-max: 16
+    index-core: 4
+    index-max: 8
+
+# 数据库连接池（高并发）
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 40
+      minimum-idle: 15
+  data:
+    redis:
+      lettuce:
+        pool:
+          max-active: 40
+          max-idle: 20
+
+# Tomcat 线程
+server:
+  tomcat:
+    threads:
+      max: 400
+      min-spare: 30
+    max-connections: 20000

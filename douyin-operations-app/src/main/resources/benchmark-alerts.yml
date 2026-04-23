@@ -1,0 +1,113 @@
+# 对标账号分析系统告警规则
+
+groups:
+  - name: benchmark_alerts
+    interval: 30s
+    rules:
+      # 自动入库成功率告警
+      - alert: BenchmarkAutoIngestSuccessRateLow
+        expr: |
+          (benchmark_auto_ingest_success / benchmark_auto_ingest_total) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          module: benchmark
+        annotations:
+          summary: "对标脚本自动入库成功率低"
+          description: "自动入库成功率低于 95%，当前值: {{ $value | humanizePercentage }}"
+
+      # 向量生成失败率告警
+      - alert: BenchmarkEmbeddingFailureRateHigh
+        expr: |
+          (benchmark_embedding_failed / (benchmark_embedding_generated + benchmark_embedding_failed)) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          module: benchmark
+        annotations:
+          summary: "对标脚本向量生成失败率高"
+          description: "向量生成失败率超过 5%，当前值: {{ $value | humanizePercentage }}"
+
+      # 相似度查询耗时告警
+      - alert: BenchmarkSimilarityQuerySlow
+        expr: |
+          histogram_quantile(0.95, benchmark_similarity_query_duration_seconds) > 1
+        for: 5m
+        labels:
+          severity: warning
+          module: benchmark
+        annotations:
+          summary: "对标脚本相似度查询耗时过长"
+          description: "95% 查询耗时超过 1 秒，当前值: {{ $value }}s"
+
+      # 推荐查询耗时告警
+      - alert: BenchmarkRecommendationQuerySlow
+        expr: |
+          histogram_quantile(0.95, benchmark_recommendation_query_duration_seconds) > 2
+        for: 5m
+        labels:
+          severity: warning
+          module: benchmark
+        annotations:
+          summary: "对标脚本推荐查询耗时过长"
+          description: "95% 查询耗时超过 2 秒，当前值: {{ $value }}s"
+
+      # Milvus 操作失败告警
+      - alert: BenchmarkMilvusOperationFailure
+        expr: |
+          (benchmark_milvus_failures / benchmark_milvus_operations) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          module: benchmark
+        annotations:
+          summary: "对标脚本 Milvus 操作失败"
+          description: "Milvus 操作失败率超过 1%，当前值: {{ $value | humanizePercentage }}"
+
+      # 缓存命中率低告警
+      - alert: BenchmarkCacheHitRateLow
+        expr: |
+          benchmark_similarity_cache_hit_rate < 0.7
+        for: 10m
+        labels:
+          severity: info
+          module: benchmark
+        annotations:
+          summary: "对标脚本缓存命中率低"
+          description: "缓存命中率低于 70%，当前值: {{ $value | humanizePercentage }}"
+
+      # 数据库查询耗时告警
+      - alert: BenchmarkDatabaseQuerySlow
+        expr: |
+          histogram_quantile(0.95, benchmark_database_query_duration_seconds) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          module: benchmark
+        annotations:
+          summary: "对标脚本数据库查询耗时过长"
+          description: "95% 查询耗时超过 0.5 秒，当前值: {{ $value }}s"
+
+      # 自动入库队列堆积告警
+      - alert: BenchmarkAutoIngestQueueBacklog
+        expr: |
+          benchmark_auto_ingest_queue_size > 1000
+        for: 10m
+        labels:
+          severity: warning
+          module: benchmark
+        annotations:
+          summary: "对标脚本自动入库队列堆积"
+          description: "入库队列大小超过 1000，当前值: {{ $value }}"
+
+      # 向量索引同步延迟告警
+      - alert: BenchmarkEmbeddingIndexLag
+        expr: |
+          benchmark_embedding_unindexed_count > 100
+        for: 15m
+        labels:
+          severity: info
+          module: benchmark
+        annotations:
+          summary: "对标脚本向量索引同步延迟"
+          description: "未索引的向量数超过 100，当前值: {{ $value }}"

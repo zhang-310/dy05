@@ -1,0 +1,12 @@
+-- ============================================================
+-- BOS 密钥初始化（可选）
+-- 使用方式：复制为 bos-storage-init-keys.sql，填入真实 Key 后执行
+-- 注意：勿将含真实 Key 的文件提交到版本控制
+-- ============================================================
+
+-- 更新 BOS Access Key / Secret Key（已存在则更新）
+-- UPDATE sys_config SET config_value = 'YOUR_ACCESS_KEY' WHERE config_key = 'storage.bos.accessKey' AND deleted = 0;
+-- UPDATE sys_config SET config_value = 'YOUR_SECRET_KEY' WHERE config_key = 'storage.bos.secretKey' AND deleted = 0;
+
+-- 更新 Bucket 名称（必填）
+-- UPDATE sys_config SET config_value = 'YOUR_BUCKET_NAME' WHERE config_key = 'storage.bos.bucket' AND deleted = 0;

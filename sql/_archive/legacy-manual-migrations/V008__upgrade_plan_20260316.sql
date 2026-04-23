@@ -1,0 +1,2 @@
+-- V008: 升级计划 20260316 数据库变更
+ALTER TABLE live_script ADD COLUMN IF NOT EXISTS edit_version BIGINT DEFAULT 0;

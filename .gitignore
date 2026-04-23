@@ -1,0 +1,61 @@
+# Build
+target/
+frontend/dist/
+frontend/node_modules/
+src/main/resources/static/vue/
+
+# Lock files
+frontend/package-lock.json
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Claude/MCP
+.claude/
+.mcp.json
+
+# TS build info
+frontend/tsconfig.tsbuildinfo
+
+# Auto generated
+frontend/src/auto-imports.d.ts
+frontend/src/components.d.ts
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker 部署密钥（勿提交）
+docker/.env
+
+# Sensitive environment files
+.env
+.env.local
+.env.production
+
+# AI API Key 本地配置（含敏感信息）
+sql/config/ai-keys-local.sql
+
+*storybook.log
+storybook-static
+front/node_modules/
+front/dist/
+front/coverage/
+front/playwright-report/
+front/test-results/
+front/test-results-*/
+front/test-results-batch/
+front/test-results-new/
+front/results.json
+front/final-results.json
+front/*.log
+front/*.txt
+logs/
+
+# 根目录临时日志 / 会话稿（勿提交）
+/backend*.log
+/shortvideo*.log
+/*.log
+front/src-dy01-reference/

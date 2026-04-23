@@ -1,0 +1,399 @@
+package cn.gaifan.douyinOperations.module.agent.service.impl;
+
+import cn.gaifan.douyinOperations.common.constant.ErrorCode;
+import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.common.vo.PageResultVO;
+import cn.gaifan.douyinOperations.module.agent.entity.*;
+import cn.gaifan.douyinOperations.module.agent.repository.*;
+import cn.gaifan.douyinOperations.module.agent.vo.AgentSearchVO;
+import cn.gaifan.douyinOperations.module.agent.vo.AgentSaveVO;
+import cn.gaifan.douyinOperations.module.agent.vo.AgentVO;
+import cn.gaifan.douyinOperations.module.agent.service.SkillExecutor;
+import cn.gaifan.douyinOperations.module.agent.service.SkillExecutor.ToolCallResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import jakarta.annotation.Resource;
+import jakarta.persistence.criteria.Predicate;
+import java.sql.Timestamp;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@Service
+public class AgentServiceImpl implements cn.gaifan.douyinOperations.module.agent.service.AgentService {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentServiceImpl.class);
+
+    @Resource private AgentRepository agentRepository;
+    @Resource private AgentConversationRepository conversationRepository;
+    @Resource private AgentMessageRepository messageRepository;
+    @Resource private cn.gaifan.douyinOperations.module.agent.service.SkillExecutor skillExecutor;
+    @Resource private cn.gaifan.douyinOperations.module.agent.service.AgentFunctionCallingService agentFunctionCallingService;
+
+    // ==================== Agent CRUD ====================
+
+    public PageResultVO<AgentVO> searchAgents(Long userId, AgentSearchVO searchVO) {
+        // 验证分页参数
+        searchVO.validateParams();
+        Pageable pageable = PageRequest.of(searchVO.getPage(), searchVO.getRows(),
+                Sort.by(Sort.Direction.DESC, "createTime"));
+        Specification<Agent> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("deleted"), 0));
+            predicates.add(cb.equal(root.get("userId"), userId));
+            if (searchVO.getAgentType() != null) predicates.add(cb.equal(root.get("agentType"), searchVO.getAgentType()));
+            if (searchVO.getStatusEnabled() != null) predicates.add(cb.equal(root.get("status"), searchVO.getStatusEnabled()));
+            if (searchVO.getAgentName() != null && !searchVO.getAgentName().isBlank()) {
+                predicates.add(cb.like(root.get("agentName"), "%" + searchVO.getAgentName().trim() + "%"));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        Page<Agent> p = agentRepository.findAll(spec, pageable);
+        return PageResultVO.of(p.getTotalElements(),
+                p.getContent().stream().map(this::agentToVO).collect(Collectors.toList()),
+                searchVO.getPage(), searchVO.getRows());
+    }
+
+    public AgentVO getAgentById(Long id) {
+        return agentToVO(agentRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "智能体不存在")));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public long saveAgent(Long userId, AgentSaveVO saveVO) {
+        Agent entity;
+        if (saveVO.getId() != null && saveVO.getId() > 0) {
+            entity = agentRepository.findByIdAndDeleted(saveVO.getId(), 0)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "智能体不存在"));
+        } else {
+            entity = new Agent();
+            entity.setUserId(userId);
+        }
+        entity.setAgentName(saveVO.getAgentName());
+        entity.setAgentType(saveVO.getAgentType());
+        if (saveVO.getDescription() != null) entity.setDescription(saveVO.getDescription());
+        if (saveVO.getSystemPrompt() != null) entity.setSystemPrompt(saveVO.getSystemPrompt());
+        if (saveVO.getModelConfig() != null) entity.setModelConfig(saveVO.getModelConfig());
+        if (saveVO.getResponseMode() != null) entity.setResponseMode(saveVO.getResponseMode());
+        if (saveVO.getAvailableTools() != null) entity.setAvailableTools(saveVO.getAvailableTools());
+        return agentRepository.save(entity).getId();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteAgent(Long id) {
+        Agent entity = agentRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "智能体不存在"));
+        entity.setDeleted(1);
+        agentRepository.save(entity);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void updateAgentStatus(Long id, Integer status) {
+        agentRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "智能体不存在"));
+        agentRepository.updateStatus(id, status);
+    }
+
+    // ==================== Conversation ====================
+
+    @Transactional(rollbackFor = Exception.class)
+    public long createConversation(Long agentId, Long userId, String topic) {
+        agentRepository.findByIdAndDeleted(agentId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "智能体不存在"));
+        AgentConversation conv = new AgentConversation();
+        conv.setAgentId(agentId);
+        conv.setUserId(userId);
+        conv.setConversationTopic(topic != null ? topic : "新对话");
+        return conversationRepository.save(conv).getId();
+    }
+
+    public List<Map<String, Object>> listConversations(Long userId, Long agentId) {
+        Specification<AgentConversation> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("deleted"), 0));
+            predicates.add(cb.equal(root.get("userId"), userId));
+            if (agentId != null) predicates.add(cb.equal(root.get("agentId"), agentId));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return conversationRepository.findAll(spec, Sort.by(Sort.Direction.DESC, "lastMessageTime"))
+                .stream().map(this::convToMap).collect(Collectors.toList());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteConversation(Long id) {
+        AgentConversation entity = conversationRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "对话不存在"));
+        entity.setDeleted(1);
+        conversationRepository.save(entity);
+    }
+
+    // ==================== Message ====================
+
+    @Transactional(rollbackFor = Exception.class)
+    public long sendMessage(Long conversationId, Integer senderType, String content, Integer tokens) {
+        conversationRepository.findByIdAndDeleted(conversationId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "对话不存在"));
+        AgentMessage msg = new AgentMessage();
+        msg.setConversationId(conversationId);
+        msg.setSenderType(senderType);
+        msg.setContent(content);
+        msg.setTokens(tokens != null ? tokens : 0);
+        long msgId = messageRepository.save(msg).getId();
+        conversationRepository.incrementMessageCount(conversationId, new Timestamp(System.currentTimeMillis()));
+        return msgId;
+    }
+
+    public List<Map<String, Object>> listMessages(Long conversationId) {
+        return messageRepository.findByConversationIdOrderByCreateTimeAsc(conversationId)
+                .stream().map(this::msgToMap).collect(Collectors.toList());
+    }
+
+    // ==================== chatWithAgent ====================
+
+    /**
+     * 与智能体对话：检测技能调用，执行并生成回复
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public String chatWithAgent(Long agentId, Long userId, String userMessage, Long conversationId, Object context,
+                              java.util.function.BiConsumer<String, String> statusEmitter) {
+        // 1. 获取智能体
+        Agent agent = agentRepository.findByIdAndDeleted(agentId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "智能体不存在"));
+
+        // 2. 处理 conversationId（为 null 时自动创建）
+        if (conversationId == null) {
+            AgentConversation conv = new AgentConversation();
+            conv.setAgentId(agentId);
+            conv.setUserId(userId);
+            conv.setConversationTopic(userMessage.length() > 20 ? userMessage.substring(0, 20) + "..." : userMessage);
+            conversationId = conversationRepository.save(conv).getId();
+        }
+
+        // 3. 保存用户消息
+        AgentMessage userMsg = new AgentMessage();
+        userMsg.setConversationId(conversationId);
+        userMsg.setSenderType(1); // 1=用户
+        userMsg.setContent(userMessage);
+        userMsg.setTokens(estimateTokens(userMessage));
+        messageRepository.save(userMsg);
+        conversationRepository.incrementMessageCount(conversationId, new Timestamp(System.currentTimeMillis()));
+
+        // 4. 发送 SSE 状态事件：正在分析需求
+        sendStatus(statusEmitter, "正在分析需求...");
+
+        // 5. LLM 驱动的 Function Calling（带 SSE 事件回调）
+        AgentFunctionCallingService.FunctionCallingResult fcResult = agentFunctionCallingService.execute(
+                agentId, userId, conversationId, agent.getSystemPrompt(), userMessage, statusEmitter);
+        String reply = fcResult.content();
+        List<SkillExecutor.ToolCallResult> toolResults = fcResult.toolCalls();
+
+        // 6. 发送 SSE 状态事件：工具调用完成
+        if (toolResults.isEmpty()) {
+            sendStatus(statusEmitter, "无需调用工具");
+        } else {
+            String[] toolNames = toolResults.stream().map(r -> r.toolName).toArray(String[]::new);
+            sendStatus(statusEmitter, "工具执行完成: " + String.join(", ", toolNames));
+        }
+
+        // 7. 生成回复（如果 FC 未返回内容，使用降级回复）
+        if (reply == null || reply.isBlank()) {
+            reply = generateFallbackReply(agent.getAgentName(), agent.getSystemPrompt(), userMessage);
+        }
+
+        // 8. 保存助手消息
+        AgentMessage assistantMsg = new AgentMessage();
+        assistantMsg.setConversationId(conversationId);
+        assistantMsg.setSenderType(2); // 2=助手
+        assistantMsg.setContent(reply);
+        assistantMsg.setTokens(estimateTokens(reply));
+        if (!toolResults.isEmpty()) {
+            assistantMsg.setToolCalls(skillExecutor.serializeToolCalls(toolResults));
+        }
+        messageRepository.save(assistantMsg);
+        conversationRepository.incrementMessageCount(conversationId, new Timestamp(System.currentTimeMillis()));
+
+        return reply;
+    }
+
+    /**
+     * 发送 SSE 状态事件（线程安全）
+     */
+    private void sendStatus(java.util.function.BiConsumer<String, String> emitter, String message) {
+        if (emitter != null) {
+            try {
+                emitter.accept("status", message);
+            } catch (Exception e) {
+                log.warn("Failed to send status event: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 生成回复：根据技能执行结果和智能体配置生成文本回复
+     */
+    private String generateReply(Agent agent, String userMessage, List<SkillExecutor.ToolCallResult> toolResults) {
+        String agentName = agent.getAgentName();
+        String systemPrompt = agent.getSystemPrompt();
+
+        if (toolResults.isEmpty()) {
+            return generateFallbackReply(agentName, systemPrompt, userMessage);
+        }
+
+        StringBuilder reply = new StringBuilder();
+        for (SkillExecutor.ToolCallResult result : toolResults) {
+            if (result.success) {
+                reply.append(result.result).append("\n\n");
+            } else {
+                reply.append("调用工具[").append(result.toolName).append("]时出错：")
+                        .append(result.error).append("\n\n");
+            }
+        }
+        reply.append("以上是工具执行结果。有什么需要我进一步说明的吗？");
+        return reply.toString().trim();
+    }
+
+    /**
+     * 无技能匹配时的降级回复
+     */
+    private String generateFallbackReply(String agentName, String systemPrompt, String userMessage) {
+        if (systemPrompt != null && systemPrompt.contains("话术")) {
+            return "您好！我是" + agentName + "，专注于直播话术策划。\n\n" +
+                    "请告诉我您的需求，例如：\n" +
+                    "- 生成开场白\n" +
+                    "- 撰写产品介绍话术\n" +
+                    "- 设计促销话术\n\n" +
+                    "我会结合知识库和话术模板为您生成专业话术。";
+        } else if (systemPrompt != null && systemPrompt.contains("检测")) {
+            return "您好！我是" + agentName + "，专注于内容合规检测。\n\n" +
+                    "请发送需要检测的文本，我会帮您识别违规风险并提供修改建议。";
+        } else if (systemPrompt != null && systemPrompt.contains("商品")) {
+            return "您好！我是" + agentName + "，专注于商品分析。\n\n" +
+                    "请告诉我需要分析的商品或品类，我会帮您提炼卖点、分析市场趋势。";
+        } else if (systemPrompt != null && systemPrompt.contains("直播场次")) {
+            return "您好！我是" + agentName + "，专注于直播数据分析。\n\n" +
+                    "请告诉我您想查询的场次信息，我会帮您分析数据并给出优化建议。";
+        } else if (systemPrompt != null && systemPrompt.contains("选品")) {
+            return "您好！我是" + agentName + "，专注于选品策略。\n\n" +
+                    "请告诉我您的选品需求（如品类、目标人群、预算等），我会为您推荐合适的选品策略。";
+        } else if (systemPrompt != null && systemPrompt.contains("咨询")) {
+            return "您好！我是" + agentName + "，很高兴为您服务。\n\n" +
+                    "请告诉我您的产品或服务相关信息，我会根据知识库为您提供专业的咨询服务。";
+        } else {
+            return "您好！我是" + agentName + "。\n\n" +
+                    "请告诉我您的具体需求，我会尽力帮助您。";
+        }
+    }
+
+    /**
+     * 估算 token 数量（中文约 2 字符/token，英文约 4 字符/token）
+     */
+    private int estimateTokens(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int chinese = 0, english = 0;
+        for (char c : text.toCharArray()) {
+            if (c > 0x4E00 && c < 0x9FFF) chinese++;
+            else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) english++;
+        }
+        return chinese / 2 + english / 4 + text.length() / 4;
+    }
+
+    // ==================== rateMessage & exportConversation ====================
+
+    @Transactional(rollbackFor = Exception.class)
+    public void rateMessage(Long messageId, String rating) {
+        AgentMessage msg = messageRepository.findById(messageId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "消息不存在"));
+        msg.setRating(rating);
+        messageRepository.save(msg);
+    }
+
+    public String exportConversation(Long conversationId) {
+        // 获取对话和消息
+        AgentConversation conv = conversationRepository.findByIdAndDeleted(conversationId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "对话不存在"));
+
+        List<AgentMessage> messages = messageRepository.findByConversationIdOrderByCreateTimeAsc(conversationId);
+
+        // 获取智能体名称
+        String agentName = "智能体";
+        try {
+            agentName = agentRepository.findByIdAndDeleted(conv.getAgentId(), 0)
+                    .map(Agent::getAgentName).orElse("智能体");
+        } catch (Exception ignored) {}
+
+        // 生成 Markdown
+        StringBuilder md = new StringBuilder();
+        md.append("# ").append(conv.getConversationTopic()).append("\n\n");
+        md.append("**智能体**: ").append(agentName).append("\n\n");
+        md.append("**创建时间**: ").append(conv.getCreateTime()).append("\n\n");
+        md.append("---\n\n");
+
+        for (AgentMessage msg : messages) {
+            String sender = msg.getSenderType() == 1 ? "**用户**" : "**助手**";
+            md.append(sender).append("\n\n");
+            md.append(msg.getContent()).append("\n\n");
+            if (msg.getToolCalls() != null && !msg.getToolCalls().isEmpty()) {
+                md.append("*工具调用: ").append(msg.getToolCalls()).append("*\n\n");
+            }
+            md.append("---\n\n");
+        }
+
+        // TODO: 保存到文件存储，返回下载 URL
+        // 暂时返回内嵌内容
+        return "data:text/markdown;charset=utf-8," + java.net.URLEncoder.encode(md.toString(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    // ==================== toVO/toMap ====================
+
+    private AgentVO agentToVO(Agent e) {
+        AgentVO vo = new AgentVO();
+        vo.setId(e.getId());
+        vo.setAgentName(e.getAgentName());
+        vo.setAgentType(e.getAgentType());
+        vo.setDescription(e.getDescription());
+        vo.setSystemPrompt(e.getSystemPrompt());
+        vo.setModelConfig(e.getModelConfig());
+        vo.setResponseMode(e.getResponseMode());
+        vo.setStatus(e.getStatus());
+        vo.setVersion(e.getVersion());
+        vo.setAvailableTools(e.getAvailableTools());
+        vo.setCreatedAt(e.getCreateTime());
+        vo.setUpdatedAt(e.getUpdateTime());
+        return vo;
+    }
+
+    private Map<String, Object> agentToMap(Agent e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", e.getId()); m.put("userId", e.getUserId()); m.put("agentName", e.getAgentName());
+        m.put("description", e.getDescription()); m.put("agentType", e.getAgentType());
+        m.put("systemPrompt", e.getSystemPrompt()); m.put("modelConfig", e.getModelConfig());
+        m.put("availableTools", e.getAvailableTools());
+        m.put("responseMode", e.getResponseMode()); m.put("status", e.getStatus());
+        m.put("version", e.getVersion()); m.put("createTime", e.getCreateTime()); m.put("updateTime", e.getUpdateTime());
+        return m;
+    }
+
+    private Map<String, Object> convToMap(AgentConversation e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", e.getId()); m.put("agentId", e.getAgentId()); m.put("userId", e.getUserId());
+        m.put("conversationTopic", e.getConversationTopic()); m.put("status", e.getStatus());
+        m.put("messageCount", e.getMessageCount()); m.put("lastMessageTime", e.getLastMessageTime());
+        m.put("createTime", e.getCreateTime());
+        return m;
+    }
+
+    private Map<String, Object> msgToMap(AgentMessage e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", e.getId()); m.put("conversationId", e.getConversationId());
+        m.put("senderType", e.getSenderType()); m.put("content", e.getContent());
+        m.put("tokens", e.getTokens()); m.put("toolCalls", e.getToolCalls());
+        m.put("rating", e.getRating()); m.put("createTime", e.getCreateTime());
+        return m;
+    }
+}

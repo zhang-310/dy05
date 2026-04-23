@@ -1,0 +1,1 @@
+# AI service impls in this module use @Service; no AutoConfiguration classes here.

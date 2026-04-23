@@ -1,0 +1,85 @@
+# ============================================================
+# 后端应用（Spring Boot API）
+# 多阶段构建优化镜像大小
+# ============================================================
+
+# 阶段 1: Maven 编译
+FROM maven:3.9-eclipse-temurin-21 AS backend-builder
+
+WORKDIR /app
+
+COPY pom.xml .
+COPY douyin-operations-contract/pom.xml ./douyin-operations-contract/
+COPY douyin-operations-contract/src ./douyin-operations-contract/src/
+COPY douyin-operations-common/pom.xml ./douyin-operations-common/
+COPY douyin-operations-common/src ./douyin-operations-common/src/
+COPY douyin-operations-platform/pom.xml ./douyin-operations-platform/
+COPY douyin-operations-platform/src ./douyin-operations-platform/src/
+COPY douyin-operations-integration/pom.xml ./douyin-operations-integration/
+COPY douyin-operations-integration/src ./douyin-operations-integration/src/
+COPY douyin-operations-asset/pom.xml ./douyin-operations-asset/
+COPY douyin-operations-asset/src ./douyin-operations-asset/src/
+COPY douyin-operations-intelligence/pom.xml ./douyin-operations-intelligence/
+COPY douyin-operations-intelligence/src ./douyin-operations-intelligence/src/
+COPY douyin-operations-content/pom.xml ./douyin-operations-content/
+COPY douyin-operations-content/src ./douyin-operations-content/src/
+COPY douyin-operations-douyin/pom.xml ./douyin-operations-douyin/
+COPY douyin-operations-douyin/src ./douyin-operations-douyin/src/
+COPY douyin-operations-payment/pom.xml ./douyin-operations-payment/
+COPY douyin-operations-payment/src ./douyin-operations-payment/src/
+COPY douyin-operations-live/pom.xml ./douyin-operations-live/
+COPY douyin-operations-live/src ./douyin-operations-live/src/
+COPY douyin-operations-shortvideo/pom.xml ./douyin-operations-shortvideo/
+COPY douyin-operations-shortvideo/src ./douyin-operations-shortvideo/src/
+COPY douyin-operations-app/pom.xml ./douyin-operations-app/
+COPY douyin-operations-app/src ./douyin-operations-app/src/
+
+RUN mvn package -DskipTests -q \
+    && ls -lh douyin-operations-app/target/douyin-operations-app-*.jar
+
+# ============================================================
+# 阶段 2: 运行时（JRE 21 Alpine）
+# ============================================================
+FROM eclipse-temurin:21-jre-alpine
+
+LABEL maintainer="gaifan" \
+      description="Douyin Operations Backend API" \
+      version="1.0.0"
+
+# 安装运行时依赖
+RUN apk add --no-cache \
+    curl \
+    bash \
+    dumb-init
+
+RUN addgroup -g 1001 appuser && adduser -u 1001 -G appuser -D appuser
+
+WORKDIR /app
+
+# 复制 JAR 包
+COPY --from=backend-builder /app/douyin-operations-app/target/douyin-operations-app-*.jar app.jar
+
+USER appuser
+
+# JVM 优化参数
+ENV JAVA_OPTS="\
+  -XX:+UseContainerSupport \
+  -XX:MaxRAMPercentage=75.0 \
+  -XX:InitialRAMPercentage=50.0 \
+  -XX:+UseG1GC \
+  -XX:MaxGCPauseMillis=200 \
+  -XX:+HeapDumpOnOutOfMemoryError \
+  -XX:HeapDumpPath=/tmp/heapdump.hprof \
+  -Djava.security.egd=file:/dev/./urandom \
+  -Dspring.lifecycle.timeout-per-shutdown-phase=30s \
+  -Dfile.encoding=UTF-8"
+
+EXPOSE 8080
+
+# 健康检查（30s 间隔，10s 超时，60s 启动宽限期）
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/actuator/health || exit 1
+
+# dumb-init 作为 PID 1，确保 SIGTERM 正确传递给 JVM
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

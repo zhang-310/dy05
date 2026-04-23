@@ -1,0 +1,21 @@
+# 在 Docker 落地环境中使用：通过服务名连接 postgres（与 docker-compose-landing 一致）
+spring:
+  jpa:
+    show-sql: true
+    # 容器内首次跑时自动建表，便于联调；正式环境建议改为 validate + 独立初始化
+    hibernate:
+      ddl-auto: update
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5433/douyin_operations
+    username: postgres
+    password: postgresql
+    driver-class-name: org.postgresql.Driver
+
+# Auth configuration
+auth:
+  token-store: redis  # Docker 环境默认使用 Redis
+
+logging:
+  level:
+    cn.gaifan: DEBUG
+    org.hibernate.SQL: DEBUG

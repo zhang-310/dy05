@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>SSE 测试</title></head>
+<body>
+  <h1>Chat-Stream SSE 测试</h1>
+  <p style="color:#0a0;font-weight:bold">直连后端（推荐）：当前页即 http://localhost:8080/test-sse.html，SSE 流式正常</p>
+  <p style="color:#666;font-size:12px">若经 Vite 代理访问 http://localhost:3000/test-sse.html，代理可能缓冲导致只收到「连接中」</p>
+  <p>用户名: <input id="user" value="admin" /> 密码: <input id="pwd" type="password" value="admin123" />
+  <button id="loginBtn" type="button">先登录</button></p>
+  <p>Token: <input id="token" type="text" placeholder="登录后自动填充" style="width:400px" readonly /></p>
+  <button id="btn" type="button">Chat-Stream 测试</button>
+  <hr/>
+  <h2>generate-full-sse 调试</h2>
+  <p>sessionId: <input id="sessionId" type="number" value="1" /> <button id="btnFull" type="button">一键生成测试</button></p>
+  <pre id="log"></pre>
+  <script>
+    const log = (s) => { const el = document.getElementById('log'); if (el) el.textContent += s + '\n'; };
+    log('页面已加载 (当前: ' + location.origin + ')');
+
+    document.getElementById('loginBtn').addEventListener('click', async function() {
+      log('点击登录...');
+      const user = document.getElementById('user').value.trim();
+      const pwd = document.getElementById('pwd').value;
+      if (!user || !pwd) { log('请填写用户名和密码'); return; }
+      log('登录中...');
+      try {
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pwd })
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('json')) {
+          log('登录失败: 后端返回非 JSON');
+          return;
+        }
+        const data = await res.json();
+        const t = data?.data?.token || data?.token;
+        if (t) {
+          document.getElementById('token').value = t;
+          document.getElementById('token').removeAttribute('readonly');
+          log('登录成功，Token 已填充');
+        } else {
+          log('登录失败: ' + (data?.message || JSON.stringify(data)));
+        }
+      } catch (e) { log('登录错误: ' + e.message); }
+    });
+
+    document.getElementById('btn').addEventListener('click', async function() {
+      const token = document.getElementById('token').value.trim() || 'test';
+      const url = '/api/v1/ai/model/chat-stream';
+      log('--- 开始 ---');
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ modelId: 1, messages: [{ role: 'user', content: '1' }] })
+        });
+        log('Status: ' + res.status + ' CT: ' + res.headers.get('content-type'));
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        const t0 = Date.now();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (value) { buf += decoder.decode(value, { stream: true }); log('收到 ' + value.length + ' 字节'); }
+          const blocks = buf.split(/(?:\r?\n){2,}/);
+          const lastComplete = buf.endsWith('\n\n') || buf.endsWith('\r\n\r\n');
+          if (done || lastComplete) {
+            for (const b of blocks) {
+              if (!b.trim()) continue;
+              let ev = '', data = '';
+              for (const line of b.split(/\r?\n/)) {
+                if (line.startsWith('event:')) ev = line.replace(/^event:\s*/, '').trim();
+                else if (line.startsWith('data:')) data = line.replace(/^data:\s*/, '').trim();
+              }
+              if (ev && data) {
+                log('>>> event=' + ev);
+                try {
+                  const p = JSON.parse(data);
+                  if (ev==='status') log('  -> ' + p.status);
+                  else if (ev==='chunk' && p.content) log('  -> chunk: ' + (p.content.length>50 ? p.content.slice(0,50)+'...' : p.content));
+                  else if (ev==='done') log('  -> 完成');
+                  else if (ev==='error') log('  -> error: ' + (p.error||''));
+                } catch(e){}
+              }
+            }
+            buf = '';
+          } else buf = blocks.pop() || '';
+          if (done) break;
+        }
+        log('--- 完成 ' + (Date.now()-t0) + 'ms ---');
+      } catch (e) { log('Error: ' + e.message); }
+    });
+
+    document.getElementById('btnFull').addEventListener('click', async function() {
+      const token = document.getElementById('token').value.trim();
+      if (!token) { log('请先登录'); return; }
+      const sessionId = parseInt(document.getElementById('sessionId').value, 10) || 1;
+      const url = '/api/v1/live/ai/generate-full-sse';
+      log('--- generate-full-sse sessionId=' + sessionId + ' ---');
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ sessionId, style: '', modelId: 1 })
+        });
+        log('Status: ' + res.status + ' CT: ' + (res.headers.get('content-type') || ''));
+        if (!res.ok) { log('请求失败: ' + res.status); return; }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        const t0 = Date.now();
+        let chunkCount = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          const now = Date.now() - t0;
+          if (value) { chunkCount++; buf += decoder.decode(value, { stream: true }); log('[' + now + 'ms] 收到第' + chunkCount + '块 ' + value.length + ' 字节'); }
+          const blocks = buf.split(/(?:\r?\n){2,}/);
+          const lastComplete = buf.endsWith('\n\n') || buf.endsWith('\r\n\r\n');
+          if (done || lastComplete) {
+            var lastRaw = buf;
+            for (const b of blocks) {
+              if (!b.trim()) continue;
+              let ev = '', data = '';
+              for (const line of b.split(/\r?\n/)) {
+                if (line.startsWith('event:')) ev = line.replace(/^event:\s*/, '').trim();
+                else if (line.startsWith('data:')) data = (data ? data + '\n' : '') + line.replace(/^data:\s*/, '').trim();
+              }
+              if (ev && data) {
+                log('>>> event=' + ev);
+                try {
+                  const p = JSON.parse(data);
+                  if (ev==='progress') log('  -> progress: ' + (p.slotType||p.percent) + ' ' + (p.current||0)+'/'+(p.total||1));
+                  else if (ev==='slot_done') log('  -> slot_done: ' + (p.slotLabel||''));
+                  else if (ev==='slot_failed') log('  -> slot_failed: ' + (p.errorMsg||''));
+                  else if (ev==='done') log('  -> 完成 count=' + (p.count||0));
+                  else if (ev==='error') log('  -> error: ' + (p.error||''));
+                } catch(e){ log('  -> raw: ' + data.slice(0,80)); }
+              }
+            }
+            buf = '';
+          } else buf = blocks.pop() || '';
+          if (done) { log('[' + (Date.now()-t0) + 'ms] 流结束 done=true'); if (chunkCount <= 1 && lastRaw) log('收到原始: ' + lastRaw.replace(/\r/g,'\\r').replace(/\n/g,'\\n ')); break; }
+        }
+        log('--- 完成 ' + (Date.now()-t0) + 'ms，共' + chunkCount + '块 ---');
+      } catch (e) { log('Error: ' + e.message); }
+    });
+  </script>
+</body>
+</html>

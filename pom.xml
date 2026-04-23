@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>cn.gaifan</groupId>
+    <artifactId>douyin-operations</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>douyin-operations</name>
+    <description>抖音运营后台（多模块根工程，可执行 Jar 见 douyin-operations-app）</description>
+
+    <modules>
+       
+        <!-- 合同与外部接口模块，定义了系统的 API 合同及数据传输对象 -->
+        <module>douyin-operations-contract</module>
+        <!-- 公共模块，提供工具类、基础设施、通用组件等 -->
+        <module>douyin-operations-common</module>
+        <!-- 平台模块，包含平台相关的业务逻辑和服务 -->
+        <module>douyin-operations-platform</module>
+        <!-- 集成模块，处理与第三方服务的对接与集成逻辑 -->
+        <module>douyin-operations-integration</module>
+        <!-- 资产模块，管理平台各类资产相关功能 -->
+        <module>douyin-operations-asset</module>
+        <!-- 智能化模块，主要负责 AI、代理等智能相关功能 -->
+        <module>douyin-operations-intelligence</module>
+        <!-- 内容模块，负责脚本、文案、流程等内容生产与管理 -->
+        <module>douyin-operations-content</module>
+        <!-- 抖音账号域模块，聚焦抖音账号管理与相关能力 -->
+        <module>douyin-operations-douyin</module>
+        <!-- 支付模块，处理支付相关业务逻辑 -->
+        <module>douyin-operations-payment</module>
+        <!-- 直播板块，覆盖与直播相关的核心能力 -->
+        <module>douyin-operations-live</module>
+        <!-- 短视频板块，实现短视频相关功能 -->
+        <module>douyin-operations-shortvideo</module>
+        <!-- 应用入口模块，作为可执行主程序，整合各子模块，内含 Flyway 迁移与跨域 glue 逻辑 -->
+        <module>douyin-operations-app</module>
+    </modules>
+</project>

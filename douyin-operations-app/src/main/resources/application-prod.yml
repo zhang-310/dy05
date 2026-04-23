@@ -1,0 +1,139 @@
+# ============================================================
+# 生产环境配置 - application-prod.yml
+# 所有敏感值必须通过环境变量注入，禁止硬编码
+# ============================================================
+
+spring:
+  devtools:
+    restart:
+      enabled: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        generate_statistics: false
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME:douyin_operations}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:30}
+      minimum-idle: ${DB_POOL_MIN:10}
+      idle-timeout: 600000
+      connection-timeout: 5000
+      max-lifetime: 1800000
+      leak-detection-threshold: 30000
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 30
+          max-idle: 15
+          min-idle: 10
+  rabbitmq:
+    host: ${RABBITMQ_HOST}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER}
+    password: ${RABBITMQ_PASSWORD}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  tomcat:
+    connection-timeout: 1800000  # 30 分钟，AI 分镜/脚本生成等长请求
+    threads:
+      max: 300
+      min-spare: 20
+    accept-count: 200
+    max-connections: 15000
+  compression:
+    enabled: true
+    min-response-size: 1024
+  ssl:
+    enabled: ${SSL_ENABLED:false}
+    key-store: ${SSL_KEY_STORE:classpath:keystore.p12}
+    key-store-password: ${SSL_KEY_STORE_PASSWORD:changeit}
+    key-store-type: PKCS12
+    key-alias: ${SSL_KEY_ALIAS:tomcat}
+  http2:
+    enabled: true
+  shutdown: graceful
+
+# Actuator - 生产环境限制暴露端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info
+  endpoint:
+    health:
+      show-details: when-authorized
+    shutdown:
+      enabled: false
+  metrics:
+    tags:
+      application: douyin-operations
+      environment: production
+
+# 日志 - 生产级别
+logging:
+  level:
+    root: WARN
+    cn.gaifan: INFO
+    org.springframework: WARN
+    org.hibernate: WARN
+    org.hibernate.SQL: WARN
+    org.apache.tomcat: WARN
+  file:
+    name: ${LOG_PATH:/var/log/douyin-operations}/application.log
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 30
+      total-size-cap: 3GB
+
+# Token - 生产环境必须通过环境变量设置强密钥
+app:
+  token:
+    secret: ${APP_TOKEN_SECRET}
+    expire-hours: ${APP_TOKEN_EXPIRE_HOURS:12}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  ai:
+    warmup-enabled: ${AI_WARMUP_ENABLED:true}
+    warmup-topics: ${AI_WARMUP_TOPICS:直播话术优化,短视频黄金3秒,产品介绍脚本,电商选品策略,数据分析指标}
+    warmup-delay-seconds: ${AI_WARMUP_DELAY_SECONDS:60}
+    grafana-url: ${GRAFANA_URL:}
+  milvus:
+    host: ${MILVUS_HOST:localhost}
+    port: ${MILVUS_PORT:19530}
+  elasticsearch:
+    uris: ${ES_URIS:http://localhost:9200}
+
+# OAuth 回调地址 - 生产域名
+auth:
+  oauth:
+    callback-base-url: ${OAUTH_CALLBACK_BASE_URL}
+
+# 限流 - 生产环境适当放宽
+resilience4j:
+  ratelimiter:
+    instances:
+      api-limiter:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 200
+        timeoutDuration: 5s
+      login-limiter:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 10
+        timeoutDuration: 5s

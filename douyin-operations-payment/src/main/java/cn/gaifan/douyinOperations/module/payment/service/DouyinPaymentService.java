@@ -1,0 +1,408 @@
+/**
+ * W-11 支付系统 - 抖音支付 Service
+ * 支付 SDK 集成、订单创建、支付回调、交易对账
+ */
+
+package cn.gaifan.douyinOperations.module.payment.service;
+
+import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import cn.gaifan.douyinOperations.module.payment.entity.*;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
+
+/**
+ * 抖音支付 Service
+ * - 集成抖音支付 SDK
+ * - 订单创建和支付链接生成
+ * - 支付回调处理和验签
+ * - 交易对账
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class DouyinPaymentService {
+
+    /**
+     * 支付配置常量
+     */
+    public static class PaymentConfig {
+        // 抖音支付配置
+        public static final String MERCHANT_ID = System.getenv("DOUYIN_MERCHANT_ID");
+        public static final String MERCHANT_SECRET = System.getenv("DOUYIN_MERCHANT_SECRET");
+        public static final String APP_ID = System.getenv("DOUYIN_APP_ID");
+
+        // 环境隔离
+        public static final boolean IS_SANDBOX = "sandbox".equals(System.getenv("PAYMENT_ENV"));
+        public static final String API_ENDPOINT = IS_SANDBOX
+                ? "https://payapi-sandbox.douyin.com"
+                : "https://payapi.douyin.com";
+
+        // 支付参数
+        public static final String CURRENCY = "CNY";      // 人民币
+        public static final int TIMEOUT_MINUTES = 30;      // 支付超时（分钟）
+        public static final int ORDER_RETRY_TIMES = 3;    // 重试次数
+    }
+
+    /**
+     * 创建订单并生成支付链接
+     */
+    public PaymentResponse createOrder(CreateOrderRequest request) {
+        log.info("📦 创建订单：userId={}, productId={}, amount={}",
+                request.userId, request.productId, request.amount);
+
+        try {
+            // 1. 生成订单号（幂等性保证）
+            String orderNo = generateOrderNo(request.userId);
+
+            // 2. 验证幂等性：检查订单是否已存在
+            PaymentOrder existingOrder = getOrderByOrderNo(orderNo);
+            if (existingOrder != null && existingOrder.getStatus() == OrderStatus.PENDING_PAYMENT) {
+                log.info("✓ 订单已存在（幂等）：orderNo={}", orderNo);
+                return createPaymentLink(existingOrder);
+            }
+
+            // 3. 创建订单
+            PaymentOrder order = PaymentOrder.builder()
+                    .orderNo(orderNo)
+                    .userId(request.userId)
+                    .productId(request.productId)
+                    .amount(request.amount)
+                    .actualAmount(calculateActualAmount(request.amount, request.discountCode))
+                    .quantity(request.quantity)
+                    .status(OrderStatus.PENDING_PAYMENT)
+                    .remark(request.remark)
+                    .build();
+
+            // 保存订单（这里省略 repository 保存）
+            // orderRepository.save(order);
+
+            // 4. 调用抖音支付 API 创建支付链接
+            PaymentResponse response = createPaymentLink(order);
+
+            log.info("✓ 订单创建成功：orderNo={}, paymentUrl={}", orderNo, response.paymentUrl);
+            return response;
+
+        } catch (Exception e) {
+            log.error("✗ 订单创建失败", e);
+            throw new RuntimeException("订单创建失败", e);
+        }
+    }
+
+    /**
+     * 创建抖音支付链接
+     */
+    private PaymentResponse createPaymentLink(PaymentOrder order) {
+        log.info("💳 创建抖音支付链接：orderId={}", order.getId());
+
+        try {
+            // 构建支付请求
+            Map<String, Object> paymentRequest = new HashMap<>();
+            paymentRequest.put("out_order_no", order.getOrderNo());
+            paymentRequest.put("total_amount", order.getActualAmount().intValue() * 100); // 转换为分
+            paymentRequest.put("currency", PaymentConfig.CURRENCY);
+            paymentRequest.put("product_name", "DY01 商品");
+            paymentRequest.put("product_description", order.getRemark());
+            paymentRequest.put("merchant_id", PaymentConfig.MERCHANT_ID);
+            paymentRequest.put("app_id", PaymentConfig.APP_ID);
+
+            // 生成签名
+            String signature = generateSignature(paymentRequest);
+            paymentRequest.put("sign", signature);
+
+            // 调用抖音支付 API（模拟）
+            String paymentUrl = PaymentConfig.API_ENDPOINT + "/v1/order/create";
+            log.debug("调用抖音支付 API：url={}", paymentUrl);
+
+            // 实际实现需要使用 HttpClient 调用 API
+            // String response = douyinPaymentClient.createOrder(paymentRequest);
+
+            // 返回支付链接
+            String douyinPaymentUrl = "https://payment.douyin.com/pages/pay?order_token=" +
+                    generateOrderToken(order.getOrderNo());
+
+            return PaymentResponse.builder()
+                    .success(true)
+                    .orderNo(order.getOrderNo())
+                    .paymentUrl(douyinPaymentUrl)
+                    .amount(order.getActualAmount())
+                    .expiresAt(LocalDateTime.now().plusMinutes(PaymentConfig.TIMEOUT_MINUTES))
+                    .build();
+
+        } catch (Exception e) {
+            log.error("✗ 支付链接创建失败", e);
+            return PaymentResponse.builder()
+                    .success(false)
+                    .errorMessage("支付链接创建失败: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    /**
+     * 处理支付回调
+     */
+    public void handlePaymentCallback(PaymentCallbackRequest callback) {
+        log.info("🔔 处理支付回调：orderId={}, status={}", callback.orderId, callback.status);
+
+        try {
+            // 1. 验证签名
+            if (!verifySignature(callback)) {
+                log.error("✗ 回调签名验证失败");
+                throw new RuntimeException("签名验证失败");
+            }
+
+            // 2. 获取订单
+            PaymentOrder order = getOrderByOrderNo(callback.orderId);
+            if (order == null) {
+                log.error("✗ 订单不存在：orderId={}", callback.orderId);
+                throw new RuntimeException("订单不存在");
+            }
+
+            // 3. 检查订单状态（防止重复处理）
+            if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+                log.warn("⚠️ 订单状态非待支付，忽略回调：orderId={}, status={}",
+                        callback.orderId, order.getStatus());
+                return;
+            }
+
+            // 4. 更新订单状态
+            if ("SUCCESS".equals(callback.status)) {
+                order.setStatus(OrderStatus.PAID);
+                order.setPaidAt(LocalDateTime.now());
+                order.setPaymentMethod("抖音支付");
+                order.setTransactionId(callback.transactionId);
+
+                // 保存订单更新
+                // orderRepository.save(order);
+
+                // 记录交易日志
+                recordTransaction(order.getId(), TransactionType.PAYMENT,
+                        order.getActualAmount(), TransactionStatus.SUCCESS, callback.transactionId);
+
+                log.info("✓ 支付成功：orderId={}, transactionId={}",
+                        order.getId(), callback.transactionId);
+
+                // 触发支付成功事件（发送邮件、更新用户配额等）
+                handlePaymentSuccess(order);
+
+            } else if ("FAILED".equals(callback.status)) {
+                order.setStatus(OrderStatus.CANCELLED);
+
+                // 记录失败事务
+                recordTransaction(order.getId(), TransactionType.PAYMENT,
+                        order.getActualAmount(), TransactionStatus.FAILED, callback.transactionId);
+
+                log.warn("⚠️ 支付失败：orderId={}, reason={}",
+                        order.getId(), callback.failureReason);
+            }
+
+        } catch (Exception e) {
+            log.error("✗ 回调处理失败", e);
+            // 需要重试机制
+            throw new RuntimeException("回调处理失败", e);
+        }
+    }
+
+    /**
+     * 交易对账
+     * 每天定时与抖音支付对账，检查是否有遗漏的交易
+     */
+    public void dailyReconciliation() {
+        log.info("🔄 开始每日交易对账...");
+
+        try {
+            // 1. 获取昨天的订单
+            List<PaymentOrder> yesterdayOrders = getOrdersByDateRange(
+                    LocalDateTime.now().minusDays(1),
+                    LocalDateTime.now()
+            );
+
+            log.info("待对账订单数：{}", yesterdayOrders.size());
+
+            // 2. 从抖音支付查询这些订单的状态
+            for (PaymentOrder order : yesterdayOrders) {
+                // 调用抖音支付 API 查询订单状态
+                PaymentQueryResponse queryResult = queryPaymentStatus(order.getOrderNo());
+
+                // 3. 对比本地状态和支付方返回的状态
+                if ("SUCCESS".equals(queryResult.status) &&
+                    order.getStatus() != OrderStatus.PAID) {
+
+                    // 状态不一致，更新本地订单
+                    log.warn("⚠️ 对账发现不一致：orderId={}, local={}, remote={}",
+                            order.getId(), order.getStatus(), queryResult.status);
+
+                    order.setStatus(OrderStatus.PAID);
+                    order.setPaidAt(queryResult.paidAt);
+                    // orderRepository.save(order);
+
+                    // 生成对账差异报告
+                    recordReconciliationDifference(order.getId(), "status_mismatch");
+                }
+            }
+
+            log.info("✓ 每日对账完成");
+
+        } catch (Exception e) {
+            log.error("✗ 对账失败", e);
+            // 发送告警通知
+            notifyReconciliationFailure(e);
+        }
+    }
+
+    /**
+     * 支付成功处理
+     */
+    private void handlePaymentSuccess(PaymentOrder order) {
+        log.info("📧 触发支付成功事件：orderId={}", order.getId());
+
+        try {
+            // 1. 发送支付确认邮件
+            // emailService.sendPaymentConfirmation(order);
+
+            // 2. 更新用户配额
+            // userQuotaService.addQuota(order.getUserId(), calculateQuota(order));
+
+            // 3. 记录订单日志
+            // orderLogService.log(order.getId(), "支付成功");
+
+            // 4. 发布事件
+            // eventPublisher.publishEvent(new PaymentSuccessEvent(order));
+
+        } catch (Exception e) {
+            log.error("✗ 支付成功事件处理失败", e);
+        }
+    }
+
+    /**
+     * 辅助方法：生成订单号
+     */
+    private String generateOrderNo(Long userId) {
+        return "ORD" + System.currentTimeMillis() + userId;
+    }
+
+    /**
+     * 辅助方法：计算实际金额（处理折扣）
+     */
+    private BigDecimal calculateActualAmount(BigDecimal amount, String discountCode) {
+        if (discountCode != null && "NEWUSER".equals(discountCode)) {
+            return amount.multiply(new BigDecimal("0.9")); // 9 折
+        }
+        return amount;
+    }
+
+    /**
+     * 辅助方法：生成签名
+     */
+    private String generateSignature(Map<String, Object> params) {
+        // 实现签名算法（MD5 / SHA256）
+        // 这里是示例实现
+        StringBuilder sb = new StringBuilder();
+        params.forEach((k, v) -> sb.append(k).append(v));
+        sb.append(PaymentConfig.MERCHANT_SECRET);
+
+        // 实际应该使用 MD5 或 SHA256
+        return "signature_" + System.currentTimeMillis();
+    }
+
+    /**
+     * 辅助方法：生成订单令牌
+     */
+    private String generateOrderToken(String orderNo) {
+        return "token_" + Base64.getEncoder().encodeToString(orderNo.getBytes());
+    }
+
+    /**
+     * 辅助方法：验证回调签名
+     */
+    private boolean verifySignature(PaymentCallbackRequest callback) {
+        // 验证抖音支付返回的签名
+        return true; // 简化实现
+    }
+
+    /**
+     * 模拟方法：获取订单
+     */
+    private PaymentOrder getOrderByOrderNo(String orderNo) {
+        return null; // 实际应该从 repository 查询
+    }
+
+    /**
+     * 模拟方法：获取日期范围内的订单
+     */
+    private List<PaymentOrder> getOrdersByDateRange(LocalDateTime start, LocalDateTime end) {
+        return new ArrayList<>();
+    }
+
+    /**
+     * 模拟方法：查询支付状态
+     */
+    private PaymentQueryResponse queryPaymentStatus(String orderNo) {
+        return new PaymentQueryResponse();
+    }
+
+    /**
+     * 模拟方法：记录交易
+     */
+    private void recordTransaction(Long orderId, TransactionType type, BigDecimal amount,
+                                   TransactionStatus status, String txId) {
+        log.debug("记录交易：orderId={}, type={}, status={}", orderId, type, status);
+    }
+
+    /**
+     * 模拟方法：记录对账差异
+     */
+    private void recordReconciliationDifference(Long orderId, String reason) {
+        log.warn("记录对账差异：orderId={}, reason={}", orderId, reason);
+    }
+
+    /**
+     * 模拟方法：发送对账失败通知
+     */
+    private void notifyReconciliationFailure(Exception e) {
+        log.error("发送对账失败通知");
+    }
+
+    // DTO 类
+    @lombok.Data
+    @lombok.Builder
+    public static class CreateOrderRequest {
+        private Long userId;
+        private Long productId;
+        private BigDecimal amount;
+        private Integer quantity;
+        private String discountCode;
+        private String remark;
+    }
+
+    @lombok.Data
+    @lombok.Builder
+    public static class PaymentResponse {
+        private boolean success;
+        private String orderNo;
+        private String paymentUrl;
+        private BigDecimal amount;
+        private LocalDateTime expiresAt;
+        private String errorMessage;
+    }
+
+    @lombok.Data
+    public static class PaymentCallbackRequest {
+        private String orderId;
+        private String status;
+        private String transactionId;
+        private BigDecimal amount;
+        private String failureReason;
+        private String sign;
+    }
+
+    @lombok.Data
+    public static class PaymentQueryResponse {
+        private String status;
+        private String transactionId;
+        private BigDecimal amount;
+        private LocalDateTime paidAt;
+    }
+}

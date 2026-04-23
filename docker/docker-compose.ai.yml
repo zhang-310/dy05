@@ -1,0 +1,128 @@
+# ============================================================
+# AI 服务独立编排（dy-XXX 命名，替代 claude-douyin-*）
+# 用法: 先停止旧容器，再执行
+#   docker compose -f docker/docker-compose.ai.yml up -d
+# ============================================================
+
+services:
+  dy-elasticsearch:
+    image: elasticsearch:8.15.0
+    container_name: dy-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    volumes:
+      - dy_es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks: [dy-net]
+
+  dy-etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: dy-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+    volumes:
+      - dy_etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      dy-net:
+        aliases: [etcd]
+
+  dy-minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: dy-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    ports:
+      - "${MINIO_HTTP_PORT:-9102}:9000"
+      - "${MINIO_CONSOLE_PORT:-9103}:9001"
+    volumes:
+      - dy_minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      dy-net:
+        aliases: [minio]
+
+  dy-milvus:
+    image: milvusdb/milvus:v2.6.11
+    container_name: dy-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "${MILVUS_PORT:-19631}:19530"
+      - "9091:9091"
+    volumes:
+      - dy_milvus_data:/var/lib/milvus
+    depends_on:
+      dy-etcd: { condition: service_healthy }
+      dy-minio: { condition: service_healthy }
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
+        reservations:
+          memory: 2048M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    networks: [dy-net]
+
+  dy-neo4j:
+    image: neo4j:5-community
+    container_name: dy-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/password}
+    ports:
+      - "${NEO4J_HTTP_PORT:-7574}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - dy_neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7474"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks: [dy-net]
+
+networks:
+  dy-net:
+    driver: bridge
+
+volumes:
+  dy_es_data:
+  dy_etcd_data:
+  dy_minio_data:
+  dy_milvus_data:
+  dy_neo4j_data:

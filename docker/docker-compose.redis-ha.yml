@@ -1,0 +1,43 @@
+# Redis 主从（可选 Profile，供生产高可用参考）
+# 使用: docker compose -f docker/docker-compose.yml -f docker/docker-compose.redis-ha.yml --profile redis-ha up -d
+# 应用需设置 REDIS_HOST=dy-redis-master REDIS_PORT=6381 使用主节点
+# 开发环境可继续使用默认单节点 redis（端口 6380）
+
+services:
+  redis-master:
+    image: redis:7-alpine
+    container_name: dy-redis-master
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_MASTER_PORT:-6381}:6379"
+    volumes:
+      - redis_master_data:/data
+    networks: [dy-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - redis-ha
+
+  redis-replica:
+    image: redis:7-alpine
+    container_name: dy-redis-replica
+    restart: unless-stopped
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks: [dy-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - redis-ha
+
+volumes:
+  redis_master_data:

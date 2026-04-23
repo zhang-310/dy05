@@ -1,0 +1,62 @@
+# ============================================================
+# 高配机器覆盖配置（256GB+ 内存）
+# 用法: cp docker-compose.override.high-end.yml docker-compose.override.yml
+#       docker compose -f docker/docker-compose.yml up -d
+# ============================================================
+
+services:
+  postgres:
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c effective_cache_size=16GB
+      -c work_mem=64MB
+      -c maintenance_work_mem=1GB
+      -c max_connections=200
+      -c log_min_duration_statement=1000
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  redis:
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 4gb
+      --maxmemory-policy allkeys-lru
+      --tcp-backlog 511
+      --timeout 300
+      --tcp-keepalive 60
+      --save 900 1
+      --save 300 10
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  elasticsearch:
+    environment:
+      ES_JAVA_OPTS: "-Xms8g -Xmx8g"
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+
+  milvus:
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+
+  neo4j:
+    environment:
+      NEO4J_dbms_memory_heap_initial__size: 2G
+      NEO4J_dbms_memory_heap_max__size: 4G
+      NEO4J_dbms_memory_pagecache_size: 2G
+    deploy:
+      resources:
+        limits:
+          memory: 8G

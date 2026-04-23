@@ -1,0 +1,26 @@
+springdoc:
+  swagger-ui:
+    # Swagger UI 配置
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+    doc-expansion: list
+    show-request-headers: true
+    filter: false
+    # 中文支持
+    use-root-path: true
+    persist-authorization: true
+  api-docs:
+    # OpenAPI 文档配置
+    path: /v3/api-docs
+    enabled: true
+    # 多个 API 分组（可选）
+    groups:
+      enabled: false
+  # 扫描包路径
+  packages-to-scan: cn.gaifan.douyinOperations.module
+  # 路径匹配
+  paths-to-match: /api/v1/**
+  # 版本信息
+  version: 1.0.0
