@@ -1,0 +1,334 @@
+{
+  "last_updated": "2026-05-06T12:30:00Z",
+  "total_modules": 27,
+  "completed_reports": 28,
+  "total_reports": 162,
+  "completion_rate": "17.3%",
+  "modules": {
+    "auth": {
+      "priority": "P0",
+      "status": "complete",
+      "reports": {
+        "architecture-review": true,
+        "code-review": true,
+        "security-audit": true,
+        "performance-analysis": true,
+        "pattern-compliance": true,
+        "fix-plan": true
+      }
+    },
+    "douyin": {
+      "priority": "P0",
+      "status": "complete",
+      "reports": {
+        "architecture-review": true,
+        "code-review": true,
+        "security-audit": true,
+        "performance-analysis": true,
+        "pattern-compliance": true,
+        "fix-plan": true
+      }
+    },
+    "live": {
+      "priority": "P0",
+      "status": "in-progress",
+      "reports": {
+        "architecture-review": true,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": true,
+        "fix-plan": false
+      }
+    },
+    "shortvideo": {
+      "priority": "P0",
+      "status": "in-progress",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": true,
+        "fix-plan": true
+      }
+    },
+    "product": {
+      "priority": "P0",
+      "status": "complete",
+      "reports": {
+        "architecture-review": true,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": true,
+        "fix-plan": true
+      }
+    },
+    "agent": {
+      "priority": "P0",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "common": {
+      "priority": "P0",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "ai": {
+      "priority": "P1",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "script": {
+      "priority": "P1",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "copy": {
+      "priority": "P1",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "payment": {
+      "priority": "P1",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "wecom": {
+      "priority": "P1",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "douyinapi": {
+      "priority": "P1",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "system": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "config": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "storage": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "log": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "messaging": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "sms": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "workflow": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "abtest": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "attribution": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "dashboard": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "search": {
+      "priority": "P2",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "guiguiya": {
+      "priority": "P3",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "slangdict": {
+      "priority": "P3",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    },
+    "tianapi": {
+      "priority": "P3",
+      "status": "not-started",
+      "reports": {
+        "architecture-review": false,
+        "code-review": false,
+        "security-audit": false,
+        "performance-analysis": false,
+        "pattern-compliance": false,
+        "fix-plan": false
+      }
+    }
+  }
+}
