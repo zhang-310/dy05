@@ -1,9 +1,9 @@
 {
-  "last_updated": "2026-05-06T18:15:00Z",
+  "last_updated": "2026-05-06T18:30:00Z",
   "total_modules": 27,
-  "completed_reports": 35,
+  "completed_reports": 36,
   "total_reports": 162,
-  "completion_rate": "21.6%",
+  "completion_rate": "22.2%",
   "modules": {
     "auth": {
       "priority": "P0",
@@ -43,12 +43,12 @@
     },
     "shortvideo": {
       "priority": "P0",
-      "status": "in-progress",
+      "status": "complete",
       "reports": {
         "architecture-review": true,
         "code-review": true,
         "security-audit": true,
-        "performance-analysis": false,
+        "performance-analysis": true,
         "pattern-compliance": true,
         "fix-plan": true
       }
