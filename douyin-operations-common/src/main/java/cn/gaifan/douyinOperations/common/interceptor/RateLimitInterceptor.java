@@ -20,11 +20,28 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     @Autowired
     private RateLimiter loginRateLimiter;
 
+    @Autowired
+    private RateLimiter oauthRateLimiter;
+
+    @Autowired
+    private RateLimiter douyinSyncRateLimiter;
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response,
                             Object handler) throws Exception {
         String uri = request.getRequestURI();
-        RateLimiter limiter = uri.contains("/login") ? loginRateLimiter : apiRateLimiter;
+
+        // 选择合适的限流器
+        RateLimiter limiter;
+        if (uri.contains("/login")) {
+            limiter = loginRateLimiter;
+        } else if (uri.contains("/oauth")) {
+            limiter = oauthRateLimiter;
+        } else if (uri.contains("/douyin/video/sync") || uri.contains("/douyin/fans/sync")) {
+            limiter = douyinSyncRateLimiter;
+        } else {
+            limiter = apiRateLimiter;
+        }
 
         if (!limiter.acquirePermission()) {
             response.setStatus(429);  // Too Many Requests

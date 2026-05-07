@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import javax.crypto.Mac;
@@ -27,6 +28,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 抖音 OAuth 授权控制器
@@ -46,6 +48,9 @@ public class DouyinOAuthController {
 
     @Resource
     private DouyinAccountRepository douyinAccountRepository;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     @Value("${douyin.api.callback-url}")
     private String callbackUrl;
@@ -74,6 +79,12 @@ public class DouyinOAuthController {
         String payload = userId + "_" + timestamp;
         String signature = hmacSha256(payload);
         String state = payload + "_" + signature;
+
+        // 存储 state 到 Redis，防止重放攻击
+        String redisKey = "oauth:state:" + state;
+        stringRedisTemplate.opsForValue().set(redisKey, userId.toString(), 10, TimeUnit.MINUTES);
+        log.debug("生成 OAuth state 并存储到 Redis: key={}, userId={}", redisKey, userId);
+
         String authUrl = douyinApiClient.getAuthUrl(callbackUrl, state);
 
         RESTResult<Map<String, String>> r = RESTResult.getSuccess(Map.of(
@@ -304,34 +315,53 @@ public class DouyinOAuthController {
     /**
      * 从 state 中提取并验证 userId。
      * state 格式: {userId}_{timestamp}_{hmac}
-     * 校验 HMAC 签名 + 时间戳过期
+     * 校验 HMAC 签名 + 时间戳过期 + Redis 防重放
      */
     private String extractUserIdFromState(String state) {
         try {
             if (state == null || state.isBlank()) return null;
+
+            // 1. 检查 Redis 中是否存在该 state（防重放）
+            String redisKey = "oauth:state:" + state;
+            String storedUserId = stringRedisTemplate.opsForValue().get(redisKey);
+            if (storedUserId == null) {
+                log.warn("OAuth state 无效或已使用（Redis 中不存在）: {}", state);
+                return null;
+            }
+
+            // 2. 删除 state，确保一次性使用
+            stringRedisTemplate.delete(redisKey);
+            log.debug("OAuth state 已使用并删除: key={}", redisKey);
+
             int lastUnderscore = state.lastIndexOf('_');
             if (lastUnderscore <= 0) return null;
 
             String payload = state.substring(0, lastUnderscore);
             String receivedSig = state.substring(lastUnderscore + 1);
 
-            // 验证 HMAC 签名
+            // 3. 验证 HMAC 签名
             String expectedSig = hmacSha256(payload);
             if (!expectedSig.equals(receivedSig)) {
                 log.warn("OAuth state 签名校验失败: {}", state);
                 return null;
             }
 
-            // 解析 payload: {userId}_{timestamp}
+            // 4. 解析 payload: {userId}_{timestamp}
             String[] parts = payload.split("_");
             if (parts.length != 2) return null;
 
             String userId = parts[0];
             long timestamp = Long.parseLong(parts[1]);
 
-            // 验证时间戳未过期
+            // 5. 验证时间戳未过期（双重保险）
             if (System.currentTimeMillis() - timestamp > STATE_TTL_MS) {
                 log.warn("OAuth state 已过期: timestamp={}", timestamp);
+                return null;
+            }
+
+            // 6. 验证 userId 与 Redis 中存储的一致
+            if (!userId.equals(storedUserId)) {
+                log.warn("OAuth state userId 不匹配: state={}, redis={}", userId, storedUserId);
                 return null;
             }
 

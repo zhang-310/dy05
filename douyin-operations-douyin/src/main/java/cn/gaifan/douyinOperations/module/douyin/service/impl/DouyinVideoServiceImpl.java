@@ -13,6 +13,7 @@ import cn.gaifan.douyinOperations.module.douyinapi.client.DouyinApiClient;
 import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -119,6 +120,7 @@ public class DouyinVideoServiceImpl implements DouyinVideoService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "accountStatistics", key = "#accountId")
     public void syncVideos(Long accountId) {
         if (accountId == null || accountId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号 ID 无效");
@@ -139,19 +141,28 @@ public class DouyinVideoServiceImpl implements DouyinVideoService {
             return;
         }
 
-        int synced = 0;
+        // P0-1 修复：批量查询避免 N+1 问题
+        List<String> videoIds = resp.list().stream()
+            .map(DouyinApiClient.VideoItem::itemId)
+            .collect(java.util.stream.Collectors.toList());
+
+        Map<String, DouyinVideo> existingVideos = douyinVideoRepository
+            .findByVideoIdInAndDeleted(videoIds, 0)
+            .stream()
+            .collect(java.util.stream.Collectors.toMap(DouyinVideo::getVideoId, v -> v));
+
+        List<DouyinVideo> toUpdate = new ArrayList<>();
+        List<DouyinVideo> toInsert = new ArrayList<>();
+
         for (DouyinApiClient.VideoItem item : resp.list()) {
-            if (douyinVideoRepository.existsByVideoIdAndDeleted(item.itemId(), 0)) {
-                // 已存在则更新统计数据
-                douyinVideoRepository.findByVideoIdAndDeleted(item.itemId(), 0).ifPresent(v -> {
-                    v.setViewCount(item.playCount());
-                    v.setLikeCount(item.likeCount());
-                    v.setCommentCount(item.commentCount());
-                    v.setShareCount(item.shareCount());
-                    douyinVideoRepository.save(v);
-                });
+            if (existingVideos.containsKey(item.itemId())) {
+                DouyinVideo v = existingVideos.get(item.itemId());
+                v.setViewCount(item.playCount());
+                v.setLikeCount(item.likeCount());
+                v.setCommentCount(item.commentCount());
+                v.setShareCount(item.shareCount());
+                toUpdate.add(v);
             } else {
-                // 新视频
                 DouyinVideo video = new DouyinVideo();
                 video.setAccountId(accountId);
                 video.setVideoId(item.itemId());
@@ -163,11 +174,16 @@ public class DouyinVideoServiceImpl implements DouyinVideoService {
                 if (item.createTime() > 0) {
                     video.setPublishTime(new java.sql.Timestamp(item.createTime() * 1000));
                 }
-                douyinVideoRepository.save(video);
+                toInsert.add(video);
             }
-            synced++;
         }
-        log.info("账号 {} 视频同步完成，共处理 {} 条", accountId, synced);
+
+        if (!toUpdate.isEmpty()) douyinVideoRepository.saveAll(toUpdate);
+        if (!toInsert.isEmpty()) douyinVideoRepository.saveAll(toInsert);
+
+        int synced = toUpdate.size() + toInsert.size();
+        log.info("账号 {} 视频同步完成，共处理 {} 条（更新 {}，新增 {}）",
+                accountId, synced, toUpdate.size(), toInsert.size());
     }
 
     private DouyinVideoVO toVideoVO(DouyinVideo video) {

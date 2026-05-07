@@ -46,6 +46,30 @@ public class RateLimiterConfiguration {
         return registry.rateLimiter("login-limiter", config);
     }
 
+    @Bean
+    public RateLimiter oauthRateLimiter(RateLimiterRegistry registry) {
+        io.github.resilience4j.ratelimiter.RateLimiterConfig config =
+            io.github.resilience4j.ratelimiter.RateLimiterConfig.custom()
+            .limitRefreshPeriod(Duration.ofMinutes(1))
+            .limitForPeriod(10)  // 每分钟 10 次 OAuth 授权请求
+            .timeoutDuration(Duration.ofSeconds(5))
+            .build();
+
+        return registry.rateLimiter("oauth-limiter", config);
+    }
+
+    @Bean
+    public RateLimiter douyinSyncRateLimiter(RateLimiterRegistry registry) {
+        io.github.resilience4j.ratelimiter.RateLimiterConfig config =
+            io.github.resilience4j.ratelimiter.RateLimiterConfig.custom()
+            .limitRefreshPeriod(Duration.ofMinutes(1))
+            .limitForPeriod(20)  // 每分钟 20 次同步请求（视频/粉丝画像）
+            .timeoutDuration(Duration.ofSeconds(5))
+            .build();
+
+        return registry.rateLimiter("douyin-sync-limiter", config);
+    }
+
     /**
      * 与 {@link cn.gaifan.douyinOperations.module.ai.config.AiCircuitBreakerConfig} 共用同一 {@link CircuitBreakerRegistry}，
      * api-circuit-breaker 已在该处注册。

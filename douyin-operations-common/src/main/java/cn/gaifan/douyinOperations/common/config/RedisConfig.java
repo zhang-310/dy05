@@ -58,6 +58,9 @@ public class RedisConfig {
         // AbTest caches - 10 minutes (frontend polling)
         cacheConfigs.put("abtest:experiment", ttlConfig(10));
 
+        // Douyin account statistics - 5 minutes (updated on video sync)
+        cacheConfigs.put("accountStatistics", ttlConfig(5));
+
         return RedisCacheManager.builder(factory)
             .cacheDefaults(defaultConfig)
             .withInitialCacheConfigurations(cacheConfigs)

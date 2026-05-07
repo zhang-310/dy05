@@ -8,6 +8,8 @@ import cn.gaifan.douyinOperations.module.douyin.repository.DouyinAccountReposito
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinVideoRepository;
 import cn.gaifan.douyinOperations.module.douyin.service.DouyinAccountService;
 import cn.gaifan.douyinOperations.module.douyin.vo.*;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -119,6 +121,7 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
     }
 
     @Override
+    @Cacheable(value = "accountStatistics", key = "#id", unless = "#result == null")
     public DouyinAccountStatisticsVO getAccountStatistics(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号 ID 无效");

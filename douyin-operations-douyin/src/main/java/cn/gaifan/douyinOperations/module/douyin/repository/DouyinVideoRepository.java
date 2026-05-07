@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.sql.Timestamp;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -17,6 +18,8 @@ import java.util.Optional;
 public interface DouyinVideoRepository extends JpaRepository<DouyinVideo, Long>, JpaSpecificationExecutor<DouyinVideo> {
 
     Page<DouyinVideo> findByAccountIdAndDeleted(Long accountId, Integer deleted, Pageable pageable);
+
+    List<DouyinVideo> findByVideoIdInAndDeleted(List<String> videoIds, Integer deleted);
 
     Optional<DouyinVideo> findByIdAndDeleted(Long id, Integer deleted);
 
