@@ -53,8 +53,8 @@ public class AgentShareServiceImpl implements AgentShareService {
         }
 
         // 统计消息数量
-        List<AgentMessage> messages = messageRepository.findByConversationIdAndDeletedOrderByIdAsc(
-                request.getConversationId(), 0);
+        List<AgentMessage> messages = messageRepository.findByConversationIdOrderByIdAsc(
+                request.getConversationId());
         int messageCount = messages.size();
 
         // 计算摘要（取前3条用户消息）
@@ -146,8 +146,8 @@ public class AgentShareServiceImpl implements AgentShareService {
             throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "分享已过期");
         }
 
-        List<AgentMessage> messages = messageRepository.findByConversationIdAndDeletedOrderByIdAsc(
-                share.getConversationId(), 0);
+        List<AgentMessage> messages = messageRepository.findByConversationIdOrderByIdAsc(
+                share.getConversationId());
 
         Map<String, Object> result = new HashMap<>();
         result.put("share", toShareVO(share));

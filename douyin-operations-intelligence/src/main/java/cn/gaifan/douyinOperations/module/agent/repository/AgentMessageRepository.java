@@ -8,5 +8,5 @@ import java.util.List;
 public interface AgentMessageRepository extends JpaRepository<AgentMessage, Long> {
     List<AgentMessage> findByConversationIdOrderByCreateTimeAsc(Long conversationId);
 
-    List<AgentMessage> findByConversationIdAndDeletedOrderByIdAsc(Long conversationId, Integer deleted);
+    List<AgentMessage> findByConversationIdOrderByIdAsc(Long conversationId);
 }
