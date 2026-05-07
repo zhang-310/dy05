@@ -21,6 +21,9 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -75,6 +78,9 @@ public class DouyinScriptLearningServiceImpl implements DouyinScriptLearningServ
     @Autowired(required = false)
     private KnowledgeBaseService knowledgeBaseService;
 
+    @Autowired(required = false)
+    private Executor learningTaskExecutor;
+
     @Override
     public void runLearningPipeline() {
         log.info("[DouyinScriptLearning] 开始执行话术学习管线");
@@ -90,14 +96,55 @@ public class DouyinScriptLearningServiceImpl implements DouyinScriptLearningServ
             return;
         }
 
-        // 步骤 3: 对视频进行话术提取
+        // 步骤 3: 并行处理视频话术提取（P1-6 修复）
         int extracted = 0;
-        for (DouyinVideo video : recentVideos) {
-            try {
-                int count = extractAndSaveScriptPatterns(video, null, hotKeywords);
-                extracted += count;
-            } catch (Exception e) {
-                log.warn("[DouyinScriptLearning] 视频话术提取失败: videoId={}, err={}", video.getId(), e.getMessage());
+        if (!recentVideos.isEmpty()) {
+            if (learningTaskExecutor != null) {
+                // 并行处理
+                List<CompletableFuture<Integer>> futures = recentVideos.stream()
+                    .map(video -> CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return extractAndSaveScriptPatterns(video, null, hotKeywords);
+                        } catch (Exception e) {
+                            log.warn("[DouyinScriptLearning] 视频话术提取失败: videoId={}, err={}", video.getId(), e.getMessage());
+                            return 0;
+                        }
+                    }, learningTaskExecutor))
+                    .collect(Collectors.toList());
+
+                try {
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .get(5, TimeUnit.MINUTES);
+                    extracted = futures.stream()
+                        .map(CompletableFuture::join)
+                        .mapToInt(Integer::intValue)
+                        .sum();
+                } catch (Exception e) {
+                    log.error("[DouyinScriptLearning] 并行处理超时或失败", e);
+                    // 收集已完成的结果
+                    extracted = futures.stream()
+                        .filter(CompletableFuture::isDone)
+                        .map(f -> {
+                            try {
+                                return f.get();
+                            } catch (Exception ex) {
+                                return 0;
+                            }
+                        })
+                        .mapToInt(Integer::intValue)
+                        .sum();
+                }
+            } else {
+                // 降级为串行处理
+                log.warn("[DouyinScriptLearning] learningTaskExecutor 未配置，降级为串行处理");
+                for (DouyinVideo video : recentVideos) {
+                    try {
+                        int count = extractAndSaveScriptPatterns(video, null, hotKeywords);
+                        extracted += count;
+                    } catch (Exception e) {
+                        log.warn("[DouyinScriptLearning] 视频话术提取失败: videoId={}, err={}", video.getId(), e.getMessage());
+                    }
+                }
             }
         }
 
