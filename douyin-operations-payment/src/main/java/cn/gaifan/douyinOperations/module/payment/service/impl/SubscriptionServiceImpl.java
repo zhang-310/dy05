@@ -38,12 +38,16 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     public Subscription createOrUpgrade(Long userId, String plan) {
         var existingOpt = subscriptionRepository.findByUserIdAndDeletedAndStatus(userId, 0, "active");
 
+        // P0-6: 获取 ownerId
+        Long ownerId = 1L; // TODO: 从上下文获取
+
         Subscription sub;
         if (existingOpt.isPresent()) {
             sub = existingOpt.get();
         } else {
             sub = new Subscription();
             sub.setUserId(userId);
+            sub.setOwnerId(ownerId);
         }
 
         sub.setPlan(plan);

@@ -106,7 +106,7 @@ public class StrategicPlanningServiceImpl implements StrategicPlanningService {
         double growthRate = 0.05;
         long fanCount = 0;
         if (accountRepository != null) {
-            var page = accountRepository.findByUserIdAndDeleted(userId, 0, PageRequest.of(0, 1));
+            var page = accountRepository.findByOwnerIdAndDeleted(userId, 0, PageRequest.of(0, 1));
             if (page.hasContent()) {
                 DouyinAccount acc = page.getContent().get(0);
                 fanCount = acc.getFanCount() != null ? acc.getFanCount() : 0;
@@ -137,7 +137,7 @@ public class StrategicPlanningServiceImpl implements StrategicPlanningService {
         double benchmarkConversion = 0.02;
 
         if (accountRepository != null && userId != null) {
-            var page = accountRepository.findByUserIdAndDeleted(userId, 0, PageRequest.of(0, 1));
+            var page = accountRepository.findByOwnerIdAndDeleted(userId, 0, PageRequest.of(0, 1));
             if (page.hasContent()) {
                 DouyinAccount acc = page.getContent().get(0);
                 fanCount = acc.getFanCount() != null ? acc.getFanCount() : 0;

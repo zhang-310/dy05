@@ -38,6 +38,9 @@ public class PaymentOrder {
     @Column(nullable = false)
     private Long userId;                 // 用户 ID
 
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;                // 租户 ID（数据隔离）
+
     @Column(nullable = false)
     private Long productId;              // 商品 ID
 

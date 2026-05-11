@@ -35,7 +35,7 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
     private static final Logger log = LoggerFactory.getLogger(DouyinAccountServiceImpl.class);
 
     private static final Set<String> SORTABLE_FIELDS = Collections.unmodifiableSet(
-            new HashSet<>(Arrays.asList("id", "userId", "createTime", "updateTime", "fanCount", "videoCount", "totalLikes")));
+            new HashSet<>(Arrays.asList("id", "ownerId", "createTime", "updateTime", "fanCount", "videoCount", "totalLikes")));
 
     @Resource
     private DouyinAccountRepository douyinAccountRepository;
@@ -57,10 +57,10 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("deleted"), 0));
 
-            if (vo.getUserId() != null && vo.getUserId() > 0) {
-                predicates.add(cb.equal(root.get("userId"), vo.getUserId()));
-            } else if (vo.getUserIds() != null && !vo.getUserIds().isEmpty()) {
-                predicates.add(root.get("userId").in(vo.getUserIds()));
+            if (vo.getOwnerId() != null && vo.getOwnerId() > 0) {
+                predicates.add(cb.equal(root.get("ownerId"), vo.getOwnerId()));
+            } else if (vo.getOwnerIds() != null && !vo.getOwnerIds().isEmpty()) {
+                predicates.add(root.get("ownerId").in(vo.getOwnerIds()));
             }
             if (vo.getAccountName() != null && !vo.getAccountName().trim().isEmpty()) {
                 predicates.add(cb.like(root.get("accountName"), "%" + vo.getAccountName().trim() + "%"));
@@ -100,11 +100,11 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
         } else {
             if (douyinAccountRepository.existsByAccountIdAndDeleted(vo.getAccountId(), 0)) {
                 // P2-8: 避免泄露敏感信息，使用通用错误消息
-                log.warn("账号 ID 已存在: accountId={}, userId={}", vo.getAccountId(), vo.getUserId());
+                log.warn("账号 ID 已存在: accountId={}, ownerId={}", vo.getAccountId(), vo.getOwnerId());
                 throw new BusinessException(ErrorCode.VALIDATION_FAIL, "保存失败，请检查输入");
             }
             account = new DouyinAccount();
-            account.setUserId(vo.getUserId());
+            account.setOwnerId(vo.getOwnerId());
             account.setAccountId(vo.getAccountId());
         }
         account.setAccountName(vo.getAccountName());
@@ -200,7 +200,7 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
     private DouyinAccountVO toAccountVO(DouyinAccount account) {
         DouyinAccountVO vo = new DouyinAccountVO();
         vo.setId(account.getId());
-        vo.setUserId(account.getUserId());
+        vo.setOwnerId(account.getOwnerId());
         vo.setAccountName(account.getAccountName());
         vo.setAccountId(account.getAccountId());
         vo.setFollowCount(account.getFollowCount());

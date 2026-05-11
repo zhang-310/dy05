@@ -69,7 +69,7 @@ public class DouyinVideoController {
         List<Long> visibleUserIds = dataScopeService.getVisibleUserIds(userId, roleCode);
         if (visibleUserIds != null) {
             // 视频通过 accountId 关联账号，需先查可见用户的账号 ID 列表
-            List<Long> visibleAccountIds = douyinAccountRepository.findIdsByUserIdIn(visibleUserIds);
+            List<Long> visibleAccountIds = douyinAccountRepository.findIdsByOwnerIdIn(visibleUserIds);
             vo.setAccountIds(visibleAccountIds);
         }
         PageResultVO<DouyinVideoVO> data = douyinVideoService.search(vo);
@@ -156,7 +156,7 @@ public class DouyinVideoController {
                 .orElseThrow(() -> new cn.gaifan.douyinOperations.common.exception.BusinessException(ErrorCode.DATA_NOT_FOUND, "账号不存在"));
         String roleCode = AuthTokenFilter.getRoleCode(request);
         List<Long> visibleIds = dataScopeService.getVisibleUserIds(userId, roleCode);
-        if (visibleIds != null && (visibleIds.isEmpty() || !visibleIds.contains(account.getUserId()))) {
+        if (visibleIds != null && (visibleIds.isEmpty() || !visibleIds.contains(account.getOwnerId()))) {
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限同步该账号");
         }
         douyinVideoService.syncVideos(accountId);

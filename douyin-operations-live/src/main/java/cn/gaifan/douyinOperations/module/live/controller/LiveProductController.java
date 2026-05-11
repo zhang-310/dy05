@@ -196,4 +196,29 @@ public class LiveProductController {
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
+
+    @PostMapping("/batch-add")
+    @Operation(
+            summary = "批量添加产品 / Batch Add Products",
+            description = "批量添加产品到直播场次（需登录） / Batch add products to live session (authentication required)")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "0", description = "添加成功 / Add successful"),
+            @ApiResponse(responseCode = "401", description = "未登录 / Not logged in"),
+            @ApiResponse(responseCode = "500", description = "服务器错误 / Server Error")
+    })
+    public RESTResult<Integer> batchAdd(HttpServletRequest request,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "sessionId + items 列表",
+                    required = true
+            ) @Valid @RequestBody LiveProductBatchAddVO vo) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        if (vo.getSessionId() == null || vo.getItems() == null || vo.getItems().isEmpty()) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "sessionId 和 items 不能为空");
+        }
+        int count = liveProductService.batchAdd(vo.getSessionId(), vo.getItems(), userId);
+        RESTResult<Integer> r = RESTResult.addSuccess(count);
+        r.setTraceId(MDC.get("traceId"));
+        return r;
+    }
 }

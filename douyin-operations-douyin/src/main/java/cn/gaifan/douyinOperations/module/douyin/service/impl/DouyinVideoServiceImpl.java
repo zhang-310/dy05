@@ -134,7 +134,7 @@ public class DouyinVideoServiceImpl implements DouyinVideoService {
         DouyinAccount account = douyinAccountRepository.findByIdAndDeleted(accountId, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAIL, "账号不存在"));
 
-        String accessToken = oauthTokenService.getValidAccessToken(account.getUserId(), "douyin");
+        String accessToken = oauthTokenService.getValidAccessToken(account.getOwnerId(), "douyin");
         if (accessToken == null || accessToken.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号未授权或 Token 已失效，请先完成 OAuth 授权");
         }

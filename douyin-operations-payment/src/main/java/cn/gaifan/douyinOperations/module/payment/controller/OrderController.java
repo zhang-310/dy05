@@ -37,21 +37,23 @@ public class OrderController {
     }
 
     /**
-     * 获取订单详情
+     * 获取订单详情（P0-4: 验证归属）
      */
     @PostMapping("/get")
-    public RESTResult<?> getOrder(@RequestBody Map<String, Long> request) {
+    public RESTResult<?> getOrder(@RequestBody Map<String, Long> request, HttpServletRequest httpRequest) {
         Long orderId = request.get("orderId");
-        return RESTResult.success(orderService.getOrder(orderId));
+        Long userId = requireUserId(httpRequest);
+        return RESTResult.success(orderService.getOrder(orderId, userId));
     }
 
     /**
-     * 按订单号获取（幂等）
+     * 按订单号获取（P0-4: 验证归属）
      */
     @PostMapping("/getByOrderNo")
-    public RESTResult<?> getByOrderNo(@RequestBody Map<String, String> request) {
+    public RESTResult<?> getByOrderNo(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
         String orderNo = request.get("orderNo");
-        return RESTResult.success(orderService.getByOrderNo(orderNo));
+        Long userId = requireUserId(httpRequest);
+        return RESTResult.success(orderService.getByOrderNo(orderNo, userId));
     }
 
     /**

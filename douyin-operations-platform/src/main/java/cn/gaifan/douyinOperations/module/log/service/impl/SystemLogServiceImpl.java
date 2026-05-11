@@ -38,11 +38,14 @@ public class SystemLogServiceImpl implements SystemLogService {
         q.validateParams();
         Specification<SystemLog> spec = (root, query, cb) -> {
             List<Predicate> list = new ArrayList<>();
+            // P0-1: SQL 注入防护 - LIKE 查询转义特殊字符
             if (q.getModule() != null && !q.getModule().trim().isEmpty()) {
-                list.add(cb.like(root.get("module"), "%" + q.getModule().trim() + "%"));
+                String escaped = escapeLikePattern(q.getModule().trim());
+                list.add(cb.like(root.get("module"), "%" + escaped + "%"));
             }
             if (q.getEventType() != null && !q.getEventType().trim().isEmpty()) {
-                list.add(cb.like(root.get("eventType"), "%" + q.getEventType().trim() + "%"));
+                String escaped = escapeLikePattern(q.getEventType().trim());
+                list.add(cb.like(root.get("eventType"), "%" + escaped + "%"));
             }
             if (q.getStatus() != null) {
                 list.add(cb.equal(root.get("status"), q.getStatus()));
@@ -90,6 +93,14 @@ public class SystemLogServiceImpl implements SystemLogService {
         v.setStatus(e.getStatus());
         v.setCreateTime(e.getCreateTime());
         return v;
+    }
+
+    /** P0-1: LIKE 查询转义特殊字符（防止 SQL 注入） */
+    private String escapeLikePattern(String input) {
+        if (input == null) return null;
+        return input.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
     }
 
     private static Timestamp parseTimestamp(String s, boolean startOfDay) {

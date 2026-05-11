@@ -42,4 +42,10 @@ public interface LiveProductService {
      * 批量排序产品（按 productIds 顺序更新排序）
      */
     void batchSort(Long sessionId, java.util.List<Long> productIds);
+
+    /**
+     * 批量添加产品到直播场次
+     * @return 添加的产品数量
+     */
+    int batchAdd(Long sessionId, java.util.List<LiveProductBatchAddItemVO> items, Long userId);
 }

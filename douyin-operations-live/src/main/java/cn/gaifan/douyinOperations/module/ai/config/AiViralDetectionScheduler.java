@@ -100,7 +100,7 @@ public class AiViralDetectionScheduler {
             for (DouyinVideo video : viralCandidates) {
                 if (triggered >= maxDaily) break;
                 try {
-                    evolutionService.triggerViralAnalysis(video.getId(), account.getUserId(), accountId);
+                    evolutionService.triggerViralAnalysis(video.getId(), account.getOwnerId(), accountId);
                     analyzedVideoIds.add(video.getId());
                     triggered++;
                     log.info("爆款自动检测: 触发拆解 videoId={} viewCount={} avg={}", video.getId(), video.getViewCount(), (long) avgViews);

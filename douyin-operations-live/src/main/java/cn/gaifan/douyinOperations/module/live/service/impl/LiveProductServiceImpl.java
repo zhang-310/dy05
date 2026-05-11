@@ -143,6 +143,37 @@ public class LiveProductServiceImpl implements LiveProductService {
         liveProductRepository.saveAll(products);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchAdd(Long sessionId, List<LiveProductBatchAddItemVO> items, Long userId) {
+        if (sessionId == null || items == null || items.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "sessionId 和 items 不能为空");
+        }
+
+        // 获取当前场次已有产品的最大 position
+        List<LiveProduct> existing = liveProductRepository.findBySessionId(sessionId);
+        int maxPosition = existing.stream()
+                .mapToInt(p -> p.getPosition() != null ? p.getPosition() : 0)
+                .max()
+                .orElse(-1);
+
+        // 批量创建产品
+        List<LiveProduct> newProducts = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            LiveProductBatchAddItemVO item = items.get(i);
+            LiveProduct product = new LiveProduct();
+            product.setSessionId(sessionId);
+            product.setProductId(item.getProductId());
+            product.setProductName(item.getProductName());
+            product.setProductType(item.getProductType());
+            product.setPosition(maxPosition + i + 1);
+            newProducts.add(product);
+        }
+
+        liveProductRepository.saveAll(newProducts);
+        return newProducts.size();
+    }
+
     private LiveProductVO toLiveProductVO(LiveProduct product) {
         LiveProductVO vo = new LiveProductVO();
         vo.setId(product.getId());

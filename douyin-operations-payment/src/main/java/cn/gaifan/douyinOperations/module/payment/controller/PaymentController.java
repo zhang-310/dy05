@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import cn.gaifan.douyinOperations.module.payment.service.DouyinPaymentService;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
@@ -106,13 +107,23 @@ public class PaymentController {
     @PostMapping("/callback")
     @SuppressWarnings("unused")
     public ResponseEntity<?> handlePaymentCallback(
-            @RequestBody DouyinPaymentService.PaymentCallbackRequest callback) {
+            @RequestBody DouyinPaymentService.PaymentCallbackRequest callback,
+            HttpServletRequest request) {
 
         log.info("🔔 收到支付回调：orderId={}, status={}", callback.getOrderId(), callback.getStatus());
 
         try {
-            // 验证请求来源（可选：IP 白名单、签名验证）
+            // P0-3: IP 白名单验证（防止非法回调和 DDoS 攻击）
+            String clientIp = getClientIp(request);
+            if (!isIpInWhitelist(clientIp)) {
+                log.error("❌ 非法回调 IP: ", clientIp);
+                return ResponseEntity.status(403).body(new Object() {
+                    public int code = -1;
+                    public String msg = "Forbidden";
+                });
+            }
 
+            // 验证签名（已在 DouyinPaymentService.handlePaymentCallback 中实现）
             // 处理回调
             paymentService.handlePaymentCallback(callback);
 
@@ -131,6 +142,95 @@ public class PaymentController {
                 public String msg = "处理失败，请重试";
             });
         }
+    }
+
+    /**
+     * P0-3: 获取客户端真实 IP（支持代理）
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip)) {
+            // X-Forwarded-For 可能包含多个 IP，取第一个
+            int index = ip.indexOf(',');
+            if (index != -1) {
+                return ip.substring(0, index).trim();
+            }
+            return ip.trim();
+        }
+        ip = request.getHeader("X-Real-IP");
+        if (ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip)) {
+            return ip.trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    /**
+     * P0-3: 验证 IP 是否在白名单中（支持 CIDR）
+     * 白名单配置示例：203.107.32.0/24,203.107.33.0/24,127.0.0.1
+     */
+    private boolean isIpInWhitelist(String clientIp) {
+        // 从配置读取白名单（这里硬编码示例，实际应从 application.yml 读取）
+        String whitelist = "203.107.32.0/24,203.107.33.0/24,127.0.0.1,::1";
+
+        if (whitelist == null || whitelist.isEmpty()) {
+            log.warn("⚠️ IP 白名单未配置，允许所有 IP 访问");
+            return true;
+        }
+
+        String[] allowedRanges = whitelist.split(",");
+        for (String range : allowedRanges) {
+            range = range.trim();
+            if (range.isEmpty()) continue;
+
+            // 精确匹配
+            if (range.equals(clientIp)) {
+                return true;
+            }
+
+            // CIDR 匹配（简化实现，仅支持 IPv4）
+            if (range.contains("/")) {
+                if (isIpInCidr(clientIp, range)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * P0-3: 检查 IP 是否在 CIDR 范围内（简化实现）
+     */
+    private boolean isIpInCidr(String ip, String cidr) {
+        try {
+            String[] parts = cidr.split("/");
+            String networkIp = parts[0];
+            int prefixLength = Integer.parseInt(parts[1]);
+
+            long ipLong = ipToLong(ip);
+            long networkLong = ipToLong(networkIp);
+            long mask = -1L << (32 - prefixLength);
+
+            return (ipLong & mask) == (networkLong & mask);
+        } catch (Exception e) {
+            log.error("CIDR 解析失败: {}", cidr, e);
+            return false;
+        }
+    }
+
+    /**
+     * P0-3: IP 地址转 long（用于 CIDR 匹配）
+     */
+    private long ipToLong(String ip) {
+        String[] octets = ip.split("\\.");
+        if (octets.length != 4) {
+            throw new IllegalArgumentException("Invalid IP: " + ip);
+        }
+        long result = 0;
+        for (int i = 0; i < 4; i++) {
+            result |= (Long.parseLong(octets[i]) << (24 - i * 8));
+        }
+        return result;
     }
 
     /**

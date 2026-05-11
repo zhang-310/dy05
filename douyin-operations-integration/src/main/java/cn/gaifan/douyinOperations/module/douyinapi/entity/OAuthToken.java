@@ -1,5 +1,6 @@
 package cn.gaifan.douyinOperations.module.douyinapi.entity;
 
+import cn.gaifan.douyinOperations.module.douyinapi.converter.TokenEncryptionConverter;
 import lombok.Data;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -30,10 +31,12 @@ public class OAuthToken {
     @Column(name = "open_id", nullable = false, length = 128)
     private String openId;
 
-    @Column(name = "access_token", nullable = false, length = 512)
+    @Column(name = "access_token", nullable = false, length = 1024)
+    @Convert(converter = TokenEncryptionConverter.class)
     private String accessToken;
 
-    @Column(name = "refresh_token", length = 512)
+    @Column(name = "refresh_token", length = 1024)
+    @Convert(converter = TokenEncryptionConverter.class)
     private String refreshToken;
 
     /** Token 过期时间 */

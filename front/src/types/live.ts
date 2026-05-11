@@ -80,6 +80,61 @@ export interface LiveSessionVO {
   [key: string]: unknown
 }
 
+/** 场次数据概览（对应后端 LiveSessionOverviewVO） */
+export interface LiveSessionOverviewVO {
+  session: LiveSessionVO
+  sessionData?: LiveSessionDataVO
+  productDataList?: LiveProductDataVO[]
+  scriptTop5?: LiveScriptVO[]
+}
+
+/** 场次数据统计（对应后端 LiveSessionDataVO） */
+export interface LiveSessionDataVO {
+  id: number
+  sessionId: number
+  totalRevenue?: number
+  totalOrders?: number
+  avgOrderValue?: number
+  conversionRate?: number
+  peakViewers?: number
+  avgViewers?: number
+  totalInteractions?: number
+  createTime?: string
+  updateTime?: string
+}
+
+/** 产品数据统计（对应后端 LiveProductDataVO） */
+export interface LiveProductDataVO {
+  id: number
+  sessionId: number
+  productId: number
+  productName?: string
+  saleQuantity?: number
+  revenue?: number
+  conversionRate?: number
+  createTime?: string
+}
+
+/** 开播准备清单（对应后端 LiveReadinessVO） */
+export interface LiveReadinessVO {
+  ready: boolean
+  checks: {
+    products: LiveReadinessCheckItem
+    persona: LiveReadinessCheckItem
+    scripts: LiveReadinessCheckItem
+    compliance: LiveReadinessCheckItem
+  }
+  [key: string]: unknown
+}
+
+/** 开播准备检查项 */
+export interface LiveReadinessCheckItem {
+  passed: boolean
+  count?: number
+  personaName?: string
+  message?: string
+}
+
 // ─── 竞品商业洞察 C-2/C-3/C-5 ───────────────────────────────────────────────
 
 export interface LiveCompetitiveInsightSearchVO extends BasicQuery {

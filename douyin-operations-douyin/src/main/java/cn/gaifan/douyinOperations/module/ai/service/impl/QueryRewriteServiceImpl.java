@@ -76,7 +76,7 @@ public class QueryRewriteServiceImpl implements QueryRewriteService {
         }
         if (!rewriteEnabled) return Collections.singletonList(trimmed);
 
-        List<DouyinAccount> accounts = accountRepository.findByUserIdAndDeleted(userId, 0, PageRequest.of(0, 1)).getContent();
+        List<DouyinAccount> accounts = accountRepository.findByOwnerIdAndDeleted(userId, 0, PageRequest.of(0, 1)).getContent();
         if (accounts.isEmpty()) return Collections.singletonList(trimmed);
 
         DouyinAccount account = accounts.get(0);

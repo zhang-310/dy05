@@ -1,7 +1,7 @@
 import request from '@/utils/request'
 import type { PageResult } from '@/types/common'
 import type { LiveScript } from './live-script'
-import type { LiveProductVO } from '@/types/live'
+import type { LiveProductVO, LiveSessionOverviewVO, LiveReadinessVO } from '@/types/live'
 
 // 重新导出 LiveScript 类型供其他模块使用
 export type { LiveScript }
@@ -173,13 +173,13 @@ export const liveApi = {
   sessionGet: (id: number) => request.post<LiveSession>('/live/session/get', { id }),
   sessionSave: (p: Partial<LiveSessionSave>) => request.post<number>('/live/session/save', p),
   sessionDelete: (id: number) => request.post<void>('/live/session/delete', { id }),
-  sessionStart: (id: number) => request.post<void>('/live/session/start', { id }),
-  sessionEnd: (id: number) => request.post<void>('/live/session/end', { id }),
+  sessionStart: (id: number) => request.post<void>('/live/session/status', { id, status: 1 }),
+  sessionEnd: (id: number) => request.post<void>('/live/session/status', { id, status: 2 }),
   sessionClone: (id: number) => request.post<number>('/live/session/clone', { id }),
   sessionTrend: (p: Record<string, unknown>) => request.post<Record<string, unknown>[]>('/live/session/trend', p),
   sessionExportToShortVideo: (id: number) => request.post<Record<string, unknown>>('/live/session/export-to-short-video', { id }),
-  sessionOverview: (id: number) => request.post<Record<string, unknown>>('/live/session/overview', { id }),
-  sessionReadiness: (id: number) => request.post<Record<string, unknown>>('/live/session/readiness', { id }),
+  sessionOverview: (id: number) => request.post<LiveSessionOverviewVO>('/live/session/overview', { id }),
+  sessionReadiness: (id: number) => request.post<LiveReadinessVO>('/live/session/readiness', { id }),
   sessionMultiMetrics: (p: Record<string, unknown>) => request.post<Record<string, unknown>>('/live/session/multi-metrics', p),
 
   // ===== SessionTemplate =====

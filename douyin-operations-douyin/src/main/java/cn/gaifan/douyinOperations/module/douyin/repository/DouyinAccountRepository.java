@@ -16,7 +16,7 @@ import java.util.Optional;
  */
 public interface DouyinAccountRepository extends JpaRepository<DouyinAccount, Long>, JpaSpecificationExecutor<DouyinAccount> {
 
-    Page<DouyinAccount> findByUserIdAndDeleted(Long userId, Integer deleted, Pageable pageable);
+    Page<DouyinAccount> findByOwnerIdAndDeleted(Long ownerId, Integer deleted, Pageable pageable);
 
     Optional<DouyinAccount> findByIdAndDeleted(Long id, Integer deleted);
 
@@ -24,6 +24,6 @@ public interface DouyinAccountRepository extends JpaRepository<DouyinAccount, Lo
 
     boolean existsByAccountIdAndDeleted(String accountId, Integer deleted);
 
-    @Query("SELECT a.id FROM DouyinAccount a WHERE a.userId IN :userIds AND a.deleted = 0")
-    List<Long> findIdsByUserIdIn(@Param("userIds") List<Long> userIds);
+    @Query("SELECT a.id FROM DouyinAccount a WHERE a.ownerId IN :ownerIds AND a.deleted = 0")
+    List<Long> findIdsByOwnerIdIn(@Param("ownerIds") List<Long> ownerIds);
 }

@@ -209,7 +209,7 @@ public class DouyinOAuthController {
             Long accountId = ((Number) body.get("accountId")).longValue();
             Optional<DouyinAccount> accountOpt = douyinAccountRepository.findById(accountId);
             if (accountOpt.isPresent()) {
-                userId = accountOpt.get().getUserId();
+                userId = accountOpt.get().getOwnerId();
             }
         }
         oauthTokenService.deleteToken(userId, "douyin");
@@ -234,7 +234,7 @@ public class DouyinOAuthController {
         if (accountId != null) {
             Optional<DouyinAccount> accountOpt = douyinAccountRepository.findById(accountId);
             if (accountOpt.isPresent()) {
-                userId = accountOpt.get().getUserId();
+                userId = accountOpt.get().getOwnerId();
             }
         }
 
@@ -285,7 +285,7 @@ public class DouyinOAuthController {
         if (accountId != null) {
             Optional<DouyinAccount> accountOpt = douyinAccountRepository.findById(accountId);
             if (accountOpt.isPresent()) {
-                userId = accountOpt.get().getUserId();
+                userId = accountOpt.get().getOwnerId();
             }
         }
 
@@ -349,17 +349,29 @@ public class DouyinOAuthController {
         try {
             if (state == null || state.isBlank()) return null;
 
-            // 1. 检查 Redis 中是否存在该 state（防重放）
+            // 1. 使用 Lua 脚本原子性检查并删除 state（P0-2 修复）
             String redisKey = "oauth:state:" + state;
-            String storedUserId = stringRedisTemplate.opsForValue().get(redisKey);
+            String luaScript = """
+                local value = redis.call('GET', KEYS[1])
+                if value then
+                    redis.call('DEL', KEYS[1])
+                    return value
+                else
+                    return nil
+                end
+                """;
+
+            String storedUserId = stringRedisTemplate.execute(
+                new org.springframework.data.redis.core.script.DefaultRedisScript<>(luaScript, String.class),
+                java.util.Collections.singletonList(redisKey)
+            );
+
             if (storedUserId == null) {
                 log.warn("OAuth state 无效或已使用（Redis 中不存在）: {}", state);
                 return null;
             }
 
-            // 2. 删除 state，确保一次性使用
-            stringRedisTemplate.delete(redisKey);
-            log.debug("OAuth state 已使用并删除: key={}", redisKey);
+            log.debug("OAuth state 已使用并删除（原子操作）: key={}", redisKey);
 
             int lastUnderscore = state.lastIndexOf('_');
             if (lastUnderscore <= 0) return null;
@@ -367,27 +379,27 @@ public class DouyinOAuthController {
             String payload = state.substring(0, lastUnderscore);
             String receivedSig = state.substring(lastUnderscore + 1);
 
-            // 3. 验证 HMAC 签名
+            // 2. 验证 HMAC 签名
             String expectedSig = hmacSha256(payload);
             if (!expectedSig.equals(receivedSig)) {
                 log.warn("OAuth state 签名校验失败: {}", state);
                 return null;
             }
 
-            // 4. 解析 payload: {userId}_{timestamp}
+            // 3. 解析 payload: {userId}_{timestamp}
             String[] parts = payload.split("_");
             if (parts.length != 2) return null;
 
             String userId = parts[0];
             long timestamp = Long.parseLong(parts[1]);
 
-            // 5. 验证时间戳未过期（双重保险）
+            // 4. 验证时间戳未过期（双重保险）
             if (System.currentTimeMillis() - timestamp > STATE_TTL_MS) {
                 log.warn("OAuth state 已过期: timestamp={}", timestamp);
                 return null;
             }
 
-            // 6. 验证 userId 与 Redis 中存储的一致
+            // 5. 验证 userId 与 Redis 中存储的一致
             if (!userId.equals(storedUserId)) {
                 log.warn("OAuth state userId 不匹配: state={}, redis={}", userId, storedUserId);
                 return null;

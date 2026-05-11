@@ -156,7 +156,7 @@ public class FanProfileServiceImpl implements FanProfileService {
     private void saveFanStats(Long accountId, JSONObject fanData, Timestamp syncTime) {
         // 查找账号所有者
         Long ownerId = accountRepository.findById(accountId)
-                .map(DouyinAccount::getUserId).orElse(null);
+                .map(DouyinAccount::getOwnerId).orElse(null);
 
         // P2-3 修复：使用 UPSERT 替代删除+插入
         List<DyFanProfileStats> statsList = new ArrayList<>();
@@ -272,7 +272,7 @@ public class FanProfileServiceImpl implements FanProfileService {
         DouyinAccount account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "账号不存在"));
 
-        if (!account.getUserId().equals(userId)) {
+        if (!account.getOwnerId().equals(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问此账号");
         }
 

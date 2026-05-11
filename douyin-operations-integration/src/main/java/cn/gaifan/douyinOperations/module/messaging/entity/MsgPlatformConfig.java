@@ -1,5 +1,6 @@
 package cn.gaifan.douyinOperations.module.messaging.entity;
 
+import cn.gaifan.douyinOperations.common.util.SecretAttributeConverter;
 import lombok.Data;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -31,12 +32,16 @@ public class MsgPlatformConfig {
     @Column(name = "corp_id", length = 128)
     private String corpId;
 
+    // P0-001: 敏感数据加密存储
+    @Convert(converter = SecretAttributeConverter.class)
     @Column(name = "secret", length = 512)
     private String secret;
 
     @Column(name = "callback_token", length = 256)
     private String callbackToken;
 
+    // P0-001: 敏感数据加密存储
+    @Convert(converter = SecretAttributeConverter.class)
     @Column(name = "callback_encoding_aes_key", length = 256)
     private String callbackEncodingAesKey;
 

@@ -5,11 +5,13 @@ import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
 import cn.gaifan.douyinOperations.module.douyin.service.DouyinPersonaService;
+import cn.gaifan.douyinOperations.module.douyin.vo.PersonaByAccountQueryVO;
 import cn.gaifan.douyinOperations.module.douyin.vo.PersonaSaveVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.*;
 
@@ -152,18 +154,13 @@ public class DouyinPersonaController {
      */
     @PostMapping("/get-by-account")
     @Operation(summary = "按账号获取人设 / Get Persona By Account")
-    public RESTResult<DyPersona> getByAccount(@RequestBody Map<String, Long> body, HttpServletRequest request) {
+    public RESTResult<DyPersona> getByAccount(@Valid @RequestBody PersonaByAccountQueryVO vo, HttpServletRequest request) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         }
 
-        Long accountId = body.get("accountId");
-        if (accountId == null) {
-            return RESTResult.error(ErrorCode.INVALID_PARAMS, "accountId不能为空");
-        }
-
-        DyPersona persona = personaService.getPersonaByAccountId(accountId, userId);
+        DyPersona persona = personaService.getPersonaByAccountId(vo.getAccountId(), userId);
         RESTResult<DyPersona> r = RESTResult.getSuccess(persona);
         r.setTraceId(MDC.get("traceId"));
         return r;

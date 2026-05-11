@@ -56,9 +56,18 @@ public class LogController {
                                                                           required = false
                                                                   )
                                                                   @RequestBody(required = false) OperationLogSearchVO vo) {
-        if (AuthTokenFilter.getUserId(request) == null) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         }
+
+        // P0-3: 访问控制 - 非管理员只能查看自己的日志
+        boolean isAdmin = hasAdminRole(request);
+        if (!isAdmin) {
+            if (vo == null) vo = new OperationLogSearchVO();
+            vo.setUserId(userId); // 强制过滤当前用户
+        }
+
         PageResultVO<OperationLogVO> data = operationLogService.search(vo != null ? vo : new OperationLogSearchVO());
         RESTResult<PageResultVO<OperationLogVO>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
@@ -80,9 +89,17 @@ public class LogController {
                                                                     required = false
                                                             )
                                                             @RequestBody(required = false) SystemLogSearchVO vo) {
-        if (AuthTokenFilter.getUserId(request) == null) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         }
+
+        // P0-3: 访问控制 - 仅管理员可查看系统日志
+        boolean isAdmin = hasAdminRole(request);
+        if (!isAdmin) {
+            return RESTResult.error(ErrorCode.FORBIDDEN, "仅管理员可查看系统日志");
+        }
+
         PageResultVO<SystemLogVO> data = systemLogService.search(vo != null ? vo : new SystemLogSearchVO());
         RESTResult<PageResultVO<SystemLogVO>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
@@ -106,11 +123,19 @@ public class LogController {
                                         required = false
                                 )
                                 @RequestBody(required = false) OperationLogSearchVO vo) throws IOException {
-        if (AuthTokenFilter.getUserId(request) == null) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
+
+        // P0-3: 访问控制 - 非管理员只能导出自己的日志
+        boolean isAdmin = hasAdminRole(request);
         if (vo == null) vo = new OperationLogSearchVO();
+        if (!isAdmin) {
+            vo.setUserId(userId); // 强制过滤当前用户
+        }
+
         if (vo.getRows() == null || vo.getRows() <= 0) vo.setRows(EXPORT_MAX_ROWS);
         if (vo.getRows() > EXPORT_MAX_ROWS) vo.setRows(EXPORT_MAX_ROWS);
         PageResultVO<OperationLogVO> page = operationLogService.search(vo);
@@ -148,10 +173,19 @@ public class LogController {
                                      required = false
                              )
                              @RequestBody(required = false) SystemLogSearchVO vo) throws IOException {
-        if (AuthTokenFilter.getUserId(request) == null) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
+
+        // P0-3: 访问控制 - 仅管理员可导出系统日志
+        boolean isAdmin = hasAdminRole(request);
+        if (!isAdmin) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            return;
+        }
+
         if (vo == null) vo = new SystemLogSearchVO();
         if (vo.getRows() == null || vo.getRows() <= 0) vo.setRows(EXPORT_MAX_ROWS);
         if (vo.getRows() > EXPORT_MAX_ROWS) vo.setRows(EXPORT_MAX_ROWS);
@@ -180,5 +214,15 @@ public class LogController {
             return "\"" + s.replace("\"", "\"\"") + "\"";
         }
         return s;
+    }
+
+    /** P0-3: 检查用户是否有管理员角色 */
+    private boolean hasAdminRole(HttpServletRequest request) {
+        // 从 request attribute 获取角色信息（由 AuthTokenFilter 设置）
+        Object roles = request.getAttribute("userRoles");
+        if (roles instanceof List) {
+            return ((List<?>) roles).contains("ADMIN");
+        }
+        return false;
     }
 }

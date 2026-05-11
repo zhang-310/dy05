@@ -21,7 +21,7 @@ public class DouyinAccount {
     private Long id;
 
     @Column(name = "user_id", nullable = false)
-    private Long userId;
+    private Long ownerId;
 
     @Column(name = "account_name", nullable = false, length = 128)
     private String accountName;

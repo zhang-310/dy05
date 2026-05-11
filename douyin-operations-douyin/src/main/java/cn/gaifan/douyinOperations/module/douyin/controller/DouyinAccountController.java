@@ -59,7 +59,7 @@ public class DouyinAccountController {
         String roleCode = AuthTokenFilter.getRoleCode(request);
         java.util.List<Long> visibleIds = dataScopeService.getVisibleUserIds(userId, roleCode);
         if (visibleIds != null) {
-            vo.setUserIds(visibleIds);
+            vo.setOwnerIds(visibleIds);
         }
         PageResultVO<DouyinAccountVO> data = douyinAccountService.search(vo);
         RESTResult<PageResultVO<DouyinAccountVO>> r = RESTResult.getSuccess(data);
@@ -88,7 +88,7 @@ public class DouyinAccountController {
         DouyinAccountVO data = douyinAccountService.getAccount(id);
         // 权限校验：非管理员只能查看自己的账号
         String roleCode = AuthTokenFilter.getRoleCode(request);
-        if (!"admin".equals(roleCode) && !userId.equals(data.getUserId())) {
+        if (!"admin".equals(roleCode) && !userId.equals(data.getOwnerId())) {
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问此账号");
         }
         RESTResult<DouyinAccountVO> r = RESTResult.getSuccess(data);
@@ -114,7 +114,7 @@ public class DouyinAccountController {
         if (userId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         }
-        vo.setUserId(userId);
+        vo.setOwnerId(userId);
         long id = douyinAccountService.saveAccount(vo);
         RESTResult<Long> r = RESTResult.addSuccess(id);
         r.setTraceId(MDC.get("traceId"));
@@ -142,7 +142,7 @@ public class DouyinAccountController {
         // 权限校验：只有账号所有者或管理员可删除
         DouyinAccountVO account = douyinAccountService.getAccount(id);
         String roleCode = AuthTokenFilter.getRoleCode(request);
-        if (!"admin".equals(roleCode) && !userId.equals(account.getUserId())) {
+        if (!"admin".equals(roleCode) && !userId.equals(account.getOwnerId())) {
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限删除此账号");
         }
         douyinAccountService.deleteAccount(id);
@@ -172,7 +172,7 @@ public class DouyinAccountController {
         // 权限校验：只有账号所有者或管理员可查看统计
         DouyinAccountVO account = douyinAccountService.getAccount(id);
         String roleCode = AuthTokenFilter.getRoleCode(request);
-        if (!"admin".equals(roleCode) && !userId.equals(account.getUserId())) {
+        if (!"admin".equals(roleCode) && !userId.equals(account.getOwnerId())) {
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限查看此账号统计");
         }
         DouyinAccountStatisticsVO data = douyinAccountService.getAccountStatistics(id);

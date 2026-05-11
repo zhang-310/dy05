@@ -129,4 +129,22 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * P0-002: Webhook 异步处理线程池
+     * 用于异步处理企微/飞书 Webhook 事件，避免阻塞 HTTP 线程
+     */
+    @Bean("webhookExecutor")
+    public Executor webhookExecutor(
+            @Value("${app.async.webhook-core:10}") int core,
+            @Value("${app.async.webhook-max:50}") int max) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(core);
+        executor.setMaxPoolSize(max);
+        executor.setQueueCapacity(1000);
+        executor.setThreadNamePrefix("webhook-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
 }

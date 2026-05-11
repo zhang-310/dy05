@@ -100,20 +100,28 @@ public class MessagingReplyServiceImpl implements MessagingReplyService {
         String key = "wecom:" + config.getCorpId() + ":" + config.getSecret();
         TokenHolder h = tokenCache.get(key);
         if (h != null && !h.isExpired()) return h.token;
-        String url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=" + config.getCorpId() + "&corpsecret=" + config.getSecret();
-        ResponseEntity<String> resp = restTemplate.getForEntity(url, String.class);
-        try {
-            JsonNode node = objectMapper.readTree(resp.getBody());
-            if (node == null || !node.has("access_token")) {
-                throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "企微获取 access_token 失败");
+
+        // P0-003: 使用 synchronized 防止并发重复请求 access_token
+        synchronized (this) {
+            // Double-check: 可能其他线程已获取
+            h = tokenCache.get(key);
+            if (h != null && !h.isExpired()) return h.token;
+
+            String url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=" + config.getCorpId() + "&corpsecret=" + config.getSecret();
+            ResponseEntity<String> resp = restTemplate.getForEntity(url, String.class);
+            try {
+                JsonNode node = objectMapper.readTree(resp.getBody());
+                if (node == null || !node.has("access_token")) {
+                    throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "企微获取 access_token 失败");
+                }
+                String token = node.get("access_token").asText();
+                tokenCache.put(key, new TokenHolder(token));
+                return token;
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "企微鉴权失败");
             }
-            String token = node.get("access_token").asText();
-            tokenCache.put(key, new TokenHolder(token));
-            return token;
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "企微鉴权失败");
         }
     }
 
@@ -121,22 +129,30 @@ public class MessagingReplyServiceImpl implements MessagingReplyService {
         String key = "feishu:" + config.getAppId() + ":" + config.getSecret();
         TokenHolder h = tokenCache.get(key);
         if (h != null && !h.isExpired()) return h.token;
-        String url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
-        Map<String, String> body = Map.of("app_id", config.getAppId() != null ? config.getAppId() : "",
-                "app_secret", config.getSecret() != null ? config.getSecret() : "");
-        ResponseEntity<String> resp = restTemplate.postForEntity(url, body, String.class);
-        try {
-            JsonNode node = objectMapper.readTree(resp.getBody());
-            if (node == null || !node.has("tenant_access_token")) {
-                throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "飞书获取 tenant_access_token 失败");
+
+        // P0-003: 使用 synchronized 防止并发重复请求 access_token
+        synchronized (this) {
+            // Double-check: 可能其他线程已获取
+            h = tokenCache.get(key);
+            if (h != null && !h.isExpired()) return h.token;
+
+            String url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
+            Map<String, String> body = Map.of("app_id", config.getAppId() != null ? config.getAppId() : "",
+                    "app_secret", config.getSecret() != null ? config.getSecret() : "");
+            ResponseEntity<String> resp = restTemplate.postForEntity(url, body, String.class);
+            try {
+                JsonNode node = objectMapper.readTree(resp.getBody());
+                if (node == null || !node.has("tenant_access_token")) {
+                    throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "飞书获取 tenant_access_token 失败");
+                }
+                String token = node.get("tenant_access_token").asText();
+                tokenCache.put(key, new TokenHolder(token));
+                return token;
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "飞书鉴权失败");
             }
-            String token = node.get("tenant_access_token").asText();
-            tokenCache.put(key, new TokenHolder(token));
-            return token;
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException(ErrorCode.WECOM_AUTH_FAIL, "飞书鉴权失败");
         }
     }
 

@@ -86,7 +86,11 @@ CREATE TABLE IF NOT EXISTS agent_message (
     create_time     TIMESTAMP                DEFAULT CURRENT_TIMESTAMP  -- 创建时间
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_message_conversation_id ON agent_message (conversation_id);
+-- P0-5: 复合索引优化对话消息查询（conversation_id + create_time + deleted）
+CREATE INDEX IF NOT EXISTS idx_agent_message_conversation_time
+ON agent_message (conversation_id, create_time ASC)
+WHERE deleted = 0;
+
 CREATE INDEX IF NOT EXISTS idx_agent_message_sender_type ON agent_message (sender_type);
 
 COMMENT ON TABLE  agent_message             IS '对话消息表';

@@ -38,14 +38,18 @@ public class OperationLogServiceImpl implements OperationLogService {
         q.validateParams();
         Specification<OperationLog> spec = (root, query, cb) -> {
             List<Predicate> list = new ArrayList<>();
+            // P0-1: SQL 注入防护 - LIKE 查询转义特殊字符
             if (q.getModule() != null && !q.getModule().trim().isEmpty()) {
-                list.add(cb.like(root.get("module"), "%" + q.getModule().trim() + "%"));
+                String escaped = escapeLikePattern(q.getModule().trim());
+                list.add(cb.like(root.get("module"), "%" + escaped + "%"));
             }
             if (q.getAction() != null && !q.getAction().trim().isEmpty()) {
-                list.add(cb.like(root.get("action"), "%" + q.getAction().trim() + "%"));
+                String escaped = escapeLikePattern(q.getAction().trim());
+                list.add(cb.like(root.get("action"), "%" + escaped + "%"));
             }
             if (q.getUsername() != null && !q.getUsername().trim().isEmpty()) {
-                list.add(cb.like(root.get("username"), "%" + q.getUsername().trim() + "%"));
+                String escaped = escapeLikePattern(q.getUsername().trim());
+                list.add(cb.like(root.get("username"), "%" + escaped + "%"));
             }
             if (q.getStatus() != null) {
                 list.add(cb.equal(root.get("status"), q.getStatus()));
@@ -70,16 +74,17 @@ public class OperationLogServiceImpl implements OperationLogService {
         try {
             OperationLog entity = new OperationLog();
             entity.setUserId(userId);
-            entity.setUsername(truncate(username, 64));
+            // P0-2: 日志注入防护 - 转义换行符
+            entity.setUsername(sanitizeLogInput(truncate(username, 64)));
             entity.setModule(truncate(module, 64));
             entity.setAction(truncate(action, 32));
             entity.setRequestUri(truncate(requestUri, 256));
             entity.setRequestMethod(truncate(requestMethod, 16));
             entity.setIp(truncate(ip, 64));
-            entity.setUserAgent(truncate(userAgent, 256));
+            entity.setUserAgent(sanitizeLogInput(truncate(userAgent, 256)));
             entity.setDurationMs(durationMs);
             entity.setStatus(status);
-            entity.setErrorMsg(errorMsg != null ? truncate(errorMsg, 512) : null);
+            entity.setErrorMsg(errorMsg != null ? sanitizeLogInput(truncate(errorMsg, 512)) : null);
             entity.setTraceId(truncate(traceId, 64));
             entity.setRequestBody(requestBody != null ? truncate(requestBody, 2000) : null);
             entity.setResponseBody(responseBody != null ? truncate(responseBody, 2000) : null);
@@ -113,6 +118,23 @@ public class OperationLogServiceImpl implements OperationLogService {
         v.setResponseBody(e.getResponseBody());
         v.setCreateTime(e.getCreateTime());
         return v;
+    }
+
+    /** P0-1: LIKE 查询转义特殊字符（防止 SQL 注入） */
+    private String escapeLikePattern(String input) {
+        if (input == null) return null;
+        return input.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
+    }
+
+    /** P0-2: 日志注入防护 - 转义换行符和控制字符 */
+    private String sanitizeLogInput(String input) {
+        if (input == null) return null;
+        return input.replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                    .replace("\t", "\\t")
+                    .replace("\0", "");
     }
 
     private static Timestamp parseTimestamp(String s, boolean startOfDay) {

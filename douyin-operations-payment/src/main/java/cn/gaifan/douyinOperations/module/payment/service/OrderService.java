@@ -28,14 +28,14 @@ public interface OrderService {
     void confirmPayment(Long orderId, String transactionId, String paymentMethod);
 
     /**
-     * 查询订单详情
+     * 查询订单详情（P0-4: 需验证归属）
      */
-    OrderVO getOrder(Long orderId);
+    OrderVO getOrder(Long orderId, Long userId);
 
     /**
-     * 按订单号查询（幂等校验）
+     * 按订单号查询（P0-4: 需验证归属）
      */
-    OrderVO getByOrderNo(String orderNo);
+    OrderVO getByOrderNo(String orderNo, Long userId);
 
     /**
      * 分页查询用户订单

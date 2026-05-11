@@ -20,4 +20,6 @@ public class OperationLogSearchVO extends BasicQueryDto {
     private String startTime;
     /** 结束时间 */
     private String endTime;
+    /** P0-3: 用户ID过滤（用于非管理员访问控制） */
+    private Long userId;
 }

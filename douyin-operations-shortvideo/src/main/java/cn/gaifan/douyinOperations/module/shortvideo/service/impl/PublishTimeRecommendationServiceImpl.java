@@ -33,7 +33,7 @@ public class PublishTimeRecommendationServiceImpl implements PublishTimeRecommen
         if (visibleOwnerIds != null && !visibleOwnerIds.isEmpty()) {
             DouyinAccount account = douyinAccountRepository.findByIdAndDeleted(accountId, 0)
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "账号不存在"));
-            if (!visibleOwnerIds.contains(account.getUserId())) {
+            if (!visibleOwnerIds.contains(account.getOwnerId())) {
                 throw new BusinessException(ErrorCode.FORBIDDEN, "无权限查看该账号的发布时间分析");
             }
         }

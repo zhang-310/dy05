@@ -6,6 +6,7 @@ package cn.gaifan.douyinOperations.module.payment.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.SQLRestriction;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -21,6 +22,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@SQLRestriction("deleted = 0")
 public class PaymentRefund {
 
     @Id
@@ -29,6 +31,9 @@ public class PaymentRefund {
 
     @Column(nullable = false)
     private Long orderId;                // 订单 ID
+
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;                // 租户 ID（数据隔离）
 
     @Column(nullable = false)
     private BigDecimal amount;           // 退款金额
@@ -39,9 +44,20 @@ public class PaymentRefund {
 
     private String reason;               // 退款原因
 
+    @Column(name = "deleted", nullable = false)
+    private Integer deleted = 0;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
     private LocalDateTime approvedAt;    // 批准时间
     private LocalDateTime completedAt;   // 完成时间
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        if (status == null) {
+            status = RefundStatus.PENDING;
+        }
+    }
 }

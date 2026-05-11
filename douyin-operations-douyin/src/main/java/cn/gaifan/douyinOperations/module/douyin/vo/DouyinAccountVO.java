@@ -14,7 +14,7 @@ public class DouyinAccountVO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private Long id;
-    private Long userId;
+    private Long ownerId;
     private String accountName;
     private String accountId;
     private Long followCount;

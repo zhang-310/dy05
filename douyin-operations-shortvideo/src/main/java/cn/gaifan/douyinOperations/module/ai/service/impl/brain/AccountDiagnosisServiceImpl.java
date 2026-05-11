@@ -73,7 +73,7 @@ public class AccountDiagnosisServiceImpl implements AccountDiagnosisService {
         }
         return douyinAccountRepository.findById(accountId)
                 .map(acc -> {
-                    Long uid = userId != null ? userId : acc.getUserId();
+                    Long uid = userId != null ? userId : acc.getOwnerId();
                     var clarityResult = computeClarityWithEstimated(uid, accountId, acc);
                     double competitiveness = computeCompetitiveness(accountId, acc);
                     double contentQuality = computeContentQuality(uid);

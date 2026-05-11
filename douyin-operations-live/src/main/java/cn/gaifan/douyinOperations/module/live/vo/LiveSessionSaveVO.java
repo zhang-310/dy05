@@ -35,4 +35,8 @@ public class LiveSessionSaveVO {
     private String sessionType;          // 场次类型（normal/brand/promotion等）
 
     private String liveFormat;           // 直播形式（single/multi/collab等）
+
+    private String scheduledTime;        // 预定开始时间
+
+    private String scheduledEndTime;     // 预定结束时间
 }

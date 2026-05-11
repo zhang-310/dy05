@@ -159,7 +159,7 @@ public class DouyinScriptLearningServiceImpl implements DouyinScriptLearningServ
     @Override
     public void runLearningForAccount(Long accountId, String accessToken) {
         if (accountId == null || !StringUtils.hasText(accessToken)) {
-            log.warn("[DouyinScriptLearning] accountId 或 accessToken 为空，跳过");
+            log.warn("[DouyinScriptLearning] accountId={} 参数校验失败", accountId);
             return;
         }
         if (douyinVideoRepository == null) return;
@@ -350,11 +350,11 @@ public class DouyinScriptLearningServiceImpl implements DouyinScriptLearningServ
         return saved;
     }
 
-    /** 通过 accountId（DouyinVideo 的外键）查找账号所属 userId，找不到则返回 null */
+    /** 通过 accountId（DouyinVideo 的外键）查找账号所属 ownerId，找不到则返回 null */
     private Long resolveOwnerUserId(Long accountId) {
         if (douyinAccountRepository == null || accountId == null) return null;
         return douyinAccountRepository.findByIdAndDeleted(accountId, 0)
-                .map(DouyinAccount::getUserId)
+                .map(DouyinAccount::getOwnerId)
                 .orElse(null);
     }
 }

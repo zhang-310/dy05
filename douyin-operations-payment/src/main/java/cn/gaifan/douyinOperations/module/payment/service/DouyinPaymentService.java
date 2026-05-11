@@ -54,23 +54,44 @@ public class DouyinPaymentService {
                 request.userId, request.productId, request.amount);
 
         try {
-            // 1. 生成订单号（幂等性保证）
+            // 1. 验证商品价格（P0-2 修复）
+            BigDecimal productPrice = getProductPrice(request.productId);
+            if (productPrice == null) {
+                log.warn("商品不存在: productId={}", request.productId);
+                return PaymentResponse.builder()
+                        .success(false)
+                        .errorMessage("商品不存在")
+                        .build();
+            }
+
+            // 2. 验证客户端提交的金额是否与商品价格一致
+            BigDecimal expectedAmount = productPrice.multiply(BigDecimal.valueOf(request.quantity != null ? request.quantity : 1));
+            if (request.amount.compareTo(expectedAmount) != 0) {
+                log.warn("订单金额不匹配: productId={}, expected={}, actual={}",
+                        request.productId, expectedAmount, request.amount);
+                return PaymentResponse.builder()
+                        .success(false)
+                        .errorMessage("订单金额不正确")
+                        .build();
+            }
+
+            // 3. 生成订单号（幂等性保证）
             String orderNo = generateOrderNo(request.userId);
 
-            // 2. 验证幂等性：检查订单是否已存在
+            // 4. 验证幂等性：检查订单是否已存在
             PaymentOrder existingOrder = getOrderByOrderNo(orderNo);
             if (existingOrder != null && existingOrder.getStatus() == OrderStatus.PENDING_PAYMENT) {
                 log.info("✓ 订单已存在（幂等）：orderNo={}", orderNo);
                 return createPaymentLink(existingOrder);
             }
 
-            // 3. 创建订单
+            // 5. 创建订单（使用服务端验证后的金额）
             PaymentOrder order = PaymentOrder.builder()
                     .orderNo(orderNo)
                     .userId(request.userId)
                     .productId(request.productId)
-                    .amount(request.amount)
-                    .actualAmount(calculateActualAmount(request.amount, request.discountCode))
+                    .amount(expectedAmount)  // 使用服务端计算的金额
+                    .actualAmount(calculateActualAmount(expectedAmount, request.discountCode))
                     .quantity(request.quantity)
                     .status(OrderStatus.PENDING_PAYMENT)
                     .remark(request.remark)
@@ -79,7 +100,7 @@ public class DouyinPaymentService {
             // 保存订单（这里省略 repository 保存）
             // orderRepository.save(order);
 
-            // 4. 调用抖音支付 API 创建支付链接
+            // 6. 调用抖音支付 API 创建支付链接
             PaymentResponse response = createPaymentLink(order);
 
             log.info("✓ 订单创建成功：orderNo={}, paymentUrl={}", orderNo, response.paymentUrl);
@@ -318,8 +339,73 @@ public class DouyinPaymentService {
      * 辅助方法：验证回调签名
      */
     private boolean verifySignature(PaymentCallbackRequest callback) {
-        // 验证抖音支付返回的签名
-        return true; // 简化实现
+        try {
+            if (callback.getSign() == null || callback.getSign().isEmpty()) {
+                log.warn("签名为空");
+                return false;
+            }
+
+            if (PaymentConfig.MERCHANT_SECRET == null || PaymentConfig.MERCHANT_SECRET.isEmpty()) {
+                log.error("MERCHANT_SECRET 未配置");
+                return false;
+            }
+
+            // 1. 按字典序排列参数
+            Map<String, String> params = new TreeMap<>();
+            params.put("orderId", callback.getOrderId());
+            params.put("status", callback.getStatus());
+            params.put("transactionId", callback.getTransactionId());
+            params.put("amount", callback.getAmount().toString());
+
+            // 2. 拼接签名字符串
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                sb.append(entry.getKey()).append("=").append(entry.getValue()).append("&");
+            }
+            sb.append("key=").append(PaymentConfig.MERCHANT_SECRET);
+
+            // 3. 计算签名（使用 SHA256 + HMAC）
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            javax.crypto.spec.SecretKeySpec secretKey = new javax.crypto.spec.SecretKeySpec(
+                PaymentConfig.MERCHANT_SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                "HmacSHA256"
+            );
+            mac.init(secretKey);
+            byte[] hash = mac.doFinal(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            String calculatedSign = bytesToHex(hash);
+
+            // 4. 比较签名（防时序攻击）
+            return java.security.MessageDigest.isEqual(
+                calculatedSign.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                callback.getSign().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+            );
+        } catch (Exception e) {
+            log.error("签名验证失败", e);
+            return false;
+        }
+    }
+
+    /**
+     * 字节数组转十六进制字符串
+     */
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 模拟方法：获取商品价格
+     */
+    private BigDecimal getProductPrice(Long productId) {
+        // 实际应该从 product repository 查询
+        // return productRepository.findById(productId).map(Product::getPrice).orElse(null);
+
+        // 模拟数据
+        if (productId == null) return null;
+        return BigDecimal.valueOf(99.00); // 示例价格
     }
 
     /**

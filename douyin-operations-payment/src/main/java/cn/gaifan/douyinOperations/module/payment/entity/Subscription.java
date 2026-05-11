@@ -20,6 +20,9 @@ public class Subscription {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;
+
     @Column(name = "org_id")
     private Long orgId;
 

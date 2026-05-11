@@ -51,9 +51,13 @@ public class RefundServiceImpl implements RefundService {
             throw new BusinessException(ErrorCode.REFUND_AMOUNT_EXCEED, "退款金额超过可退款余额");
         }
 
+        // P0-6: 获取 ownerId（从订单继承）
+        Long ownerId = order.getOwnerId();
+
         // 创建退款记录
         PaymentRefund refund = PaymentRefund.builder()
                 .orderId(vo.getOrderId())
+                .ownerId(ownerId)
                 .amount(vo.getAmount())
                 .reason(vo.getReason())
                 .status(RefundStatus.PENDING)
@@ -112,11 +116,25 @@ public class RefundServiceImpl implements RefundService {
 
     @Override
     public RefundVO getRefund(Long refundId) {
-        return convertToVO(getRefundEntity(refundId));
+        PaymentRefund refund = getRefundEntity(refundId);
+        // P0-6: 验证 ownerId（数据隔离）
+        Long ownerId = 1L; // TODO: 从上下文获取
+        if (!refund.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该退款");
+        }
+        return convertToVO(refund);
     }
 
     @Override
     public List<RefundVO> getRefundsByOrderId(Long orderId) {
+        // P0-6: 验证订单归属
+        PaymentOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+        Long ownerId = 1L; // TODO: 从上下文获取
+        if (!order.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
+        }
+
         return refundRepository.findByOrderId(orderId).stream()
                 .map(this::convertToVO)
                 .collect(Collectors.toList());

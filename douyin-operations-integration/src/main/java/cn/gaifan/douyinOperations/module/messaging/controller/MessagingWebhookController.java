@@ -9,8 +9,11 @@ import cn.gaifan.douyinOperations.module.messaging.service.MessagingWebhookHandl
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.concurrent.Executor;
 
 /**
  * 企微/飞书 Webhook 回调端点（无需登录，验签通过即可）
@@ -25,6 +28,9 @@ public class MessagingWebhookController {
     private MessagingPlatformService messagingPlatformService;
     @Resource
     private MessagingWebhookHandler messagingWebhookHandler;
+    @Resource
+    @Qualifier("webhookExecutor")
+    private Executor webhookExecutor;
 
     @PostMapping(value = "/feishu", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "飞书事件回调（POST）")
@@ -34,10 +40,21 @@ public class MessagingWebhookController {
         if (config == null) return RESTResult.error(ErrorCode.WECOM_AUTH_FAIL, "无效的 token");
         if (body == null || body.isBlank()) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "请求体为空");
         try {
+            // URL 验证同步处理（快速响应）
             if (body.contains("\"type\":\"url_verification\"") || body.contains("\"type\": \"url_verification\"")) {
                 return messagingWebhookHandler.handleFeishuUrlVerify(body);
             }
-            messagingWebhookHandler.handleFeishuEvent(body, config);
+            // P0-002: 事件处理异步化，避免阻塞 HTTP 线程
+            final String eventBody = body;
+            final MsgPlatformConfig eventConfig = config;
+            webhookExecutor.execute(() -> {
+                try {
+                    messagingWebhookHandler.handleFeishuEvent(eventBody, eventConfig);
+                } catch (Exception e) {
+                    // 异步处理失败仅记录日志，不影响 HTTP 响应
+                    // TODO: 添加失败重试机制
+                }
+            });
             return RESTResult.success();
         } catch (BusinessException e) {
             return RESTResult.error(e.getCode(), e.getMessage());
@@ -67,7 +84,20 @@ public class MessagingWebhookController {
         if (config == null) return RESTResult.error(ErrorCode.WECOM_AUTH_FAIL, "无效的 token");
         if (body == null || body.isBlank()) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "请求体为空");
         try {
-            messagingWebhookHandler.handleWecomMessage(body, msg_signature, timestamp, nonce, config);
+            // P0-002: 消息处理异步化，避免阻塞 HTTP 线程
+            final String msgBody = body;
+            final String signature = msg_signature;
+            final String ts = timestamp;
+            final String n = nonce;
+            final MsgPlatformConfig msgConfig = config;
+            webhookExecutor.execute(() -> {
+                try {
+                    messagingWebhookHandler.handleWecomMessage(msgBody, signature, ts, n, msgConfig);
+                } catch (Exception e) {
+                    // 异步处理失败仅记录日志，不影响 HTTP 响应
+                    // TODO: 添加失败重试机制
+                }
+            });
             return "success";
         } catch (BusinessException e) {
             return RESTResult.error(e.getCode(), e.getMessage());

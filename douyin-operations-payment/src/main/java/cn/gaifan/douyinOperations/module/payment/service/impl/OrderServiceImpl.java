@@ -17,13 +17,17 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.Resource;
+import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -54,10 +58,28 @@ public class OrderServiceImpl implements OrderService {
             return existing.get().getId();
         }
 
+        // P0-2: 服务端验证订单金额（防止客户端篡改）
+        // 注意：payment 模块不依赖 product 模块，金额验证由调用方（如 live 模块）在创建订单前完成
+        // 这里仅做基本的金额合理性检查
+        if (vo.getAmount() == null || vo.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "订单金额必须大于 0");
+        }
+        if (vo.getActualAmount() == null || vo.getActualAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "实付金额必须大于 0");
+        }
+        if (vo.getActualAmount().compareTo(vo.getAmount()) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "实付金额不能大于订单金额");
+        }
+
+        // P0-6: 获取 ownerId（简化实现：假设单租户，ownerId = 1）
+        // TODO: 实际应该从 AuthTokenFilter 或用户上下文获取 ownerId
+        Long ownerId = 1L;
+
         // 创建订单
         PaymentOrder order = PaymentOrder.builder()
                 .orderNo(vo.getOrderNo())
                 .userId(userId)
+                .ownerId(ownerId)
                 .productId(vo.getProductId())
                 .quantity(vo.getQuantity())
                 .amount(vo.getAmount())
@@ -105,14 +127,33 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public OrderVO getOrder(Long orderId) {
-        return convertToVO(getOrderEntity(orderId));
+    public OrderVO getOrder(Long orderId, Long userId) {
+        PaymentOrder order = getOrderEntity(orderId);
+        // P0-4: 验证订单归属（防止 IDOR 漏洞）
+        if (!order.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
+        }
+        // P0-6: 验证 ownerId（数据隔离）
+        Long ownerId = 1L; // TODO: 从上下文获取
+        if (!order.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
+        }
+        return convertToVO(order);
     }
 
     @Override
-    public OrderVO getByOrderNo(String orderNo) {
+    public OrderVO getByOrderNo(String orderNo, Long userId) {
         PaymentOrder order = orderRepository.findByOrderNo(orderNo)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+        // P0-4: 验证订单归属（防止 IDOR 漏洞）
+        if (!order.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
+        }
+        // P0-6: 验证 ownerId（数据隔离）
+        Long ownerId = 1L; // TODO: 从上下文获取
+        if (!order.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
+        }
         return convertToVO(order);
     }
 
@@ -122,9 +163,32 @@ public class OrderServiceImpl implements OrderService {
         if (userId == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
+
+        // P0-6: 使用 Specification 强制过滤 ownerId
+        Long ownerId = 1L; // TODO: 从上下文获取
+        Specification<PaymentOrder> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            // 数据隔离（必须）
+            predicates.add(cb.equal(root.get("ownerId"), ownerId));
+            predicates.add(cb.equal(root.get("userId"), userId));
+
+            // 动态条件
+            if (vo.getStatus() != null && !vo.getStatus().isEmpty()) {
+                try {
+                    OrderStatus status = OrderStatus.valueOf(vo.getStatus().toUpperCase());
+                    predicates.add(cb.equal(root.get("status"), status));
+                } catch (IllegalArgumentException e) {
+                    // 忽略无效状态
+                }
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
         Pageable pageable = PageRequest.of(vo.getPage(), vo.getRows(),
                 Sort.by("desc".equalsIgnoreCase(vo.getSortOrder()) ? Sort.Direction.DESC : Sort.Direction.ASC, "createdAt"));
-        Page<PaymentOrder> page = orderRepository.findByUserId(userId, pageable);
+        Page<PaymentOrder> page = orderRepository.findAll(spec, pageable);
         var list = page.getContent().stream().map(this::convertToVO).collect(Collectors.toList());
         return PageResultVO.of(page.getTotalElements(), list, vo.getPage(), vo.getRows());
     }
