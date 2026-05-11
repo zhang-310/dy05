@@ -95,8 +95,16 @@ CREATE TABLE IF NOT EXISTS live_script (
     update_time             TIMESTAMP                DEFAULT CURRENT_TIMESTAMP  -- 更新时间
 );
 
-CREATE INDEX IF NOT EXISTS idx_live_script_session_id ON live_script(session_id);
+-- P0-4: 添加缺失的索引以优化查询性能
+CREATE INDEX IF NOT EXISTS idx_live_script_session_id ON live_script(session_id) WHERE deleted = 0;
 CREATE INDEX IF NOT EXISTS idx_live_script_executed ON live_script(executed);
+CREATE INDEX IF NOT EXISTS idx_live_script_product_id ON live_script(product_id) WHERE deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_live_script_user_id ON live_script(user_id) WHERE deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_live_script_create_time ON live_script(create_time DESC) WHERE deleted = 0;
+
+-- P0-4: 复合索引（常用查询组合）
+CREATE INDEX IF NOT EXISTS idx_live_script_session_seq ON live_script(session_id, sequence_no) WHERE deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_live_script_user_create ON live_script(user_id, create_time DESC) WHERE deleted = 0;
 
 COMMENT ON TABLE  live_script                   IS '直播话术表';
 COMMENT ON COLUMN live_script.session_id        IS '直播场次ID';
