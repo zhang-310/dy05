@@ -209,7 +209,14 @@ public class DouyinOAuthController {
             Long accountId = ((Number) body.get("accountId")).longValue();
             Optional<DouyinAccount> accountOpt = douyinAccountRepository.findById(accountId);
             if (accountOpt.isPresent()) {
-                userId = accountOpt.get().getOwnerId();
+                DouyinAccount account = accountOpt.get();
+                // P0-3: 验证账户归属（防止跨账户撤销）
+                if (!account.getOwnerId().equals(userId)) {
+                    log.warn("用户 {} 尝试撤销其他用户的授权: accountId={}, ownerId={}",
+                             userId, accountId, account.getOwnerId());
+                    return RESTResult.error(ErrorCode.FORBIDDEN, "无权操作此账户");
+                }
+                userId = account.getOwnerId();
             }
         }
         oauthTokenService.deleteToken(userId, "douyin");
@@ -234,7 +241,14 @@ public class DouyinOAuthController {
         if (accountId != null) {
             Optional<DouyinAccount> accountOpt = douyinAccountRepository.findById(accountId);
             if (accountOpt.isPresent()) {
-                userId = accountOpt.get().getOwnerId();
+                DouyinAccount account = accountOpt.get();
+                // P0-3: 验证账户归属（防止跨账户查询）
+                if (!account.getOwnerId().equals(userId)) {
+                    log.warn("用户 {} 尝试查询其他用户的 Token 状态: accountId={}, ownerId={}",
+                             userId, accountId, account.getOwnerId());
+                    return RESTResult.error(ErrorCode.FORBIDDEN, "无权操作此账户");
+                }
+                userId = account.getOwnerId();
             }
         }
 
@@ -285,7 +299,14 @@ public class DouyinOAuthController {
         if (accountId != null) {
             Optional<DouyinAccount> accountOpt = douyinAccountRepository.findById(accountId);
             if (accountOpt.isPresent()) {
-                userId = accountOpt.get().getOwnerId();
+                DouyinAccount account = accountOpt.get();
+                // P0-3: 验证账户归属（防止跨账户刷新）
+                if (!account.getOwnerId().equals(userId)) {
+                    log.warn("用户 {} 尝试刷新其他用户的 Token: accountId=, ownerId={}",
+                             userId, accountId, account.getOwnerId());
+                    return RESTResult.error(ErrorCode.FORBIDDEN, "无权操作此账户");
+                }
+                userId = account.getOwnerId();
             }
         }
 
