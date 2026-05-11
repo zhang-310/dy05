@@ -56,12 +56,12 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
         try {
             ClientHttpResponse response = execution.execute(request, body);
             responseStatus = response.getStatusCode().value();
-            byte[] respBytes = StreamUtils.copyToByteArray(response.getBody());
-            responseBody = truncate(new String(respBytes, StandardCharsets.UTF_8), MAX_RESPONSE_LEN);
+            // P0-4: 仅读取前 2000 字符，避免大响应体导致内存溢出
+            responseBody = readFirst2000Chars(response.getBody());
             if (responseStatus < 200 || responseStatus >= 300) {
                 status = 0;
             }
-            return new BufferedClientHttpResponse(response, respBytes);
+            return response;  // 直接返回原始流，不包装
         } catch (Exception e) {
             status = 0;
             errorMessage = e.getClass().getSimpleName() + ": " + (e.getMessage() != null ? e.getMessage() : "");
@@ -157,44 +157,20 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
         return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
-    /** 包装响应以便重复读取 body */
-    private static class BufferedClientHttpResponse implements ClientHttpResponse {
-        private final ClientHttpResponse delegate;
-        private final byte[] body;
-
-        BufferedClientHttpResponse(ClientHttpResponse delegate, byte[] body) {
-            this.delegate = delegate;
-            this.body = body;
-        }
-
-        @Override
-        public HttpStatusCode getStatusCode() throws IOException {
-            return delegate.getStatusCode();
-        }
-
-        @Override
-        public int getRawStatusCode() throws IOException {
-            return delegate.getStatusCode().value();
-        }
-
-        @Override
-        public String getStatusText() throws IOException {
-            return delegate.getStatusCode().toString();
-        }
-
-        @Override
-        public void close() {
-            delegate.close();
-        }
-
-        @Override
-        public java.io.InputStream getBody() {
-            return new java.io.ByteArrayInputStream(body);
-        }
-
-        @Override
-        public org.springframework.http.HttpHeaders getHeaders() {
-            return delegate.getHeaders();
+    /**
+     * P0-4: 仅读取响应体前 2000 字符，避免大响应体导致内存溢出
+     */
+    private String readFirst2000Chars(java.io.InputStream inputStream) {
+        try {
+            byte[] buffer = new byte[MAX_RESPONSE_LEN];
+            int bytesRead = inputStream.read(buffer);
+            if (bytesRead > 0) {
+                return new String(buffer, 0, bytesRead, StandardCharsets.UTF_8);
+            }
+            return null;
+        } catch (Exception e) {
+            log.warn("读取响应体失败: {}", e.getMessage());
+            return null;
         }
     }
 }
