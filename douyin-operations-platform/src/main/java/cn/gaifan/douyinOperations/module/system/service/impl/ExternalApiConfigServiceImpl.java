@@ -202,15 +202,36 @@ public class ExternalApiConfigServiceImpl implements ExternalApiConfigService {
 
     /**
      * 脱敏：apiKeyEncrypted / apiSecretEncrypted 只显示末尾4位
+     * P0-3 修复：使用对象拷贝，避免修改原对象导致加密数据损坏
      */
     private ExternalApiConfig maskSensitiveFields(ExternalApiConfig config) {
+        ExternalApiConfig masked = new ExternalApiConfig();
+        masked.setId(config.getId());
+        masked.setProviderCode(config.getProviderCode());
+        masked.setProviderName(config.getProviderName());
+        masked.setCategory(config.getCategory());
+        masked.setBaseUrl(config.getBaseUrl());
+        masked.setIsEnabled(config.getIsEnabled());
+        masked.setPriority(config.getPriority());
+        masked.setRateLimitPerMin(config.getRateLimitPerMin());
+        masked.setDailyQuota(config.getDailyQuota());
+        masked.setMonthlyQuota(config.getMonthlyQuota());
+        masked.setHealthStatus(config.getHealthStatus());
+        masked.setAvgLatencyMs(config.getAvgLatencyMs());
+        masked.setSuccessRatePct(config.getSuccessRatePct());
+        masked.setLastHealthCheck(config.getLastHealthCheck());
+        masked.setExtraConfig(config.getExtraConfig());
+        masked.setCreateTime(config.getCreateTime());
+        masked.setUpdateTime(config.getUpdateTime());
+        masked.setDeleted(config.getDeleted());
+
         if (config.getApiKeyEncrypted() != null) {
-            config.setApiKeyEncrypted(maskValue(config.getApiKeyEncrypted()));
+            masked.setApiKeyEncrypted(maskValue(config.getApiKeyEncrypted()));
         }
         if (config.getApiSecretEncrypted() != null) {
-            config.setApiSecretEncrypted(maskValue(config.getApiSecretEncrypted()));
+            masked.setApiSecretEncrypted(maskValue(config.getApiSecretEncrypted()));
         }
-        return config;
+        return masked;
     }
 
     private String maskValue(String value) {
