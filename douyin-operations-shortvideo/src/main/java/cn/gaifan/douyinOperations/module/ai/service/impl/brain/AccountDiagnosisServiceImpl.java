@@ -1,6 +1,6 @@
 package cn.gaifan.douyinOperations.module.ai.service.impl.brain;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.ShortVideoBusinessConfig;
 import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
 import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.repository.KnowledgeQualityScoreRepository;
@@ -58,7 +58,7 @@ public class AccountDiagnosisServiceImpl implements AccountDiagnosisService {
     private LiveScriptEffectivenessRepository effectivenessRepository;
 
     @Autowired(required = false)
-    private BusinessParamConfig businessParamConfig;
+    private ShortVideoBusinessConfig shortVideoBusinessConfig;
 
     @Autowired(required = false)
     private LlmClient llmClient;
@@ -213,10 +213,11 @@ public class AccountDiagnosisServiceImpl implements AccountDiagnosisService {
     }
 
     private double computeCompetitiveness(Long accountId, DouyinAccount acc) {
-        BusinessParamConfig.IndustryBenchmark bench = getBenchmark("skincare");
-        long avgView = bench != null ? bench.getAvgViewCount() : 5000;
-        double avgLikeRate = bench != null ? bench.getAvgLikeRate() : 0.05;
-        double avgCompletion = bench != null ? bench.getAvgCompletionRate() : 0.35;
+        // 使用行业基准数据（护肤品类）
+        long avgView = 5000;
+        double avgLikeRate = 0.05;
+        double avgCompletion = 0.35;
+
         if (videoRepository != null) {
             List<Long> views = videoRepository.findViewCountsByAccountId(accountId);
             if (!views.isEmpty()) {
@@ -239,11 +240,6 @@ public class AccountDiagnosisServiceImpl implements AccountDiagnosisService {
             if (avgLike >= 1000) return 0.55;
         }
         return fans >= 100000 ? 0.65 : fans >= 10000 ? 0.55 : 0.5;
-    }
-
-    private BusinessParamConfig.IndustryBenchmark getBenchmark(String category) {
-        if (businessParamConfig == null || businessParamConfig.getIndustryBenchmark() == null) return null;
-        return businessParamConfig.getIndustryBenchmark().get(category);
     }
 
     private double computeContentQuality(Long userId) {

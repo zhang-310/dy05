@@ -658,7 +658,7 @@ public class LiveScriptGenerationController {
                         System.currentTimeMillis() - start, 1, null, false, r.getReferencedChunkIds(), null);
                 Long callLogId = aiCallLogService.log(entry);
                 if (r.getSessionIdForAttribution() != null)
-                    aiCallLogService.linkToPublish(callLogId, null, r.getSessionIdForAttribution());
+                    aiCallLogService.linkToPublish(callLogId, null, r.getSessionIdForAttribution(), userId);
                 if (r.getScriptIdForAttribution() != null)
                     liveAiService.attachAiCallLogToScript(r.getScriptIdForAttribution(), callLogId);
             } else {
@@ -683,7 +683,7 @@ public class LiveScriptGenerationController {
                     null, null, null, null, System.currentTimeMillis() - start, 1, null, false, refChunks, null);
             Long callLogId = aiCallLogService.log(entry);
             if (result.getSessionIdForAttribution() != null)
-                aiCallLogService.linkToPublish(callLogId, null, result.getSessionIdForAttribution());
+                aiCallLogService.linkToPublish(callLogId, null, result.getSessionIdForAttribution(), userId);
             if (result.getScriptIdsForAttribution() != null) {
                 for (Long scriptId : result.getScriptIdsForAttribution()) {
                     liveAiService.attachAiCallLogToScript(scriptId, callLogId);

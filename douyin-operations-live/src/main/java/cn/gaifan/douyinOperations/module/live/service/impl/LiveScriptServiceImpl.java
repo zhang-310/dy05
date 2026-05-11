@@ -8,6 +8,8 @@ import cn.gaifan.douyinOperations.module.live.repository.LiveProductRepository;
 import cn.gaifan.douyinOperations.module.live.repository.LiveScriptRepository;
 import cn.gaifan.douyinOperations.module.live.service.LiveScriptService;
 import cn.gaifan.douyinOperations.module.live.vo.*;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -70,7 +72,9 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         return PageResultVO.of(total, list, vo.getPage(), vo.getRows());
     }
 
+    // P0-3: 添加缓存 - 话术详情查询
     @Override
+    @Cacheable(value = "live:script", key = "#id")
     public LiveScriptVO getById(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播话术 ID 无效");
@@ -80,8 +84,10 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         return toLiveScriptVO(script);
     }
 
+    // P0-3: 保存时清除缓存
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "live:script", key = "#vo.id", condition = "#vo.id != null")
     public long save(LiveScriptSaveVO vo) {
         if (vo.getSessionId() == null || vo.getSessionId() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
@@ -107,6 +113,8 @@ public class LiveScriptServiceImpl implements LiveScriptService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    // P0-3: 删除时清除缓存
+    @CacheEvict(value = "live:script", key = "#id")
     public void delete(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播话术 ID 无效");
@@ -234,6 +242,32 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         vo.setExecutionTime(script.getExecutionTime());
         vo.setExecuted(script.getExecuted());
         vo.setActualExecutionTime(script.getActualExecutionTime());
+
+        // P0-2: 补全所有 Entity 字段
+        vo.setScriptType(script.getScriptType());
+        vo.setStyle(script.getStyle());
+        vo.setAiGenerated(script.getAiGenerated() != null && script.getAiGenerated() == 1);
+        vo.setProductId(script.getProductId());
+        vo.setAiCallLogId(script.getAiCallLogId());
+        vo.setGenerationStatus(script.getGenerationStatus());
+        vo.setViolationChecked(script.getViolationChecked() != null && script.getViolationChecked() == 1);
+        vo.setViolationResult(script.getViolationResult());
+        vo.setViewerDelta(script.getViewerDelta());
+        vo.setInteractionDelta(script.getInteractionDelta());
+        vo.setConversionDelta(script.getConversionDelta());
+        vo.setEffectivenessScore(script.getEffectivenessScore() != null ? script.getEffectivenessScore().doubleValue() : null);
+        vo.setDurationLimitSec(script.getDurationLimitSec());
+        vo.setRequirement(script.getRequirement());
+        vo.setReferencedScriptId(script.getReferencedScriptId());
+        vo.setReferencedScriptSnapshot(script.getReferencedScriptSnapshot());
+        vo.setApprovalStatus(script.getApprovalStatus() != null ? script.getApprovalStatus().toString() : null);
+        vo.setUserId(script.getUserId());
+        vo.setGenerationPromptHash(script.getGenerationPromptHash());
+        vo.setAbExperimentId(script.getAbExperimentId());
+        vo.setAbVariantId(script.getAbVariantId());
+        vo.setAiSuggestion(script.getAiSuggestion());
+        vo.setPromptTemplateId(script.getPromptTemplateId());
+
         vo.setCreateTime(script.getCreateTime());
         vo.setUpdateTime(script.getUpdateTime());
         return vo;

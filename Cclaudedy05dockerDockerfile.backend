@@ -1,0 +1,67 @@
+# Backend Dockerfile
+FROM eclipse-temurin:17-jdk-alpine AS builder
+
+WORKDIR /app
+
+# Copy Maven wrapper and pom files
+COPY .mvn/ .mvn/
+COPY mvnw pom.xml ./
+COPY douyin-operations-common/pom.xml douyin-operations-common/
+COPY douyin-operations-platform/pom.xml douyin-operations-platform/
+COPY douyin-operations-integration/pom.xml douyin-operations-integration/
+COPY douyin-operations-asset/pom.xml douyin-operations-asset/
+COPY douyin-operations-content/pom.xml douyin-operations-content/
+COPY douyin-operations-intelligence/pom.xml douyin-operations-intelligence/
+COPY douyin-operations-douyin/pom.xml douyin-operations-douyin/
+COPY douyin-operations-payment/pom.xml douyin-operations-payment/
+COPY douyin-operations-live/pom.xml douyin-operations-live/
+COPY douyin-operations-shortvideo/pom.xml douyin-operations-shortvideo/
+COPY douyin-operations-app/pom.xml douyin-operations-app/
+
+# Download dependencies
+RUN ./mvnw dependency:go-offline -B
+
+# Copy source code
+COPY douyin-operations-common/src douyin-operations-common/src
+COPY douyin-operations-platform/src douyin-operations-platform/src
+COPY douyin-operations-integration/src douyin-operations-integration/src
+COPY douyin-operations-asset/src douyin-operations-asset/src
+COPY douyin-operations-content/src douyin-operations-content/src
+COPY douyin-operations-intelligence/src douyin-operations-intelligence/src
+COPY douyin-operations-douyin/src douyin-operations-douyin/src
+COPY douyin-operations-payment/src douyin-operations-payment/src
+COPY douyin-operations-live/src douyin-operations-live/src
+COPY douyin-operations-shortvideo/src douyin-operations-shortvideo/src
+COPY douyin-operations-app/src douyin-operations-app/src
+
+# Build application
+RUN ./mvnw package -DskipTests -B
+
+# Runtime stage
+FROM eclipse-temurin:17-jre-alpine
+
+WORKDIR /app
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Copy JAR from builder
+COPY --from=builder /app/douyin-operations-app/target/*.jar app.jar
+
+# Create non-root user
+RUN addgroup -S spring && adduser -S spring -G spring
+USER spring:spring
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8080/actuator/health || exit 1
+
+# Run application
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", "app.jar"]

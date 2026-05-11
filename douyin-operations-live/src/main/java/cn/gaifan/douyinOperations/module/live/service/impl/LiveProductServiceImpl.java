@@ -7,6 +7,8 @@ import cn.gaifan.douyinOperations.module.live.entity.LiveProduct;
 import cn.gaifan.douyinOperations.module.live.repository.LiveProductRepository;
 import cn.gaifan.douyinOperations.module.live.service.LiveProductService;
 import cn.gaifan.douyinOperations.module.live.vo.*;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -50,7 +52,9 @@ public class LiveProductServiceImpl implements LiveProductService {
         return PageResultVO.of(page.getTotalElements(), list, vo.getPage(), vo.getRows());
     }
 
+    // P0-3: 添加缓存 - 产品详情查询
     @Override
+    @Cacheable(value = "live:product", key = "#id")
     public LiveProductVO getById(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播产品 ID 无效");
@@ -60,8 +64,10 @@ public class LiveProductServiceImpl implements LiveProductService {
         return toLiveProductVO(product);
     }
 
+    // P0-3: 保存时清除缓存
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "live:product", key = "#vo.id", condition = "#vo.id != null")
     public long save(LiveProductSaveVO vo) {
         if (vo.getSessionId() == null || vo.getSessionId() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
@@ -88,6 +94,8 @@ public class LiveProductServiceImpl implements LiveProductService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    // P0-3: 删除时清除缓存
+    @CacheEvict(value = "live:product", key = "#id")
     public void delete(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播产品 ID 无效");

@@ -21,7 +21,7 @@ export default function AlertRulesPage() {
 
   const { data, isFetching } = useQuery({
     queryKey: ['alert-rules', search],
-    queryFn: () => systemApi.alertRuleSearch(search as unknown as Record<string, unknown>),
+    queryFn: () => systemApi.alertRuleSearch(search),
   })
 
   const saveMut = useMutation({

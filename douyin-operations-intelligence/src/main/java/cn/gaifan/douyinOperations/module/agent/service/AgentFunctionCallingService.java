@@ -6,6 +6,7 @@ import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.agent.skill.Skill;
 import cn.gaifan.douyinOperations.module.agent.skill.SkillRegistry;
 import cn.gaifan.douyinOperations.module.agent.service.SkillExecutor.ToolCallResult;
+import cn.gaifan.douyinOperations.module.agent.util.PromptInjectionDetector;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -98,10 +99,10 @@ public class AgentFunctionCallingService {
         log.info("[AgentFC] 生成工具定义 {} 个: {}", tools.size(),
                 tools.stream().map(t -> t.name).toList());
 
-        // 2. 构建初始消息列表
+        // 2. 构建初始消息列表（P0-3: 使用结构化 Prompt 包装用户输入）
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(Map.of("role", "system", "content", systemPrompt != null ? systemPrompt : "你是智能助手"));
-        messages.add(Map.of("role", "user", "content", userMessage));
+        messages.add(Map.of("role", "user", "content", PromptInjectionDetector.wrapUserInput(userMessage)));
 
         // 3. LLM 工具调用循环（最多 MAX_TOOL_CALL_ROUNDS 轮）
         long totalTokens = 0;
@@ -149,17 +150,6 @@ public class AgentFunctionCallingService {
             }
 
             // 3.4 将 LLM 的 assistant 消息加入历史
-            List<Map<String, Object>> assistantMsg = new ArrayList<>();
-            assistantMsg.add(Map.of("role", "assistant", "content",
-                    response.content() != null ? response.content() : ""));
-
-            List<Map<String, Object>> toolCallList = new ArrayList<>();
-            for (Map<String, Object> tc : parsedToolCalls) {
-                Map<String, Object> tcMsg = new LinkedHashMap<>(tc);
-                assistantMsg.get(0).put("tool_calls", toolCallList);
-                toolCallList.add(tcMsg);
-            }
-            // 修正：直接构建带 tool_calls 的消息
             Map<String, Object> assistantMessage = new LinkedHashMap<>();
             assistantMessage.put("role", "assistant");
             assistantMessage.put("content", response.content() != null ? response.content() : "");

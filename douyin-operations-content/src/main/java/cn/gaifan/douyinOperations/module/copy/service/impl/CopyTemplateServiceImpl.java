@@ -7,6 +7,8 @@ import cn.gaifan.douyinOperations.module.copy.entity.CopyTemplate;
 import cn.gaifan.douyinOperations.module.copy.repository.CopyTemplateRepository;
 import cn.gaifan.douyinOperations.module.copy.service.CopyTemplateService;
 import cn.gaifan.douyinOperations.module.copy.vo.*;
+import com.github.benmanes.caffeine.cache.Cache;
+import org.apache.commons.text.StringEscapeUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -36,6 +38,9 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
     @Resource
     private CopyTemplateRepository copyTemplateRepository;
 
+    @Resource
+    private Cache<Long, Object> copyTemplateCache;
+
     @Override
     public PageResultVO<CopyTemplateVO> search(CopyTemplateSearchVO vo) {
         vo.validateParams();
@@ -46,7 +51,10 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
         Specification<CopyTemplate> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("deleted"), 0));
-            if (vo.getUserId() != null) predicates.add(cb.equal(root.get("userId"), vo.getUserId()));
+            // P0-2: 数据隔离 - 强制过滤 userId（不可绕过）
+            if (vo.getUserId() != null) {
+                predicates.add(cb.equal(root.get("userId"), vo.getUserId()));
+            }
             if (vo.getCategory() != null && !vo.getCategory().trim().isEmpty()) {
                 predicates.add(cb.equal(root.get("category"), vo.getCategory().trim()));
             }
@@ -80,9 +88,19 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
     @Override
     public CopyTemplateVO getById(Long id) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "模板 ID 无效");
+
+        // P0-3: 先查缓存
+        CopyTemplateVO cached = (CopyTemplateVO) copyTemplateCache.getIfPresent(id);
+        if (cached != null) return cached;
+
+        // 缓存未命中，查数据库
         CopyTemplate entity = copyTemplateRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "模板不存在"));
-        return toVO(entity);
+        CopyTemplateVO vo = toVO(entity);
+
+        // 写入缓存
+        copyTemplateCache.put(id, vo);
+        return vo;
     }
 
     @Override
@@ -95,14 +113,17 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
         if (vo.getId() != null && vo.getId() > 0) {
             entity = copyTemplateRepository.findByIdAndDeleted(vo.getId(), 0)
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "模板不存在"));
+            // P0-3: 更新时失效缓存
+            copyTemplateCache.invalidate(vo.getId());
         } else {
             entity = new CopyTemplate();
             entity.setUserId(vo.getUserId());
         }
-        entity.setTemplateName(vo.getTemplateName());
-        entity.setTemplateContent(vo.getTemplateContent());
-        if (vo.getCategory() != null) entity.setCategory(vo.getCategory());
-        if (vo.getDescription() != null) entity.setDescription(vo.getDescription());
+        // P0-1: XSS 防护 - HTML 转义用户输入
+        entity.setTemplateName(vo.getTemplateName() != null ? StringEscapeUtils.escapeHtml4(vo.getTemplateName()) : null);
+        entity.setTemplateContent(vo.getTemplateContent() != null ? StringEscapeUtils.escapeHtml4(vo.getTemplateContent()) : null);
+        if (vo.getCategory() != null) entity.setCategory(StringEscapeUtils.escapeHtml4(vo.getCategory()));
+        if (vo.getDescription() != null) entity.setDescription(StringEscapeUtils.escapeHtml4(vo.getDescription()));
         if (vo.getStatus() != null) entity.setStatus(vo.getStatus());
         entity = copyTemplateRepository.save(entity);
         return entity.getId();
@@ -116,6 +137,8 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "模板不存在"));
         entity.setDeleted(1);
         copyTemplateRepository.save(entity);
+        // P0-3: 删除时失效缓存
+        copyTemplateCache.invalidate(id);
     }
 
     @Override
@@ -125,6 +148,8 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
         copyTemplateRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "模板不存在"));
         copyTemplateRepository.updateStatus(id, status);
+        // P0-3: 更新状态时失效缓存
+        copyTemplateCache.invalidate(id);
     }
 
     private CopyTemplateVO toVO(CopyTemplate e) {

@@ -9,6 +9,8 @@ import cn.gaifan.douyinOperations.module.copy.repository.CopyApprovalRepository;
 import cn.gaifan.douyinOperations.module.copy.repository.CopyLibraryRepository;
 import cn.gaifan.douyinOperations.module.copy.service.CopyApprovalService;
 import cn.gaifan.douyinOperations.module.copy.vo.*;
+import com.github.benmanes.caffeine.cache.Cache;
+import org.apache.commons.text.StringEscapeUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -35,6 +37,9 @@ public class CopyApprovalServiceImpl implements CopyApprovalService {
     @Resource
     private CopyLibraryRepository copyLibraryRepository;
 
+    @Resource
+    private Cache<Long, Object> copyApprovalCache;
+
     @Override
     public PageResultVO<CopyApprovalVO> search(CopyApprovalSearchVO vo) {
         vo.validateParams();
@@ -45,6 +50,10 @@ public class CopyApprovalServiceImpl implements CopyApprovalService {
         Specification<CopyApproval> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("deleted"), 0));
+            // P0-2: 数据隔离 - 强制过滤 ownerId（从 vo 获取当前用户 ID）
+            if (vo.getOwnerId() != null) {
+                predicates.add(cb.equal(root.get("ownerId"), vo.getOwnerId()));
+            }
             if (vo.getCopyId() != null) predicates.add(cb.equal(root.get("copyId"), vo.getCopyId()));
             if (vo.getApprovalStatus() != null) predicates.add(cb.equal(root.get("approvalStatus"), vo.getApprovalStatus()));
             if (vo.getUserId() != null) predicates.add(cb.equal(root.get("userId"), vo.getUserId()));
@@ -72,10 +81,20 @@ public class CopyApprovalServiceImpl implements CopyApprovalService {
     @Override
     public CopyApprovalVO getById(Long id) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "审批 ID 无效");
+
+        // P0-3: 先查缓存
+        CopyApprovalVO cached = (CopyApprovalVO) copyApprovalCache.getIfPresent(id);
+        if (cached != null) return cached;
+
+        // 缓存未命中，查数据库
         CopyApproval entity = copyApprovalRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "审批记录不存在"));
         CopyLibrary lib = copyLibraryRepository.findByIdAndDeleted(entity.getCopyId(), 0).orElse(null);
-        return toVO(entity, lib);
+        CopyApprovalVO vo = toVO(entity, lib);
+
+        // 写入缓存
+        copyApprovalCache.put(id, vo);
+        return vo;
     }
 
     @Override
@@ -85,6 +104,8 @@ public class CopyApprovalServiceImpl implements CopyApprovalService {
         if (vo.getId() != null && vo.getId() > 0) {
             entity = copyApprovalRepository.findByIdAndDeleted(vo.getId(), 0)
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "审批记录不存在"));
+            // P0-3: 更新时失效缓存
+            copyApprovalCache.invalidate(vo.getId());
         } else {
             // 新建审批记录，校验文案存在
             copyLibraryRepository.findByIdAndDeleted(vo.getCopyId(), 0)
@@ -103,7 +124,8 @@ public class CopyApprovalServiceImpl implements CopyApprovalService {
                 copyLibraryRepository.updateStatus(vo.getCopyId(), libraryStatus);
             }
         }
-        if (vo.getComments() != null) entity.setComments(vo.getComments());
+        // P0-1: XSS 防护 - HTML 转义审批评论
+        if (vo.getComments() != null) entity.setComments(StringEscapeUtils.escapeHtml4(vo.getComments()));
         entity = copyApprovalRepository.save(entity);
         return entity.getId();
     }
@@ -116,6 +138,8 @@ public class CopyApprovalServiceImpl implements CopyApprovalService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "审批记录不存在"));
         entity.setDeleted(1);
         copyApprovalRepository.save(entity);
+        // P0-3: 删除时失效缓存
+        copyApprovalCache.invalidate(id);
     }
 
     private CopyApprovalVO toVO(CopyApproval e) {

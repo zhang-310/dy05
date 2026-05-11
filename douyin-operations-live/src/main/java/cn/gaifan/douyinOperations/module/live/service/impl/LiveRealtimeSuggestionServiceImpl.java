@@ -1,6 +1,6 @@
 package cn.gaifan.douyinOperations.module.live.service.impl;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.LiveBusinessConfig;
 import cn.gaifan.douyinOperations.module.live.config.LiveDanmakuSentimentProperties;
 import cn.gaifan.douyinOperations.module.live.repository.LiveScriptRepository;
 import cn.gaifan.douyinOperations.module.live.repository.LiveDanmakuRecordRepository;
@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 public class LiveRealtimeSuggestionServiceImpl implements LiveRealtimeSuggestionService {
 
     @Autowired(required = false)
-    private BusinessParamConfig businessParamConfig;
+    private LiveBusinessConfig liveBusinessConfig;
 
     @Autowired
     private DanmakuSentimentService danmakuSentimentService;
@@ -55,11 +55,11 @@ public class LiveRealtimeSuggestionServiceImpl implements LiveRealtimeSuggestion
     @Override
     public List<RealtimeSuggestionVO> evaluateSuggestions(LiveSessionRealtimeDataVO data, Long liveSessionId) {
         List<RealtimeSuggestionVO> list = new ArrayList<>();
-        if (data == null || businessParamConfig == null) {
+        if (data == null || liveBusinessConfig == null) {
             return list;
         }
-        if (businessParamConfig.getRealtimeSuggestion().isEnabled()) {
-        BusinessParamConfig.RealtimeSuggestion cfg = businessParamConfig.getRealtimeSuggestion();
+        if (liveBusinessConfig.getRealtimeSuggestion().isEnabled()) {
+        LiveBusinessConfig.RealtimeSuggestion cfg = liveBusinessConfig.getRealtimeSuggestion();
         int viewerCount = data.getViewerCount() != null ? data.getViewerCount() : 0;
         int watchedCount = data.getWatchedCount() != null ? data.getWatchedCount() : 0;
         int likeCount = data.getLikeCount() != null ? data.getLikeCount() : 0;
@@ -202,8 +202,8 @@ public class LiveRealtimeSuggestionServiceImpl implements LiveRealtimeSuggestion
             }
         }
         }
-        if (businessParamConfig.getLiveInventory() != null
-                && businessParamConfig.getLiveInventory().isRealtimeSuggestionEnabled()
+        if (liveBusinessConfig.getLiveInventory() != null
+                && liveBusinessConfig.getLiveInventory().isRealtimeSuggestionEnabled()
                 && liveSessionId != null
                 && data.getCurrentSlotIndex() != null) {
             java.util.List<LiveScript> ord = liveScriptRepository.findBySessionIdAndDeletedOrderBySequenceNoAsc(liveSessionId, 0);
@@ -216,7 +216,7 @@ public class LiveRealtimeSuggestionServiceImpl implements LiveRealtimeSuggestion
                         if (inv == null) {
                             return;
                         }
-                        var li = businessParamConfig.getLiveInventory();
+                        var li = liveBusinessConfig.getLiveInventory();
                         if (inv > li.getLowStockThreshold()) {
                             return;
                         }

@@ -222,7 +222,8 @@ export default function KnowledgeBasePage() {
       })
       setRagResults(chunks)
     } catch (e) {
-      toast((e as Error).message, 'error')
+      const message = e instanceof Error ? e.message : '检索失败'
+      toast(message, 'error')
     } finally {
       setRagLoading(false)
     }

@@ -11,9 +11,9 @@ public interface ProductService {
 
     long save(ProductSaveVO vo);
 
-    void delete(Long id);
+    void delete(Long id, Long userId);
 
-    void batchDelete(java.util.List<Long> ids);
+    void batchDelete(java.util.List<Long> ids, Long userId);
 
     void updateInventory(Long id, Long quantity);
 

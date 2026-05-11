@@ -3,18 +3,10 @@ import { Box, Stack, TextField, Button, Card, CardContent, Typography, Divider, 
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows'
 import { liveApi, type LiveScriptVersion } from '@/api/live'
 import { useQuery } from '@tanstack/react-query'
-
-interface VersionDiffData {
-  leftContent?: string
-  rightContent?: string
-  versionA?: unknown
-  versionB?: unknown
-  before?: unknown
-  after?: unknown
-  [key: string]: unknown
-}
+import { useToast } from '@/contexts/ToastContext'
 
 export default function HistoryComparePage() {
+  const toast = useToast()
   const [scriptId, setScriptId] = useState('')
   const [loadedScriptId, setLoadedScriptId] = useState(0)
   const [v1, setV1] = useState<number>(0)
@@ -27,12 +19,16 @@ export default function HistoryComparePage() {
   })
   const vList: LiveScriptVersion[] = versions ?? []
 
-  const { data: diff, isFetching: diffLoading } = useQuery({
+  const { data: diffData, isFetching: diffLoading, error: diffError } = useQuery({
     queryKey: ['version-diff', v1, v2],
     queryFn: () => liveApi.versionDiff({ versionId1: v1, versionId2: v2 }),
     enabled: v1 > 0 && v2 > 0 && v1 !== v2,
   })
-  const diffData = diff as VersionDiffData | undefined
+
+  // 显示错误提示
+  if (diffError) {
+    toast('版本对比失败', 'error')
+  }
 
   const handleLoad = () => {
     const id = Number(scriptId)
@@ -101,12 +97,14 @@ export default function HistoryComparePage() {
                 <Divider sx={{ mb: 1 }} />
                 {diffData.leftContent ? (
                   <Box component="pre" sx={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
-                    {String(diffData.leftContent)}
+                    {diffData.leftContent}
+                  </Box>
+                ) : diffData.versionA ? (
+                  <Box component="pre" sx={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
+                    {JSON.stringify(diffData.versionA, null, 2)}
                   </Box>
                 ) : (
-                  <Box component="pre" sx={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
-                    {JSON.stringify(diffData.versionA ?? diffData.before ?? diffData, null, 2)}
-                  </Box>
+                  <Typography color="text.secondary">无内容</Typography>
                 )}
               </CardContent>
             </Card>
@@ -119,7 +117,7 @@ export default function HistoryComparePage() {
                 <Divider sx={{ mb: 1 }} />
                 {diffData.rightContent ? (
                   <Box sx={{ fontSize: 12 }}>
-                    {(diffData.rightContent as string).split('\n').map((line, i) => {
+                    {diffData.rightContent.split('\n').map((line, i) => {
                       const isAdded = line.startsWith('+')
                       const isRemoved = line.startsWith('-')
                       return (
@@ -132,10 +130,12 @@ export default function HistoryComparePage() {
                       )
                     })}
                   </Box>
-                ) : (
+                ) : diffData.versionB ? (
                   <Box component="pre" sx={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0 }}>
-                    {JSON.stringify(diffData.versionB ?? diffData.after ?? {}, null, 2)}
+                    {JSON.stringify(diffData.versionB, null, 2)}
                   </Box>
+                ) : (
+                  <Typography color="text.secondary">无内容</Typography>
                 )}
               </CardContent>
             </Card>

@@ -319,7 +319,7 @@ app:
     douyin-skip-yt-dlp-download: ${DOUYIN_SKIP_YT_DLP_DOWNLOAD:false}
     # 抖音：yt-dlp 失败时是否尝试 Playwright 拦截 CDN（需 playwright-enabled=true，并执行 playwright install chromium）
     douyin-yt-dlp-fallback-playwright: ${DOUYIN_YT_DLP_FALLBACK_PLAYWRIGHT:true}
-    playwright-enabled: ${PLAYWRIGHT_ENABLED:false}
+    playwright-enabled: ${PLAYWRIGHT_ENABLED:true}
     playwright-timeout-ms: ${PLAYWRIGHT_TIMEOUT_MS:30000}
 
 douyin:

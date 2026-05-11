@@ -9,7 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.AttributionConfig;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
 import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
@@ -43,7 +43,7 @@ public class IndustryCausalEngineImpl implements IndustryCausalEngine {
     private HostPersonaService hostPersonaService;
 
     @Autowired(required = false)
-    private BusinessParamConfig businessParamConfig;
+    private AttributionConfig attributionConfig;
 
     @Autowired(required = false)
     private LiveScriptEffectivenessRepository effectivenessRepository;
@@ -92,8 +92,8 @@ public class IndustryCausalEngineImpl implements IndustryCausalEngine {
     }
 
     private double getBaseRate() {
-        return businessParamConfig != null && businessParamConfig.getCausalEngine() != null
-                ? businessParamConfig.getCausalEngine().getBaseRate()
+        return attributionConfig != null && attributionConfig.getCausalEngine() != null
+                ? attributionConfig.getCausalEngine().getBaseRate()
                 : 0.35;
     }
 
@@ -113,7 +113,7 @@ public class IndustryCausalEngineImpl implements IndustryCausalEngine {
             }
         }
 
-        BusinessParamConfig.CausalEngine ce = businessParamConfig != null ? businessParamConfig.getCausalEngine() : null;
+        AttributionConfig.CausalEngine ce = attributionConfig != null ? attributionConfig.getCausalEngine() : null;
         if (scriptType != null && !scriptType.isBlank()) {
             double f = getScriptTypeFactor(ce, scriptType);
             if (f > 1.0) { rate *= f; factors.add("话术类型:" + scriptType); }
@@ -137,7 +137,7 @@ public class IndustryCausalEngineImpl implements IndustryCausalEngine {
     }
 
     /** 话术类型因子：优先使用自适应缓存，否则用配置 */
-    private double getScriptTypeFactor(BusinessParamConfig.CausalEngine ce, String scriptType) {
+    private double getScriptTypeFactor(AttributionConfig.CausalEngine ce, String scriptType) {
         Double adaptive = adaptiveScriptTypeFactors.get(scriptType);
         double configFactor = applyFactor(ce != null ? ce.getScriptTypeFactors() : null, scriptType, 1.0);
         if (adaptive != null && adaptive > 0) {
@@ -148,12 +148,12 @@ public class IndustryCausalEngineImpl implements IndustryCausalEngine {
 
     /** 因果因子自适应学习：从 live_script_effectiveness 聚合，updatedFactor = 0.7*actual + 0.3*config */
     public void adaptFactorsFromEffectiveness() {
-        if (effectivenessRepository == null || businessParamConfig == null) return;
+        if (effectivenessRepository == null || attributionConfig == null) return;
         double baseRate = getBaseRate();
         if (baseRate <= 0) return;
         try {
             List<Object[]> rows = effectivenessRepository.findAvgConversionByScriptType();
-            BusinessParamConfig.CausalEngine ce = businessParamConfig.getCausalEngine();
+            AttributionConfig.CausalEngine ce = attributionConfig.getCausalEngine();
             Map<String, Double> configFactors = ce != null ? ce.getScriptTypeFactors() : Map.of();
             for (Object[] row : rows) {
                 String type = row[0] != null ? row[0].toString() : "";

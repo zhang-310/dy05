@@ -151,10 +151,10 @@ export interface LiveScriptVO {
   requirement?: string
   durationLimitSec?: number
   productId?: number
-  aiGenerated?: number
+  aiGenerated?: boolean           // P0-2: 改为 boolean（后端已转换）
   aiCallLogId?: number
   generationStatus?: string
-  violationChecked?: number
+  violationChecked?: boolean      // P0-2: 改为 boolean（后端已转换）
   violationResult?: string
   viewerDelta?: number
   interactionDelta?: number
@@ -165,13 +165,17 @@ export interface LiveScriptVO {
   executed?: number
   referencedScriptId?: number
   referencedScriptSnapshot?: string
-  approvalStatus?: number
+  approvalStatus?: string         // P0-2: 改为 string（后端已转换）
   abExperimentId?: number
   abVariantId?: number
   /** 末次 AI 生成的 prompt 指纹（SHA-256 hex）；手工保存改文后清空 */
   generationPromptHash?: string
   actualExecutionTime?: string
   presenterNotes?: string
+  // P0-2: 补充缺失字段（已全部补齐）
+  userId?: number                 // 所属用户 ID
+  aiSuggestion?: string           // AI 建议
+  promptTemplateId?: number       // 提示词模板 ID
   createTime: string
   updateTime: string
   [key: string]: unknown

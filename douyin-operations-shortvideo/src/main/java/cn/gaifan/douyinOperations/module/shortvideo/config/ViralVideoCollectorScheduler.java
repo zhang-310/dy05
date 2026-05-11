@@ -1,6 +1,6 @@
 package cn.gaifan.douyinOperations.module.shortvideo.config;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.ShortVideoBusinessConfig;
 import cn.gaifan.douyinOperations.module.douyin.entity.DouyinVideo;
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinVideoRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvHotTopic;
@@ -33,7 +33,7 @@ public class ViralVideoCollectorScheduler {
     private SvViralVideoRepository svViralVideoRepository;
 
     @Resource
-    private BusinessParamConfig businessParamConfig;
+    private ShortVideoBusinessConfig shortVideoBusinessConfig;
 
     @Resource
     private ShortVideoVerticalCollectorProperties verticalCollectorProperties;
@@ -45,7 +45,7 @@ public class ViralVideoCollectorScheduler {
     public void collectViralFromHotTopics() {
         log.info("[ViralCollector] 开始从热点话题采集爆款");
         try {
-            BusinessParamConfig.ViralThreshold threshold = businessParamConfig.getViral();
+            ShortVideoBusinessConfig.ViralThreshold threshold = shortVideoBusinessConfig.getViral();
 
             Specification<SvHotTopic> spec = (root, query, cb) -> {
                 List<Predicate> predicates = new ArrayList<>();
@@ -112,7 +112,7 @@ public class ViralVideoCollectorScheduler {
         }
         log.info("[ViralCollector] 开始从 douyin_video 按阈值筛选爆款");
         try {
-            BusinessParamConfig.ViralThreshold threshold = businessParamConfig.getViral();
+            ShortVideoBusinessConfig.ViralThreshold threshold = shortVideoBusinessConfig.getViral();
 
             Specification<DouyinVideo> spec = (root, query, cb) -> {
                 List<Predicate> predicates = new ArrayList<>();
@@ -211,7 +211,7 @@ public class ViralVideoCollectorScheduler {
             }
 
             if (douyinVideoRepository != null && collected < batchLimit) {
-                BusinessParamConfig.ViralThreshold threshold = businessParamConfig.getViral();
+                ShortVideoBusinessConfig.ViralThreshold threshold = shortVideoBusinessConfig.getViral();
                 Specification<DouyinVideo> spec = (root, query, cb) -> {
                     List<Predicate> predicates = new ArrayList<>();
                     predicates.add(cb.greaterThanOrEqualTo(root.get("viewCount"), threshold.getMinViewCount()));
@@ -298,7 +298,7 @@ public class ViralVideoCollectorScheduler {
      * 判断视频是否符合爆款阈值
      */
     public boolean isViral(long viewCount, double likeRate, double completionRate, double shareRate) {
-        BusinessParamConfig.ViralThreshold t = businessParamConfig.getViral();
+        ShortVideoBusinessConfig.ViralThreshold t = shortVideoBusinessConfig.getViral();
         return viewCount >= t.getMinViewCount()
                 && likeRate >= t.getMinLikeRate()
                 && completionRate >= t.getMinCompletionRate()

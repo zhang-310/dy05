@@ -8,6 +8,9 @@ import cn.gaifan.douyinOperations.module.douyin.repository.DouyinAccountReposito
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinVideoRepository;
 import cn.gaifan.douyinOperations.module.douyin.service.DouyinAccountService;
 import cn.gaifan.douyinOperations.module.douyin.vo.*;
+import com.github.benmanes.caffeine.cache.Cache;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
@@ -29,6 +32,8 @@ import java.util.stream.Collectors;
 @Service
 public class DouyinAccountServiceImpl implements DouyinAccountService {
 
+    private static final Logger log = LoggerFactory.getLogger(DouyinAccountServiceImpl.class);
+
     private static final Set<String> SORTABLE_FIELDS = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList("id", "userId", "createTime", "updateTime", "fanCount", "videoCount", "totalLikes")));
 
@@ -37,6 +42,9 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
 
     @Resource
     private DouyinVideoRepository douyinVideoRepository;
+
+    @Resource(name = "accountStatisticsCache")
+    private Cache<Long, Object> accountStatisticsCache;
 
     @Override
     public PageResultVO<DouyinAccountVO> search(DouyinAccountSearchVO vo) {
@@ -91,7 +99,9 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAIL, "账号不存在"));
         } else {
             if (douyinAccountRepository.existsByAccountIdAndDeleted(vo.getAccountId(), 0)) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号 ID 已存在");
+                // P2-8: 避免泄露敏感信息，使用通用错误消息
+                log.warn("账号 ID 已存在: accountId={}, userId={}", vo.getAccountId(), vo.getUserId());
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "保存失败，请检查输入");
             }
             account = new DouyinAccount();
             account.setUserId(vo.getUserId());
@@ -105,11 +115,16 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
         if (vo.getDescription() != null) account.setDescription(vo.getDescription());
         if (vo.getStatus() != null) account.setStatus(vo.getStatus());
         account = douyinAccountRepository.save(account);
+
+        // P2-5: 清除 L1 和 L2 缓存
+        accountStatisticsCache.invalidate(account.getId());
+
         return account.getId();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "accountStatistics", key = "#id")
     public void deleteAccount(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号 ID 无效");
@@ -118,6 +133,9 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAIL, "账号不存在"));
         account.setDeleted(1);
         douyinAccountRepository.save(account);
+
+        // P2-5: 清除 L1 缓存
+        accountStatisticsCache.invalidate(id);
     }
 
     @Override
@@ -126,6 +144,13 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号 ID 无效");
         }
+
+        // P2-5: 先查 L1 本地缓存（Caffeine）
+        Object cached = accountStatisticsCache.getIfPresent(id);
+        if (cached instanceof DouyinAccountStatisticsVO) {
+            return (DouyinAccountStatisticsVO) cached;
+        }
+
         DouyinAccount account = douyinAccountRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAIL, "账号不存在"));
 
@@ -165,6 +190,9 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
             stats.setAvgViewsPerVideo((double) totalViews / totalVideos);
             stats.setAvgLikesPerVideo((double) totalLikes / totalVideos);
         }
+
+        // P2-5: 写入 L1 本地缓存
+        accountStatisticsCache.put(id, stats);
 
         return stats;
     }

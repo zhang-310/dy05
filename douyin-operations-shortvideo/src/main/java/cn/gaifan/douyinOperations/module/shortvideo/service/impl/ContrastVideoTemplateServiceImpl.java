@@ -1,6 +1,6 @@
 package cn.gaifan.douyinOperations.module.shortvideo.service.impl;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.ShortVideoBusinessConfig;
 import cn.gaifan.douyinOperations.module.shortvideo.service.ContrastVideoTemplateService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
@@ -11,7 +11,7 @@ import java.util.*;
 public class ContrastVideoTemplateServiceImpl implements ContrastVideoTemplateService {
 
     @Resource
-    private BusinessParamConfig businessParamConfig;
+    private ShortVideoBusinessConfig shortVideoBusinessConfig;
 
     @Override
     public Map<String, Object> getShotTemplate(String contrastType, int duration) {
@@ -137,7 +137,7 @@ public class ContrastVideoTemplateServiceImpl implements ContrastVideoTemplateSe
                 "暖色调，自然光+补光，突出乡土感" : "整洁场景，明亮灯光"
         ));
 
-        BusinessParamConfig.BgmVolume vol = businessParamConfig.getBgmVolume();
+        ShortVideoBusinessConfig.BgmVolume vol = shortVideoBusinessConfig.getBgmVolume();
         strategy.put("volumeCurve", Map.of(
             "frontVolume", vol.getFrontVolumeMin() + "-" + vol.getFrontVolumeMax() + "%",
             "backVolume", vol.getBackVolumeMin() + "-" + vol.getBackVolumeMax() + "%",

@@ -1,0 +1,830 @@
+{
+  "total": 111,
+  "passed": 79,
+  "failed": 28,
+  "skipped": 4,
+  "details": [
+    {
+      "module": "auth",
+      "page": "登录页",
+      "path": "/login",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "auth",
+      "page": "注册页",
+      "path": "/register",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "dashboard",
+      "page": "首页",
+      "path": "/",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "dashboard",
+      "page": "管理驾驶舱",
+      "path": "/dashboard",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "dashboard",
+      "page": "统一KPI",
+      "path": "/unified-kpi",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "场次列表",
+      "path": "/live/sessions",
+      "api": "/api/v1/live/session/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "live",
+      "page": "话术列表",
+      "path": "/live/scripts",
+      "api": "/api/v1/live/script/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "live",
+      "page": "模板列表",
+      "path": "/live/templates",
+      "api": "/api/v1/live/template/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "live",
+      "page": "人设列表",
+      "path": "/live/personas",
+      "api": "/api/v1/douyin/persona/list",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "live",
+      "page": "商品列表",
+      "path": "/live/products",
+      "api": "/api/v1/live/product/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "live",
+      "page": "导航列表",
+      "path": "/live/navigation",
+      "api": "/api/v1/live/script-navigation/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "live",
+      "page": "数据分析",
+      "path": "/live/analytics",
+      "api": "/api/v1/live/analytics/overview",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "live",
+      "page": "实时监控",
+      "path": "/live/realtime",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "排期日历",
+      "path": "/live/schedule",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "话术生成",
+      "path": "/live/script-gen",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "话术优化",
+      "path": "/live/script-optimize",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "话术库",
+      "path": "/live/script-library",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "A/B测试",
+      "path": "/live/abtest",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "质量评估",
+      "path": "/live/quality",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "live",
+      "page": "话术进化",
+      "path": "/live/evolution",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "视频列表",
+      "path": "/shortvideo/videos",
+      "api": "/api/v1/shortvideo/video/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "shortvideo",
+      "page": "脚本列表",
+      "path": "/shortvideo/scripts",
+      "api": "/api/v1/shortvideo/script/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "shortvideo",
+      "page": "分镜列表",
+      "path": "/shortvideo/storyboards",
+      "api": "/api/v1/shortvideo/storyboard/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "shortvideo",
+      "page": "模板列表",
+      "path": "/shortvideo/templates",
+      "api": "/api/v1/shortvideo/template/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "shortvideo",
+      "page": "数据分析",
+      "path": "/shortvideo/analytics",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "热点趋势",
+      "path": "/shortvideo/trends",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "脚本生成",
+      "path": "/shortvideo/script-gen",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "分镜生成",
+      "path": "/shortvideo/storyboard-gen",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "视频生成",
+      "path": "/shortvideo/video-gen",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "质量评估",
+      "path": "/shortvideo/quality",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "A/B测试",
+      "path": "/shortvideo/abtest",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "shortvideo",
+      "page": "脚本进化",
+      "path": "/shortvideo/evolution",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "agent",
+      "page": "智能体列表",
+      "path": "/agent/list",
+      "api": "/api/v1/agent/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "agent",
+      "page": "智能体市场",
+      "path": "/agent/market",
+      "api": "/api/v1/agent/market/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "agent",
+      "page": "智能体对话",
+      "path": "/agent/chat/:id",
+      "status": "SKIPPED",
+      "reason": "动态路由需要参数"
+    },
+    {
+      "module": "agent",
+      "page": "多智能体编排",
+      "path": "/agent/workflow",
+      "api": "/api/v1/agent/workflow/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "agent",
+      "page": "分享页",
+      "path": "/agent/share/:code",
+      "status": "SKIPPED",
+      "reason": "动态路由需要参数"
+    },
+    {
+      "module": "product",
+      "page": "商品列表",
+      "path": "/product/list",
+      "api": "/api/v1/product/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "product",
+      "page": "分类管理",
+      "path": "/product/categories",
+      "api": "/api/v1/product/category/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "product",
+      "page": "商品分析",
+      "path": "/product/analytics",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "copy",
+      "page": "文案库",
+      "path": "/copy/library",
+      "api": "/api/v1/copy/library/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "copy",
+      "page": "模板管理",
+      "path": "/copy/templates",
+      "api": "/api/v1/copy/template/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "copy",
+      "page": "标签管理",
+      "path": "/copy/tags",
+      "api": "/api/v1/copy/tag/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "ai",
+      "page": "知识库",
+      "path": "/ai/knowledge-base",
+      "api": "/api/v1/ai/knowledge-base/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "ai",
+      "page": "RAG检索",
+      "path": "/ai/rag-search",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "ai",
+      "page": "自进化引擎",
+      "path": "/ai/evolution",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "ai",
+      "page": "行业大脑",
+      "path": "/ai/industry-brain",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "ai",
+      "page": "提示词模板",
+      "path": "/ai/prompt-templates",
+      "api": "/api/v1/ai/prompt/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "ai",
+      "page": "AI调用日志",
+      "path": "/ai/call-logs",
+      "api": "/api/v1/ai/admin/call-log/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "ai",
+      "page": "模型管理",
+      "path": "/ai/models",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "ai",
+      "page": "向量管理",
+      "path": "/ai/embeddings",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "abtest",
+      "page": "实验列表",
+      "path": "/abtest/experiments",
+      "api": "/api/v1/abtest/experiment/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "abtest",
+      "page": "实验详情",
+      "path": "/abtest/detail/:id",
+      "status": "SKIPPED",
+      "reason": "动态路由需要参数"
+    },
+    {
+      "module": "benchmark",
+      "page": "账号列表",
+      "path": "/benchmark/accounts",
+      "api": "/api/v1/benchmark/account/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "benchmark",
+      "page": "视频列表",
+      "path": "/benchmark/videos",
+      "api": "/api/v1/benchmark/video/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "benchmark",
+      "page": "视频分析",
+      "path": "/benchmark/analysis/:id",
+      "status": "SKIPPED",
+      "reason": "动态路由需要参数"
+    },
+    {
+      "module": "benchmark",
+      "page": "优质话术",
+      "path": "/benchmark/quality-scripts",
+      "api": "/api/v1/benchmark/quality-script/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "用户管理",
+      "path": "/system/users",
+      "api": "/api/v1/auth/user/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "system",
+      "page": "角色管理",
+      "path": "/system/roles",
+      "api": "/api/v1/auth/role/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "system",
+      "page": "权限管理",
+      "path": "/system/permissions",
+      "api": "/api/v1/auth/permission/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "组织管理",
+      "path": "/system/organizations",
+      "api": "/api/v1/organization/members",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "system",
+      "page": "系统配置",
+      "path": "/system/config",
+      "api": "/api/v1/config/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "操作日志",
+      "path": "/system/logs",
+      "api": "/api/v1/log/operation/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "审计日志",
+      "path": "/system/audit",
+      "api": "/api/v1/log/audit/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "系统监控",
+      "path": "/system/monitoring",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "告警规则",
+      "path": "/system/alerts",
+      "api": "/api/v1/system/alert/rule/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "通知管理",
+      "path": "/system/notifications",
+      "api": "/api/v1/messaging/config/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "文件管理",
+      "path": "/system/files",
+      "api": "/api/v1/storage/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "任务管理",
+      "path": "/system/tasks",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "工作流",
+      "path": "/system/workflows",
+      "api": "/api/v1/workflow/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "system",
+      "page": "集成管理",
+      "path": "/system/integrations",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "API文档",
+      "path": "/system/api-docs",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "健康检查",
+      "path": "/system/health",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "指标监控",
+      "path": "/system/metrics",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "合规检测",
+      "path": "/system/compliance",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "备份管理",
+      "path": "/system/backup",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "system",
+      "page": "系统设置",
+      "path": "/system/settings",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "douyin",
+      "page": "抖音账号",
+      "path": "/douyin/accounts",
+      "api": "/api/v1/douyin/account/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "douyin",
+      "page": "OAuth授权",
+      "path": "/douyin/oauth",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "douyin",
+      "page": "数据同步",
+      "path": "/douyin/sync",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "payment",
+      "page": "订单列表",
+      "path": "/payment/orders",
+      "api": "/api/v1/payment/order/search",
+      "status": "FAILED",
+      "message": "HTTP 405"
+    },
+    {
+      "module": "payment",
+      "page": "交易记录",
+      "path": "/payment/transactions",
+      "api": "/api/v1/payment/transaction/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "payment",
+      "page": "退款管理",
+      "path": "/payment/refunds",
+      "api": "/api/v1/payment/refund/search",
+      "status": "FAILED",
+      "message": "HTTP 500"
+    },
+    {
+      "module": "others",
+      "page": "话术列表",
+      "path": "/script/list",
+      "api": "/api/v1/script/list",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "others",
+      "page": "话术模板",
+      "path": "/script/templates",
+      "api": "/api/v1/script/template/search",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "others",
+      "page": "合规检测",
+      "path": "/script/compliance",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "质量评估",
+      "path": "/script/quality",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "统一搜索",
+      "path": "/search/unified",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "搜索分析",
+      "path": "/search/analytics",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "归因分析",
+      "path": "/attribution/analysis",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "归因模型",
+      "path": "/attribution/models",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "企微配置",
+      "path": "/wecom/config",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "消息推送",
+      "path": "/wecom/messages",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "短信模板",
+      "path": "/sms/templates",
+      "api": "/api/v1/sms/template/list",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "others",
+      "page": "发送记录",
+      "path": "/sms/logs",
+      "api": "/api/v1/sms/log/list",
+      "status": "PASSED",
+      "message": "API响应正常"
+    },
+    {
+      "module": "others",
+      "page": "鬼谷雅热点",
+      "path": "/trends/guiguiya",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "话题列表",
+      "path": "/trends/topics",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "俚语词典",
+      "path": "/slang/dictionary",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "分类管理",
+      "path": "/slang/categories",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "天API配置",
+      "path": "/tianapi/config",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "调用日志",
+      "path": "/tianapi/logs",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "个人资料",
+      "path": "/user/profile",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "账号设置",
+      "path": "/user/settings",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "安全设置",
+      "path": "/user/security",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "通知设置",
+      "path": "/user/notifications",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "帮助文档",
+      "path": "/help/docs",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "常见问题",
+      "path": "/help/faq",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "联系我们",
+      "path": "/help/contact",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "404页面",
+      "path": "/404",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "403页面",
+      "path": "/403",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    },
+    {
+      "module": "others",
+      "page": "500页面",
+      "path": "/500",
+      "status": "PASSED",
+      "message": "前端路由存在"
+    }
+  ]
+}

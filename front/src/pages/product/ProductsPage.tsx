@@ -20,7 +20,7 @@ import type { GmvTrendItem, GmvContribItem } from '@/api/product'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDate } from '@/utils/date'
-import ReactECharts from 'echarts-for-react'
+import { LazyECharts } from '@/utils/echarts-registry'
 import { useNavigate } from 'react-router-dom'
 import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import {
@@ -368,7 +368,7 @@ function ProductDetailDrawer({ product, onClose, onEdit }: {
             <Box>
               <Typography variant="subtitle2" mb={1.5}>效果历史趋势</Typography>
               {effectList.length > 0 ? (
-                <ReactECharts option={chartOption} style={{ height: 220 }} />
+                <LazyECharts option={chartOption} style={{ height: 220 }} />
               ) : (
                 <Box sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
                   <Typography variant="body2">暂无效果历史数据</Typography>

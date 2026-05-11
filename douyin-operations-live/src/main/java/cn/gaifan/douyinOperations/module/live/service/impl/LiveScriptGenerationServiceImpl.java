@@ -1,5 +1,7 @@
 package cn.gaifan.douyinOperations.module.live.service.impl;
 
+import cn.gaifan.douyinOperations.common.compliance.service.ComplianceService;
+import cn.gaifan.douyinOperations.common.compliance.vo.ComplianceCheckResult;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
@@ -79,6 +81,9 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private cn.gaifan.douyinOperations.module.live.service.ContentMaterialService contentMaterialService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ComplianceService complianceService;
 
     /** G-1 最大并发槽位数 */
     @Value("${app.live.generation.parallel.max-concurrency:5}")
@@ -519,6 +524,23 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
 
         cn.gaifan.douyinOperations.module.abtest.vo.ScriptStyleAssignVO abAssign = postProcessor.tryAssignAbStyle(session);
 
+        // 违规检测
+        ComplianceCheckResult complianceResult = null;
+        if (complianceService != null) {
+            try {
+                complianceResult = complianceService.check(session.getUserId(), "script", null, content);
+                if ("reject".equals(complianceResult.getResult())) {
+                    log.warn("话术生成违规检测失败: sessionId={}, riskScore={}", session.getId(), complianceResult.getRiskScore());
+                    throw new BusinessException(ErrorCode.COMPLIANCE_VIOLATION,
+                        "话术包含违规内容，风险评分: " + complianceResult.getRiskScore() + "，建议: " + complianceResult.getSuggestions());
+                }
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception e) {
+                log.error("违规检测失败，跳过检测", e);
+            }
+        }
+
         LiveScript script = new LiveScript();
         script.setSessionId(session.getId());
         script.setUserId(session.getUserId());
@@ -528,6 +550,16 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
         script.setAiGenerated(1);
         script.setGenerationPromptHash(gen.generationPromptHash());
         script.setSequenceNo(postProcessor.getNextSequenceNo(session.getId()));
+
+        // 设置违规检测结果
+        if (complianceResult != null) {
+            script.setViolationChecked(1);
+            script.setViolationResult(complianceResult.getResult());
+            if (complianceResult.getSuggestions() != null) {
+                script.setAiSuggestion(complianceResult.getSuggestions());
+            }
+        }
+
         if (abAssign != null) {
             script.setAbExperimentId(abAssign.getExperimentId());
             script.setAbVariantId(abAssign.getVariantId());
@@ -569,13 +601,36 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
 
     // ─── 私有方法：产品映射构建 ──────────────────────────────────────
 
+    /**
+     * P0-5: 批量查询优化 - 使用 findAllById 替代循环 findById
+     * 预期收益：响应时间 N×50ms → 50ms
+     */
     private Map<Long, DyProduct> buildProductMap(List<LiveScript> slots, List<LiveProduct> liveProducts) {
+        if ((slots == null || slots.isEmpty()) && (liveProducts == null || liveProducts.isEmpty())) {
+            return Collections.emptyMap();
+        }
+
         Set<Long> allProductIds = new HashSet<>();
-        liveProducts.stream().map(LiveProduct::getProductId).filter(Objects::nonNull).forEach(allProductIds::add);
-        slots.stream().map(LiveScript::getProductId).filter(Objects::nonNull).forEach(allProductIds::add);
-        return allProductIds.isEmpty() ? Collections.emptyMap()
-                : productRepository.findAllById(new ArrayList<>(allProductIds)).stream()
-                        .collect(Collectors.toMap(DyProduct::getId, p -> p));
+        if (liveProducts != null) {
+            liveProducts.stream()
+                    .map(LiveProduct::getProductId)
+                    .filter(Objects::nonNull)
+                    .forEach(allProductIds::add);
+        }
+        if (slots != null) {
+            slots.stream()
+                    .map(LiveScript::getProductId)
+                    .filter(Objects::nonNull)
+                    .forEach(allProductIds::add);
+        }
+
+        if (allProductIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        // 批量查询：一次数据库调用获取所有产品
+        List<DyProduct> products = productRepository.findAllById(new ArrayList<>(allProductIds));
+        return products.stream().collect(Collectors.toMap(DyProduct::getId, p -> p));
     }
 
     // ─── 私有方法：完整结果构建 ──────────────────────────────────────

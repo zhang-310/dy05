@@ -53,8 +53,13 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
     @Resource
     private SkillExecutor skillExecutor;
 
-    // 线程池：用于并行执行 DAG 同层步骤
-    private final ExecutorService dagExecutor = Executors.newCachedThreadPool();
+    // P0-7: 注入共享线程池（避免每次步骤执行创建新线程池）
+    @Resource(name = "workflowExecutor")
+    private ExecutorService workflowExecutor;
+
+    // P0-7: 注入 DAG 并行执行线程池（替代 newCachedThreadPool）
+    @Resource(name = "dagExecutor")
+    private ExecutorService dagExecutor;
 
     // ─────────────────────────────────────────────
     // CRUD
@@ -129,9 +134,15 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
 
     @Override
     @Transactional
-    public void delete(Long workflowId) {
+    public void delete(Long workflowId, Long userId) {
         AgentWorkflow w = workflowRepository.findByIdAndDeleted(workflowId, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "工作流不存在"));
+
+        // P0-2: 所有权验证
+        if (!w.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限删除该工作流");
+        }
+
         w.setDeleted(1);
         workflowRepository.save(w);
 
@@ -170,9 +181,15 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
     }
 
     @Override
-    public AgentWorkflowExecutionVO getExecutionById(Long executionId) {
+    public AgentWorkflowExecutionVO getExecutionById(Long executionId, Long userId) {
         AgentWorkflowExecution e = executionRepository.findByIdAndDeleted(executionId, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "执行记录不存在"));
+
+        // P0-2: 所有权验证
+        if (!e.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限查看该执行记录");
+        }
+
         return execToVO(e);
     }
 
@@ -380,8 +397,9 @@ public class AgentWorkflowServiceImpl implements AgentWorkflowService {
 
         List<SkillExecutor.ToolCallResult> toolResults;
         try {
+            // P0-7: 使用共享线程池（避免线程泄漏）
             Future<List<SkillExecutor.ToolCallResult>> future =
-                    Executors.newSingleThreadExecutor().submit(() ->
+                    workflowExecutor.submit(() ->
                             skillExecutor.detectAndExecute(step.getAgentId(), userId, conversationId, stepInput));
 
             toolResults = future.get(timeout, TimeUnit.SECONDS);

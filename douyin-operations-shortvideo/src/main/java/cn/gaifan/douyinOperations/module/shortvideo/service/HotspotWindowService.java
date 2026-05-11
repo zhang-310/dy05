@@ -1,6 +1,6 @@
 package cn.gaifan.douyinOperations.module.shortvideo.service;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.ShortVideoBusinessConfig;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvHotTopic;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvHotTopicRepository;
 import jakarta.annotation.Resource;
@@ -24,7 +24,7 @@ import java.util.Map;
 public class HotspotWindowService {
 
     @Resource
-    private BusinessParamConfig businessParamConfig;
+    private ShortVideoBusinessConfig shortVideoBusinessConfig;
 
     @Autowired(required = false)
     private SvHotTopicRepository svHotTopicRepository;
@@ -61,7 +61,7 @@ public class HotspotWindowService {
 
     public HotspotTier classify(Timestamp hotspotCreateTime) {
         if (hotspotCreateTime == null) return HotspotTier.EXPIRED;
-        BusinessParamConfig.HotspotWindow hw = businessParamConfig.getHotspot();
+        ShortVideoBusinessConfig.HotspotWindow hw = shortVideoBusinessConfig.getHotspot();
         long daysSince = Duration.between(hotspotCreateTime.toInstant(), Instant.now()).toDays();
         if (daysSince <= hw.getGoldDays()) return HotspotTier.GOLD;
         if (daysSince <= hw.getSilverDays()) return HotspotTier.SILVER;

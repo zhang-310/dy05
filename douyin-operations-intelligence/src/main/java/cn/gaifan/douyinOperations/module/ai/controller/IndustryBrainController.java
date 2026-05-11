@@ -90,6 +90,15 @@ public class IndustryBrainController {
             return RESTResult.getSuccess(Map.of("nodes", List.of(), "edges", List.of(), "contradictions", List.of()));
         }
         String query = body != null && body.get("query") != null ? body.get("query").toString() : "";
+
+        // P0-2: 防止 Prompt 注入攻击
+        query = cn.gaifan.douyinOperations.common.util.PromptInjectionDetector.sanitize(query);
+        if (cn.gaifan.douyinOperations.common.util.PromptInjectionDetector.isSuspicious(query)) {
+            org.slf4j.LoggerFactory.getLogger(IndustryBrainController.class)
+                .warn("检测到疑似 Prompt 注入: userId={}, query={}", uid, query);
+            throw new cn.gaifan.douyinOperations.common.exception.BusinessException(ErrorCode.INVALID_PARAMS, "输入包含不安全内容");
+        }
+
         int limit = body != null && body.get("limit") instanceof Number n ? n.intValue() : 30;
         if (limit <= 0 || limit > 200) {
             limit = 30;
@@ -106,6 +115,15 @@ public class IndustryBrainController {
             return RESTResult.getSuccess(Map.of("context", "", "available", false));
         }
         String query = body != null && body.get("query") != null ? body.get("query").toString() : "";
+
+        // P0-2: 防止 Prompt 注入攻击
+        query = cn.gaifan.douyinOperations.common.util.PromptInjectionDetector.sanitize(query);
+        if (cn.gaifan.douyinOperations.common.util.PromptInjectionDetector.isSuspicious(query)) {
+            org.slf4j.LoggerFactory.getLogger(IndustryBrainController.class)
+                .warn("检测到疑似 Prompt 注入: userId={}, query={}", uid, query);
+            throw new cn.gaifan.douyinOperations.common.exception.BusinessException(ErrorCode.INVALID_PARAMS, "输入包含不安全内容");
+        }
+
         int limit = body != null && body.get("limit") instanceof Number n ? n.intValue() : 20;
         String context = knowledgeGraphService.getGraphContextForQuery(query, uid, limit);
         Map<String, Object> payload = new LinkedHashMap<>();

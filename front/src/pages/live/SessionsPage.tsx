@@ -4,7 +4,7 @@ import {
   Chip, IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, Stack, SelectChangeEvent, Typography,
 } from '@mui/material'
-import { GridColDef, GridRenderCellParams, GridPaginationModel } from '@mui/x-data-grid'
+import { GridColDef, GridRenderCellParams, GridPaginationModel, GridRowSelectionModel } from '@mui/x-data-grid'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -16,7 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { liveApi, LiveSession, LiveSessionSave } from '@/api/live'
 import { useToast } from '@/contexts/ToastContext'
-import { StandardDataGrid } from '@/components/base/StandardDataGrid'
+import { StandardDataGrid, TableSkeleton, EmptyState } from '@/components/base'
 import { formatDate } from '@/utils/date'
 
 const STATUS_MAP: Record<number, { label: string; color: 'default' | 'success' | 'warning' | 'error' | 'info' | 'primary' | 'secondary' }> = {
@@ -51,6 +51,7 @@ export default function SessionsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState<FormState>(defaultForm())
   const [saving, setSaving] = useState(false)
+  const [selection, setSelection] = useState<GridRowSelectionModel>([])
 
   const { data, isFetching, refetch } = useQuery({
     queryKey: ['live-sessions', pagination.page, pagination.pageSize, keyword, statusFilter],
@@ -86,6 +87,30 @@ export default function SessionsPage() {
     mutationFn: (row: LiveSession) => liveApi.sessionClone(row.id),
     onSuccess: () => { toast('克隆成功', 'success'); invalidate() },
     onError: () => toast('克隆失败', 'error'),
+  })
+
+  const batchDeleteMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map(id => liveApi.sessionDelete(id)))
+    },
+    onSuccess: () => { toast('批量删除成功', 'success'); invalidate(); setSelection([]) },
+    onError: () => toast('批量删除失败', 'error'),
+  })
+
+  const batchStartMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map(id => liveApi.sessionStart(id)))
+    },
+    onSuccess: () => { toast('批量开播成功', 'success'); invalidate(); setSelection([]) },
+    onError: () => toast('批量开播失败', 'error'),
+  })
+
+  const batchEndMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map(id => liveApi.sessionEnd(id)))
+    },
+    onSuccess: () => { toast('批量结束成功', 'success'); invalidate(); setSelection([]) },
+    onError: () => toast('批量结束失败', 'error'),
   })
 
   const handleSearch = () => { setPagination(p => ({ ...p, page: 0 })); refetch() }
@@ -187,6 +212,38 @@ export default function SessionsPage() {
       </FormControl>
       <Button variant="contained" onClick={handleSearch}>搜索</Button>
       <Button onClick={handleReset}>重置</Button>
+      {selection.length > 0 && (
+        <>
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+            已选 {selection.length} 条
+          </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<PlayArrowIcon />}
+            onClick={() => batchStartMut.mutate(selection as number[])}
+          >
+            批量开播
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<StopIcon />}
+            onClick={() => batchEndMut.mutate(selection as number[])}
+          >
+            批量结束
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteIcon />}
+            onClick={() => batchDeleteMut.mutate(selection as number[])}
+          >
+            批量删除
+          </Button>
+        </>
+      )}
     </>
   )
 
@@ -197,18 +254,34 @@ export default function SessionsPage() {
   return (
     <Box sx={{ height: 'calc(100vh - 48px - 32px)', display: 'flex', flexDirection: 'column' }}>
       <Typography variant="h5" sx={{ mb: 2 }}>直播场次</Typography>
-      <StandardDataGrid
-        rows={rows}
-        columns={columns}
-        loading={isFetching}
-        rowCount={total}
-        paginationMode="server"
-        paginationModel={pagination}
-        onPaginationModelChange={setPagination}
-        searchSlot={searchSlot}
-        actionSlot={actionSlot}
-        sx={{ flex: 1 }}
-      />
+      {isFetching && rows.length === 0 ? (
+        <TableSkeleton rows={10} columns={7} />
+      ) : rows.length === 0 && !keyword && !statusFilter ? (
+        <EmptyState
+          title="还没有直播场次"
+          description="创建第一个直播场次，开始您的直播运营之旅"
+          action={{
+            text: '新建场次',
+            onClick: openCreate,
+          }}
+        />
+      ) : (
+        <StandardDataGrid
+          rows={rows}
+          columns={columns}
+          loading={isFetching}
+          rowCount={total}
+          paginationMode="server"
+          paginationModel={pagination}
+          onPaginationModelChange={setPagination}
+          checkboxSelection
+          rowSelectionModel={selection}
+          onRowSelectionModelChange={setSelection}
+          searchSlot={searchSlot}
+          actionSlot={actionSlot}
+          sx={{ flex: 1 }}
+        />
+      )}
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{form.id ? '编辑场次' : '新建场次'}</DialogTitle>

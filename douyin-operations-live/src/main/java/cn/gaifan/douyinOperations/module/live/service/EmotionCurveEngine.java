@@ -1,6 +1,6 @@
 package cn.gaifan.douyinOperations.module.live.service;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.ShortVideoBusinessConfig;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
@@ -16,7 +16,7 @@ import java.util.List;
 public class EmotionCurveEngine {
 
     @Resource
-    private BusinessParamConfig businessParamConfig;
+    private ShortVideoBusinessConfig shortVideoConfig;
 
     public record EmotionPoint(
             double timeRatio,
@@ -32,7 +32,7 @@ public class EmotionCurveEngine {
      * @return 按时间比例排列的情绪节点
      */
     public List<EmotionPoint> parseCurve(String ipType) {
-        BusinessParamConfig.EmotionCurve ec = businessParamConfig.getEmotionCurve();
+        ShortVideoBusinessConfig.EmotionCurve ec = shortVideoConfig.getEmotionCurve();
         String curveStr = "phenomenal".equals(ipType) ? ec.getPhenomenalCurve() : ec.getTopCurve();
         return parseCurveString(curveStr);
     }
@@ -110,7 +110,7 @@ public class EmotionCurveEngine {
     }
 
     private int mapToBgmVolume(int emotionValue) {
-        BusinessParamConfig.BgmVolume bgm = businessParamConfig.getBgmVolume();
+        ShortVideoBusinessConfig.BgmVolume bgm = shortVideoConfig.getBgmVolume();
         int minVol = bgm.getFrontVolumeMin();
         int maxVol = bgm.getBackVolumeMax();
         return (int) (minVol + (maxVol - minVol) * Math.min(1.0, emotionValue / 130.0));

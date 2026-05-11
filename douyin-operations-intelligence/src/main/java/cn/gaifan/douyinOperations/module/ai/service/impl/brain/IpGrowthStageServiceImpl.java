@@ -1,6 +1,6 @@
 package cn.gaifan.douyinOperations.module.ai.service.impl.brain;
 
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.IpBusinessConfig;
 import cn.gaifan.douyinOperations.module.ai.service.brain.IpGrowthStageService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
@@ -12,11 +12,11 @@ import java.util.Map;
 public class IpGrowthStageServiceImpl implements IpGrowthStageService {
 
     @Resource
-    private BusinessParamConfig config;
+    private IpBusinessConfig config;
 
     @Override
     public String getPhenomenalStage(long followerCount) {
-        BusinessParamConfig.IpGrowth g = config.getIpGrowth();
+        IpBusinessConfig.IpGrowth g = config.getIpGrowth();
         if (followerCount < g.getPhenomenalSeedMax()) return "seed";
         if (followerCount < g.getPhenomenalBoostMax()) return "boost";
         if (followerCount < g.getPhenomenalStableMax()) return "stable";
@@ -25,7 +25,7 @@ public class IpGrowthStageServiceImpl implements IpGrowthStageService {
 
     @Override
     public String getTopStage(int operatingMonths) {
-        BusinessParamConfig.IpGrowth g = config.getIpGrowth();
+        IpBusinessConfig.IpGrowth g = config.getIpGrowth();
         if (operatingMonths < g.getTopFoundationMonths()) return "foundation";
         if (operatingMonths < g.getTopExpansionMonths()) return "expansion";
         return "ecosystem";
@@ -99,7 +99,7 @@ public class IpGrowthStageServiceImpl implements IpGrowthStageService {
     @Override
     public Map<String, Object> getMetricsBaseline(String ipType) {
         Map<String, Object> baseline = new LinkedHashMap<>();
-        BusinessParamConfig.IpMetrics metrics = config.getIpMetrics();
+        IpBusinessConfig.IpMetrics metrics = config.getIpMetrics();
 
         if ("phenomenal".equals(ipType)) {
             var p = metrics.getPhenomenal();

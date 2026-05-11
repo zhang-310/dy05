@@ -57,7 +57,8 @@ export class ErrorBoundary extends Component<Props, State> {
     navigator.clipboard.writeText(errorText).then(() => {
       this.setState({ copied: true })
       setTimeout(() => this.setState({ copied: false }), 2000)
-    }).catch(() => {
+    }).catch((clipboardError) => {
+      console.error('Clipboard write failed:', clipboardError)
       // Fallback for older browsers
       const textarea = document.createElement('textarea')
       textarea.value = errorText

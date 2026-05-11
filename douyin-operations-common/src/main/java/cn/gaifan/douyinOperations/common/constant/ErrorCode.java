@@ -24,6 +24,8 @@ public final class ErrorCode {
     public static final int INTERNAL_ERROR = 1002;
     /** 请求频率超限 */
     public static final int RATE_LIMIT = 1003;
+    /** 请求过于频繁（同 RATE_LIMIT，兼容旧代码） */
+    public static final int TOO_MANY_REQUESTS = 1003;
     /** 重复提交 */
     public static final int DUPLICATE_SUBMIT = 1004;
     /** 数据不存在（通用） */
@@ -114,6 +116,8 @@ public final class ErrorCode {
     public static final int PRODUCT_SCRIPT_BATCH_TOO_LARGE = 3146;
     /** 产品话术生成任务不存在 */
     public static final int PRODUCT_SCRIPT_TASK_NOT_FOUND = 3147;
+    /** 内容违规（通用合规检测失败） */
+    public static final int COMPLIANCE_VIOLATION = 3148;
 
     // ==================== 3200：短视频（shortvideo） ====================
 

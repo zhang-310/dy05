@@ -173,7 +173,9 @@ if (typeof window !== 'undefined') {
     keys.forEach((key) => {
       if (key.startsWith('ab_test_events_')) {
         const experimentId = key.replace('ab_test_events_', '')
-        uploadEvents(experimentId).catch(console.error)
+        uploadEvents(experimentId).catch((uploadError) => {
+          console.error('Failed to upload events on beforeunload:', uploadError)
+        })
       }
     })
   })

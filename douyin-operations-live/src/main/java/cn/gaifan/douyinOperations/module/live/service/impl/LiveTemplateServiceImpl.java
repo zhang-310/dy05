@@ -14,6 +14,7 @@ import cn.gaifan.douyinOperations.module.live.repository.LiveSessionRepository;
 import cn.gaifan.douyinOperations.module.live.service.LiveTemplateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,8 +41,10 @@ public class LiveTemplateServiceImpl implements LiveTemplateService {
     @Resource
     private LiveSessionRepository liveSessionRepository;
 
+    // P0-3: 保存模板时清除缓存
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "live:template", allEntries = true)
     public Long saveSessionAsTemplate(Long sessionId, String templateName, List<String> scriptTypes, Long userId) {
         if (sessionId == null || sessionId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "场次 ID 无效");

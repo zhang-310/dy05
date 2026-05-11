@@ -2,7 +2,8 @@ package cn.gaifan.douyinOperations.module.live.service.impl;
 
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
-import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
+import cn.gaifan.douyinOperations.common.config.LiveBusinessConfig;
+import cn.gaifan.douyinOperations.common.config.ShortVideoBusinessConfig;
 import cn.gaifan.douyinOperations.module.live.config.LivePromptConfig;
 import cn.gaifan.douyinOperations.module.live.entity.LiveSession;
 import cn.gaifan.douyinOperations.module.live.repository.LiveStylePresetRepository;
@@ -37,7 +38,8 @@ public class LivePromptFormatServiceImpl implements LivePromptFormatService {
     @Resource private DyProductRepository productRepository;
     @Resource private LivePromptConfig promptConfig;
     @Resource(name = "liveStylePresetRepository") private LiveStylePresetRepository liveStylePresetRepository;
-    @Resource private BusinessParamConfig businessParamConfig;
+    @Resource private LiveBusinessConfig liveBusinessConfig;
+    @Resource private ShortVideoBusinessConfig shortVideoBusinessConfig;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private cn.gaifan.douyinOperations.module.ai.service.brain.IpGrowthStageService ipGrowthStageService;
 
@@ -222,13 +224,13 @@ public class LivePromptFormatServiceImpl implements LivePromptFormatService {
     @Override
     public String buildIpTypeDesc(String ipType) {
         if (ipType == null || ipType.isBlank()) return "";
-        if (businessParamConfig == null) return "";
-        BusinessParamConfig.RetentionFrequency rf = businessParamConfig.getRetention();
-        BusinessParamConfig.ValueFormula vf = businessParamConfig.getValueFormula();
+        if (liveBusinessConfig == null || shortVideoBusinessConfig == null) return "";
+        LiveBusinessConfig.RetentionFrequency rf = liveBusinessConfig.getRetention();
+        LiveBusinessConfig.ValueFormula vf = liveBusinessConfig.getValueFormula();
         if (vf == null) return "";
         return switch (ipType) {
             case "phenomenal" -> {
-                BusinessParamConfig.ValueFormula.PhenomenalValue pv = vf.getPhenomenal();
+                LiveBusinessConfig.ValueFormula.PhenomenalValue pv = vf.getPhenomenal();
                 if (pv == null) yield "";
                 yield String.format("""
                     【IP策略：现象级】
@@ -244,11 +246,11 @@ public class LivePromptFormatServiceImpl implements LivePromptFormatService {
                     rf.getSuspenseMinutes(), rf.getMiniClimaxMinutes(), rf.getPracticalTipMinutes(),
                     pv.getPainPointSec()+pv.getSolutionSec()+pv.getEffectSec()+pv.getEndorsementSec()+pv.getPriceSec(),
                     pv.getPainPointSec(), pv.getSolutionSec(), pv.getEffectSec(), pv.getEndorsementSec(), pv.getPriceSec(),
-                    businessParamConfig.getEmotionCurve().getPhenomenalCurve(),
-                    businessParamConfig.getEmotionCurve().getPhenomenalDesc());
+                    shortVideoBusinessConfig.getEmotionCurve().getPhenomenalCurve(),
+                    shortVideoBusinessConfig.getEmotionCurve().getPhenomenalDesc());
             }
             case "top" -> {
-                BusinessParamConfig.ValueFormula.TopValue tv = vf.getTop();
+                LiveBusinessConfig.ValueFormula.TopValue tv = vf.getTop();
                 if (tv == null) yield "";
                 yield String.format("""
                     【IP策略：顶级】
@@ -264,8 +266,8 @@ public class LivePromptFormatServiceImpl implements LivePromptFormatService {
                     rf.getSuspenseMinutes(), rf.getMiniClimaxMinutes(), rf.getPracticalTipMinutes(),
                     tv.getProblemSec()+tv.getSolutionSec()+tv.getDataSec()+tv.getTechSec()+tv.getValueSec(),
                     tv.getProblemSec(), tv.getSolutionSec(), tv.getDataSec(), tv.getTechSec(), tv.getValueSec(),
-                    businessParamConfig.getEmotionCurve().getTopCurve(),
-                    businessParamConfig.getEmotionCurve().getTopDesc());
+                    shortVideoBusinessConfig.getEmotionCurve().getTopCurve(),
+                    shortVideoBusinessConfig.getEmotionCurve().getTopDesc());
             }
             default -> "";
         };

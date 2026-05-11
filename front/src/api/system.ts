@@ -39,6 +39,7 @@ export interface AlertRule {
   operator: string; severity: string; status: number; createTime: string
 }
 export interface AlertRuleSave { id?: number; ruleName: string; metric: string; threshold: number; operator?: string; severity?: string; status?: number }
+export interface AlertRuleQuery { page?: number; rows?: number; ruleName?: string; metric?: string; severity?: string; status?: number }
 
 export interface AlertRecord {
   id: number; ruleId: number; ruleName: string; metric: string
@@ -70,7 +71,7 @@ export const systemApi = {
   syncLogList: (params: SyncLogQuery) => request.post<PageResult<SyncLog>>('/system/sync-log/list', params),
 
   // 告警规则（Monitoring）
-  alertRuleSearch: (params: Record<string, unknown>) => request.post<PageResult<AlertRule>>('/monitoring/alert-rules/search', params),
+  alertRuleSearch: (params: AlertRuleQuery) => request.post<PageResult<AlertRule>>('/monitoring/alert-rules/search', params),
   alertRuleCreate: (params: Partial<AlertRuleSave>) => request.post<AlertRule>('/monitoring/alert-rules/create', params),
   alertRuleUpdate: (params: Partial<AlertRuleSave>) => request.post<void>('/monitoring/alert-rules/update', params),
   alertRuleDelete: (id: number) => request.post<void>('/monitoring/alert-rules/delete', { id }),

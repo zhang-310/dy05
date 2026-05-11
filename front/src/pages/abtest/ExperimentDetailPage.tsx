@@ -9,8 +9,8 @@ import {
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import WarningIcon from '@mui/icons-material/Warning'
-import ReactECharts from 'echarts-for-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { LazyECharts } from '@/utils/echarts-registry'
 import { abtestApi, type AbVariant } from '@/api/abtest'
 import { useToast } from '@/contexts/ToastContext'
 
@@ -338,7 +338,7 @@ export default function ExperimentDetailPage() {
           <CardContent>
             <Typography variant="subtitle2" mb={1}>每日转化率趋势（近14天）</Typography>
             {trend.length > 0
-              ? <ReactECharts option={trendOption} style={{ height: 320 }} />
+              ? <LazyECharts option={trendOption} style={{ height: 320 }} />
               : <Alert severity="info">暂无趋势数据</Alert>
             }
           </CardContent>

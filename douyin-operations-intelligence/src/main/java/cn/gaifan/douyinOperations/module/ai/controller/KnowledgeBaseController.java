@@ -169,9 +169,29 @@ public class KnowledgeBaseController {
             HttpServletRequest httpRequest
     ) {
         Long userId = requireUserId(httpRequest);
+
+        // P0-1: 校验路径合法性，防止路径遍历攻击
+        String sourcePath = vo.getSourcePath();
+        if (sourcePath == null || sourcePath.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "sourcePath 不能为空");
+        }
+
+        // 检查路径是否包含 ..
+        if (sourcePath.contains("..")) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "路径不能包含 ..");
+        }
+
+        // 规范化路径并检查是否在允许的目录内
+        java.nio.file.Path normalizedPath = java.nio.file.Paths.get(sourcePath).normalize().toAbsolutePath();
+        java.nio.file.Path allowedBasePath = java.nio.file.Paths.get("/data/knowledge-base-imports").toAbsolutePath();
+
+        if (!normalizedPath.startsWith(allowedBasePath)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "路径不在允许的导入目录内");
+        }
+
         boolean ac = Boolean.TRUE.equals(vo.getAutoClassify());
         KnowledgeBaseImportService.ImportResult result =
-                knowledgeBaseImportService.importFromPath(vo.getSourcePath(), vo.getKbId(), vo.getKbName(), ac, userId, null);
+                knowledgeBaseImportService.importFromPath(normalizedPath.toString(), vo.getKbId(), vo.getKbName(), ac, userId, null);
         return RESTResult.getSuccess(result);
     }
 
@@ -183,9 +203,28 @@ public class KnowledgeBaseController {
     ) {
         Long userId = requireUserId(httpRequest);
 
+        // P0-1: 校验路径合法性，防止路径遍历攻击
+        String sourcePath = vo.getSourcePath();
+        if (sourcePath == null || sourcePath.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "sourcePath 不能为空");
+        }
+
+        // 检查路径是否包含 ..
+        if (sourcePath.contains("..")) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "路径不能包含 ..");
+        }
+
+        // 规范化路径并检查是否在允许的目录内
+        java.nio.file.Path normalizedPath = java.nio.file.Paths.get(sourcePath).normalize().toAbsolutePath();
+        java.nio.file.Path allowedBasePath = java.nio.file.Paths.get("/data/knowledge-base-imports").toAbsolutePath();
+
+        if (!normalizedPath.startsWith(allowedBasePath)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "路径不在允许的导入目录内");
+        }
+
         String jobId = importJobStore.createJob();
         ImportProgress progress = importJobStore.get(jobId);
-        String path = vo.getSourcePath();
+        String path = normalizedPath.toString();
         Long kid = vo.getKbId();
         String kbn = vo.getKbName();
         boolean ac = Boolean.TRUE.equals(vo.getAutoClassify());
@@ -250,10 +289,19 @@ public class KnowledgeBaseController {
             HttpServletRequest httpRequest
     ) {
         Long userId = requireUserId(httpRequest);
+
+        // P0-2: 防止 Prompt 注入攻击
+        String query = cn.gaifan.douyinOperations.common.util.PromptInjectionDetector.sanitize(vo.getQuery());
+        if (cn.gaifan.douyinOperations.common.util.PromptInjectionDetector.isSuspicious(query)) {
+            org.slf4j.LoggerFactory.getLogger(KnowledgeBaseController.class)
+                .warn("检测到疑似 Prompt 注入: userId={}, query={}", userId, query);
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "输入包含不安全内容");
+        }
+
         int topK = vo.getTopK() != null ? vo.getTopK() : 10;
         boolean skipQueryRewrite = !vo.isQueryRewrite();
         List<KnowledgeBaseService.SearchResult> results = knowledgeBaseService.hybridSearch(
-                kbId, vo.getQuery(), topK, userId, null, false, skipQueryRewrite);
+                kbId, query, topK, userId, null, false, skipQueryRewrite);
         return RESTResult.getSuccess(results);
     }
 

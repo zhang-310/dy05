@@ -1,5 +1,7 @@
 package cn.gaifan.douyinOperations.module.ai.service.impl;
 
+import cn.gaifan.douyinOperations.common.constant.ErrorCode;
+import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.common.util.SensitiveDataMasker;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.ai.entity.AiCallLog;
@@ -98,11 +100,15 @@ public class AiCallLogServiceImpl implements AiCallLogService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void linkToPublish(Long callLogId, Long videoId, Long sessionId) {
+    public void linkToPublish(Long callLogId, Long videoId, Long sessionId, Long userId) {
         if (callLogId == null || (videoId == null && sessionId == null)) {
             return;
         }
         aiCallLogRepository.findById(callLogId).ifPresent(log -> {
+            // H1: 数据隔离 - 校验 callLogId 归属
+            if (!log.getUserId().equals(userId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作此日志");
+            }
             if (videoId != null) log.setLinkedVideoId(videoId);
             if (sessionId != null) log.setLinkedSessionId(sessionId);
             aiCallLogRepository.save(log);

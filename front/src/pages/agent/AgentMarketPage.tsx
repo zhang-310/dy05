@@ -33,6 +33,7 @@ import StarBorderIcon from '@mui/icons-material/StarBorder'
 import WhatshotIcon from '@mui/icons-material/Whatshot'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentApi, reviewApi, type Agent } from '@/api/agent'
+import { CardSkeleton, EmptyState } from '@/components/base'
 import { SKILL_MAP } from './AgentChatPage'
 
 // 智能体类型配置
@@ -268,7 +269,16 @@ export default function AgentMarketPage() {
 
       {/* 智能体卡片网格 */}
       {isLoading ? (
-        <Typography>加载中...</Typography>
+        <CardSkeleton count={6} variant="detailed" />
+      ) : agents.length === 0 ? (
+        <EmptyState
+          title="还没有智能体"
+          description="创建第一个智能体，开始您的 AI 助手之旅"
+          action={{
+            text: '创建智能体',
+            onClick: () => navigate('/admin/ai/agent/list'),
+          }}
+        />
       ) : filteredAgents.length === 0 ? (
         <Card variant="outlined" sx={{ textAlign: 'center', py: 8 }}>
           <Typography color="text.secondary">未找到匹配的智能体</Typography>

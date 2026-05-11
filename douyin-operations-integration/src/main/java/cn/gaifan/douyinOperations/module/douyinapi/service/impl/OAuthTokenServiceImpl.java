@@ -4,13 +4,21 @@ import cn.gaifan.douyinOperations.module.douyinapi.client.DouyinApiClient;
 import cn.gaifan.douyinOperations.module.douyinapi.entity.OAuthToken;
 import cn.gaifan.douyinOperations.module.douyinapi.repository.OAuthTokenRepository;
 import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
+import cn.gaifan.douyinOperations.module.messaging.service.MessagingPlatformService;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.sql.Timestamp;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -23,6 +31,12 @@ public class OAuthTokenServiceImpl implements OAuthTokenService {
 
     @Resource
     private DouyinApiClient douyinApiClient;
+
+    @Autowired(required = false)
+    private MessagingPlatformService messagingPlatformService;
+
+    @Autowired(required = false)
+    private RestTemplate restTemplate;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -121,10 +135,24 @@ public class OAuthTokenServiceImpl implements OAuthTokenService {
             // TODO: 添加其他 provider 的刷新逻辑（wechat, qq 等）
 
             log.error("刷新 token 失败: userId={}, provider={}", userId, provider);
+
+            // P2-7: 发送告警通知
+            sendTokenExpiredAlert(userId, provider);
+
+            // P2-7: 更新 token 状态为 expired
+            updateTokenStatus(userId, provider, "expired");
+
             return false;
 
         } catch (Exception e) {
             log.error("刷新 token 异常: userId={}, provider={}", userId, provider, e);
+
+            // P2-7: 发送告警通知
+            sendTokenExpiredAlert(userId, provider);
+
+            // P2-7: 更新 token 状态为 expired
+            updateTokenStatus(userId, provider, "expired");
+
             return false;
         }
     }
@@ -146,5 +174,51 @@ public class OAuthTokenServiceImpl implements OAuthTokenService {
         }
         OAuthToken token = tokenOpt.get();
         return !token.isExpired();
+    }
+
+    /**
+     * P2-7: 发送 Token 过期告警通知
+     */
+    private void sendTokenExpiredAlert(Long userId, String provider) {
+        try {
+            if (messagingPlatformService == null || restTemplate == null) {
+                log.warn("消息服务未配置，跳过告警通知: userId={}, provider={}", userId, provider);
+                return;
+            }
+
+            // 构造告警消息
+            String message = String.format("您的 %s 授权已过期，请重新授权以继续使用相关功能。",
+                    "douyin".equals(provider) ? "抖音" : provider);
+
+            // 尝试通过企微/飞书发送通知（如果配置了）
+            // 这里简化处理，实际应该查询用户绑定的通知渠道
+            log.info("Token 过期告警: userId={}, provider={}, message={}", userId, provider, message);
+
+            // TODO: 实际发送逻辑可以调用 MessagingPlatformService 或直接调用企微/飞书 API
+            // 示例：通过企微发送应用消息
+            // messagingPlatformService.sendTextMessage(userId, message);
+
+        } catch (Exception e) {
+            log.error("发送 Token 过期告警失败: userId={}, provider={}", userId, provider, e);
+        }
+    }
+
+    /**
+     * P2-7: 更新 Token 状态
+     */
+    private void updateTokenStatus(Long userId, String provider, String status) {
+        try {
+            Optional<OAuthToken> tokenOpt = getToken(userId, provider);
+            if (tokenOpt.isPresent()) {
+                OAuthToken token = tokenOpt.get();
+                // 注意：OAuthToken 实体没有 status 字段，这里通过设置 expiresAt 为过去时间来标记过期
+                // 如果需要真正的 status 字段，需要修改 Entity 和数据库表
+                token.setExpiresAt(new Timestamp(System.currentTimeMillis() - 1000));
+                tokenRepository.save(token);
+                log.info("更新 Token 状态: userId={}, provider={}, status={}", userId, provider, status);
+            }
+        } catch (Exception e) {
+            log.error("更新 Token 状态失败: userId={}, provider={}, status={}", userId, provider, status, e);
+        }
     }
 }

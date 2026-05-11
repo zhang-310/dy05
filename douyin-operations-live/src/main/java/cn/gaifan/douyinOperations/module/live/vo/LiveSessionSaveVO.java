@@ -26,4 +26,13 @@ public class LiveSessionSaveVO {
     private String liveUrl;
 
     private Integer status = 0;
+
+    // P0-2: 补全必需字段
+    private Long personaId;              // 人设 ID
+
+    private String scriptStyle;          // 话术风格（professional/friendly/passionate等）
+
+    private String sessionType;          // 场次类型（normal/brand/promotion等）
+
+    private String liveFormat;           // 直播形式（single/multi/collab等）
 }

@@ -93,7 +93,7 @@ public class LiveGenerationQueueProcessor {
                     System.currentTimeMillis() - start, 1, null, false, refChunks, null);
             Long callLogId = aiCallLogService.log(entry);
             if (full.getSessionIdForAttribution() != null) {
-                aiCallLogService.linkToPublish(callLogId, null, full.getSessionIdForAttribution());
+                aiCallLogService.linkToPublish(callLogId, null, full.getSessionIdForAttribution(), userId);
             }
             if (full.getScriptIdsForAttribution() != null) {
                 for (Long sid : full.getScriptIdsForAttribution()) {

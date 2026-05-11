@@ -158,9 +158,7 @@ public class FanProfileServiceImpl implements FanProfileService {
         Long ownerId = accountRepository.findById(accountId)
                 .map(DouyinAccount::getUserId).orElse(null);
 
-        // 删除旧数据
-        statsRepository.deleteOldStatsByAccountId(accountId);
-
+        // P2-3 修复：使用 UPSERT 替代删除+插入
         List<DyFanProfileStats> statsList = new ArrayList<>();
 
         // 年龄分布
@@ -204,9 +202,20 @@ public class FanProfileServiceImpl implements FanProfileService {
             statsList.addAll(parseStats(accountId, ownerId, "device", deviceData, syncTime));
         }
 
-        // 批量保存
+        // 使用 UPSERT 批量保存（避免删除+插入）
         if (!statsList.isEmpty()) {
-            statsRepository.saveAll(statsList);
+            for (DyFanProfileStats stats : statsList) {
+                statsRepository.upsertFanStat(
+                    stats.getAccountId(),
+                    stats.getOwnerId(),
+                    stats.getStatType(),
+                    stats.getStatKey(),
+                    stats.getStatValue(),
+                    stats.getCount(),
+                    stats.getPercentage(),
+                    stats.getSyncTime()
+                );
+            }
         }
     }
 

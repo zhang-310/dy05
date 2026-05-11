@@ -38,7 +38,8 @@ public class AiCallLogController {
         if (callLogId == null || (videoId == null && sessionId == null)) {
             return RESTResult.error(ErrorCode.INVALID_PARAMS, "callLogId 与 videoId/sessionId 至少各提供一个");
         }
-        aiCallLogService.linkToPublish(callLogId, videoId, sessionId);
+        // H1: 传递 userId 用于数据隔离校验
+        aiCallLogService.linkToPublish(callLogId, videoId, sessionId, userId);
         return RESTResult.getSuccess(null);
     }
 

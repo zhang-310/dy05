@@ -16,7 +16,8 @@ public interface AgentService {
 
     long saveAgent(Long userId, AgentSaveVO saveVO);
 
-    void deleteAgent(Long id);
+    // P0-2: 删除智能体（需校验所有权）
+    void deleteAgent(Long id, Long userId);
 
     void updateAgentStatus(Long id, Integer status);
 
@@ -24,11 +25,16 @@ public interface AgentService {
 
     List<Map<String, Object>> listConversations(Long userId, Long agentId);
 
-    void deleteConversation(Long id);
+    // P0-2: 删除对话（需校验所有权）
+    void deleteConversation(Long id, Long userId);
 
     long sendMessage(Long conversationId, Integer senderType, String content, Integer tokens);
 
-    List<Map<String, Object>> listMessages(Long conversationId);
+    // P0-4: 分页查询对话历史（防止 N+1 查询和内存溢出）
+    PageResultVO<Map<String, Object>> listMessages(Long conversationId, int page, int rows);
+
+    // 保留旧方法用于内部调用（如 chatWithAgent 需要完整历史）
+    List<Map<String, Object>> listMessagesAll(Long conversationId);
 
     /**
      * 与智能体对话（消息触达 webhook 用）

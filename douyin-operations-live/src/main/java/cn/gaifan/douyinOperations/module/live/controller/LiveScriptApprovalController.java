@@ -6,9 +6,7 @@ import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.live.service.LiveScriptApprovalService;
-import cn.gaifan.douyinOperations.module.live.vo.LiveScriptApprovalSaveVO;
-import cn.gaifan.douyinOperations.module.live.vo.LiveScriptApprovalSearchVO;
-import cn.gaifan.douyinOperations.module.live.vo.LiveScriptApprovalVO;
+import cn.gaifan.douyinOperations.module.live.vo.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -39,19 +37,13 @@ public class LiveScriptApprovalController {
     @PostMapping("/submit-by-session")
     @Operation(summary = "整场批量提交审核（统一入口，替代 /live/approval/submit）",
             description = "将场次下所有有内容且未在审核中的话术批量提交审核，支持多级风险自动通过")
-    public RESTResult<java.util.Map<String, Object>> submitBySession(
-            @RequestBody java.util.Map<String, Object> body,
+    public RESTResult<Map<String, Object>> submitBySession(
+            @Valid @RequestBody SubmitBySessionVO vo,
             HttpServletRequest request) {
         Long userId = requireUserId(request);
-        Object sessionIdObj = body.get("sessionId");
-        if (sessionIdObj == null) {
-            return RESTResult.error(cn.gaifan.douyinOperations.common.constant.ErrorCode.VALIDATION_FAIL, "sessionId 不能为空");
-        }
-        Long sessionId = sessionIdObj instanceof Number n ? n.longValue() : Long.parseLong(sessionIdObj.toString());
-        String comments = body.get("comments") instanceof String s ? s : null;
-        List<LiveScriptApprovalVO> results = approvalService.submitBySession(sessionId, comments, userId);
-        return RESTResult.success(java.util.Map.of(
-                "sessionId", sessionId,
+        List<LiveScriptApprovalVO> results = approvalService.submitBySession(vo.getSessionId(), vo.getComments(), userId);
+        return RESTResult.success(Map.of(
+                "sessionId", vo.getSessionId(),
                 "submitted", results.size(),
                 "list", results
         ));
@@ -60,33 +52,28 @@ public class LiveScriptApprovalController {
     @PostMapping("/review")
     @Operation(summary = "审批话术（通过/拒绝），仅管理员")
     public RESTResult<LiveScriptApprovalVO> review(
-            @RequestBody Map<String, Object> body,
+            @Valid @RequestBody ReviewApprovalVO vo,
             HttpServletRequest request) {
         Long reviewerId = requireUserId(request);
         String roleCode = AuthTokenFilter.getRoleCode(request);
         if (!"admin".equalsIgnoreCase(roleCode)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员可执行审批");
         }
-
-        Long approvalId = ((Number) body.get("approvalId")).longValue();
-        String action = (String) body.get("action");
-        String comments = (String) body.get("comments");
-        return RESTResult.success(approvalService.review(approvalId, action, comments, reviewerId));
+        return RESTResult.success(approvalService.review(vo.getApprovalId(), vo.getAction(), vo.getComments(), reviewerId));
     }
 
     @PostMapping("/revoke")
     @Operation(summary = "撤回审核（仅提交人可操作）")
-    public RESTResult<Void> revoke(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+    public RESTResult<Void> revoke(@Valid @RequestBody RevokeApprovalVO vo, HttpServletRequest request) {
         Long userId = requireUserId(request);
-        Long scriptId = ((Number) body.get("scriptId")).longValue();
-        approvalService.revoke(scriptId, userId);
+        approvalService.revoke(vo.getScriptId(), userId);
         return RESTResult.success(null);
     }
 
     @PostMapping("/search")
     @Operation(summary = "分页查询审核记录")
     public RESTResult<PageResultVO<LiveScriptApprovalVO>> search(
-            @RequestBody LiveScriptApprovalSearchVO vo,
+            @Valid @RequestBody LiveScriptApprovalSearchVO vo,
             HttpServletRequest request) {
         requireUserId(request);
         return RESTResult.success(approvalService.search(vo));
@@ -95,11 +82,10 @@ public class LiveScriptApprovalController {
     @PostMapping("/history")
     @Operation(summary = "查询话术审核历史")
     public RESTResult<List<LiveScriptApprovalVO>> history(
-            @RequestBody Map<String, Object> body,
+            @Valid @RequestBody ApprovalHistoryQueryVO vo,
             HttpServletRequest request) {
         requireUserId(request);
-        Long scriptId = ((Number) body.get("scriptId")).longValue();
-        return RESTResult.success(approvalService.history(scriptId));
+        return RESTResult.success(approvalService.history(vo.getScriptId()));
     }
 
     private Long requireUserId(HttpServletRequest request) {

@@ -11,7 +11,6 @@ import { aiApi } from '@/api/ai'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { KnowledgeBase } from '@/api/ai'
-import type { EvolveStatusPayload } from '@/types/evolutionEngine'
 import { parseScopeKbId } from '@/pages/ai/evolution/engineConstants'
 import { TaskQueueTab } from '@/pages/ai/evolution/tabs/TaskQueueTab'
 import { TopicsTab } from '@/pages/ai/evolution/tabs/TopicsTab'
@@ -31,7 +30,7 @@ export default function EvolutionPage() {
     queryFn: () => aiApi.kbList({ page: 0, rows: 200 }),
   })
 
-  const { data: statusData } = useQuery({
+  const { data: status } = useQuery({
     queryKey: ['evolve-status'],
     queryFn: () => aiApi.evolveStatus(),
     refetchInterval: 30000,
@@ -57,7 +56,6 @@ export default function EvolutionPage() {
     onError: () => toast('启动失败', 'error'),
   })
 
-  const status = statusData as EvolveStatusPayload | undefined
   const isRunning = status?.running === true
   const circuitBroken = status?.circuitBroken === true
 
@@ -71,7 +69,7 @@ export default function EvolutionPage() {
     qc.invalidateQueries({ queryKey: ['evolve-task-list'] })
   }
 
-  const kbList = (kbs ?? []) as KnowledgeBase[]
+  const kbList: KnowledgeBase[] = Array.isArray(kbs) ? kbs : []
 
   return (
     <Box sx={{ p: 3, bgcolor: 'var(--color-surface-dark)', minHeight: '100vh' }}>

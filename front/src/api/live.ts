@@ -58,6 +58,12 @@ export interface LiveScriptVersion {
 export interface LiveScriptVersionSave {
   id?: number; scriptId: number; content: string; versionNo?: string; status?: number
 }
+export interface VersionDiffResult {
+  leftContent?: string
+  rightContent?: string
+  versionA?: { id: number; content: string; versionNo: string }
+  versionB?: { id: number; content: string; versionNo: string }
+}
 
 // ===== SessionTemplate =====
 export interface LiveSessionTemplate {
@@ -213,7 +219,7 @@ export const liveApi = {
   versionSave: (p: Partial<LiveScriptVersionSave>) => request.post<number>('/live/script-version/save', p),
   versionActivate: (id: number) => request.post<void>('/live/script-version/activate', { id }),
   versionDelete: (id: number) => request.post<void>('/live/script-version/delete', { id }),
-  versionDiff: (p: Record<string, unknown>) => request.post<Record<string, unknown>>('/live/script-version/diff', p),
+  versionDiff: (p: { versionId1: number; versionId2: number }) => request.post<VersionDiffResult>('/live/script-version/diff', p),
 
   // ===== Monitor =====
   monitorSearch: (p: Record<string, unknown>) => request.post<PageResult<LiveMonitor>>('/live/monitor/search', p),

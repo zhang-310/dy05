@@ -7,11 +7,15 @@ import cn.gaifan.douyinOperations.module.douyin.entity.DyFanProfileStats;
 import cn.gaifan.douyinOperations.module.douyin.service.FanProfileService;
 import cn.gaifan.douyinOperations.module.douyin.vo.FanProfileQueryVO;
 import cn.gaifan.douyinOperations.module.douyin.vo.FanProfileVO;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,8 +26,13 @@ import java.util.List;
 @RequestMapping("/api/v1/douyin/fan-profile")
 public class FanProfileController {
 
+    private static final Logger log = LoggerFactory.getLogger(FanProfileController.class);
+
     @Resource
     private FanProfileService fanProfileService;
+
+    @Resource
+    private RateLimiter fanProfileSyncRateLimiter;
 
     @Operation(summary = "获取粉丝画像")
     @PostMapping("/get")
@@ -54,6 +63,14 @@ public class FanProfileController {
     public RESTResult<Void> manualSync(
             @PathVariable Long accountId,
             HttpServletRequest request) {
+        // P1-3: 限流保护
+        try {
+            fanProfileSyncRateLimiter.acquirePermission();
+        } catch (RequestNotPermitted e) {
+            log.warn("粉丝画像同步接口触发限流: userId={}, accountId={}", AuthTokenFilter.getUserId(request), accountId);
+            return RESTResult.error(ErrorCode.TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试");
+        }
+
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         fanProfileService.manualSync(accountId, userId);

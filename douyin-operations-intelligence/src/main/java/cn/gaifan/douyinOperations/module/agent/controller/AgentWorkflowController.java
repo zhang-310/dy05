@@ -60,10 +60,12 @@ public class AgentWorkflowController {
 
     @PostMapping("/delete")
     @Operation(summary = "删除工作流")
-    public RESTResult<Void> delete(@RequestBody Map<String, Object> body) {
+    public RESTResult<Void> delete(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long workflowId = toLong(body.get("id"));
         if (workflowId == null) return RESTResult.error(ErrorCode.INVALID_PARAMS, "工作流ID不能为空");
-        workflowService.delete(workflowId);
+        workflowService.delete(workflowId, userId);
         return RESTResult.success(null);
     }
 
@@ -93,10 +95,12 @@ public class AgentWorkflowController {
 
     @PostMapping("/execution/get")
     @Operation(summary = "获取执行详情")
-    public RESTResult<AgentWorkflowExecutionVO> getExecution(@RequestBody Map<String, Object> body) {
+    public RESTResult<AgentWorkflowExecutionVO> getExecution(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long executionId = toLong(body.get("id"));
         if (executionId == null) return RESTResult.error(ErrorCode.INVALID_PARAMS, "执行记录ID不能为空");
-        return RESTResult.getSuccess(workflowService.getExecutionById(executionId));
+        return RESTResult.getSuccess(workflowService.getExecutionById(executionId, userId));
     }
 
     @PostMapping("/execute")

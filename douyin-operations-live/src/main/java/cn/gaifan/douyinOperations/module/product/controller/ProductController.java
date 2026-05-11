@@ -164,10 +164,11 @@ public class ProductController {
     @Operation(summary = "删除商品")
     public RESTResult<Void> delete(HttpServletRequest request,
             @RequestBody(required = false) java.util.Map<String, Object> body) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long id = parseLong(body, "id");
         if (id == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id");
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        productService.delete(id);
+        productService.delete(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -177,7 +178,8 @@ public class ProductController {
     @Operation(summary = "批量删除商品")
     public RESTResult<Void> batchDelete(HttpServletRequest request,
             @RequestBody(required = false) java.util.Map<String, Object> body) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         @SuppressWarnings("unchecked")
         List<Long> ids = body != null && body.get("ids") != null
             ? ((List<?>) body.get("ids")).stream()
@@ -187,7 +189,7 @@ public class ProductController {
         if (ids == null || ids.isEmpty()) {
             return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 ids");
         }
-        productService.batchDelete(ids);
+        productService.batchDelete(ids, userId);
         RESTResult<Void> r = RESTResult.success("批量删除成功", null);
         r.setTraceId(MDC.get("traceId"));
         return r;

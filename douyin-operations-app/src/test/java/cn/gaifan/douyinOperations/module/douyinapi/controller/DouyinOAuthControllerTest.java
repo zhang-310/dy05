@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -50,9 +52,19 @@ class DouyinOAuthControllerTest {
     @MockBean
     private DouyinAccountRepository douyinAccountRepository;
 
+    @MockBean
+    private StringRedisTemplate stringRedisTemplate;
+
+    @MockBean
+    private ValueOperations<String, String> valueOperations;
+
     @Test
     @DisplayName("获取授权 URL (GET) - 应返回 200")
     void getAuthorizeUrl_shouldReturn200() throws Exception {
+        // P2-6: Mock Redis state 存储
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        doNothing().when(valueOperations).set(anyString(), anyString(), anyLong(), any());
+
         when(douyinApiClient.getAuthUrl(anyString(), anyString()))
                 .thenReturn("https://open.douyin.com/oauth/authorize?client_id=xxx&state=xxx");
 
@@ -75,6 +87,10 @@ class DouyinOAuthControllerTest {
     @Test
     @DisplayName("获取授权 URL (POST) - 应返回 200")
     void getAuthUrlPost_shouldReturn200() throws Exception {
+        // P2-6: Mock Redis state 存储
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        doNothing().when(valueOperations).set(anyString(), anyString(), anyLong(), any());
+
         when(douyinApiClient.getAuthUrl(anyString(), anyString()))
                 .thenReturn("https://open.douyin.com/oauth/authorize?client_id=xxx&state=xxx");
 
@@ -86,6 +102,89 @@ class DouyinOAuthControllerTest {
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data.authUrl").exists())
                 .andExpect(jsonPath("$.data.state").exists());
+    }
+
+    @Test
+    @DisplayName("P2-6: OAuth state 防重放 - state 有效应成功")
+    void oauthCallback_validState_shouldSucceed() throws Exception {
+        // 构造有效的 state（格式：userId_timestamp_hmac）
+        String userId = "1";
+        long timestamp = System.currentTimeMillis();
+        String payload = userId + "_" + timestamp;
+        // 简化测试：直接使用 payload 作为 state，不计算 HMAC
+        String state = payload + "_dummyhmac";
+        String code = "test-code-456";
+
+        // Mock Redis state 验证
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("oauth:state:" + state)).thenReturn(userId);
+        when(stringRedisTemplate.delete("oauth:state:" + state)).thenReturn(true);
+
+        // Mock token 交换
+        DouyinApiClient.AccessTokenResponse tokenResponse =
+                new DouyinApiClient.AccessTokenResponse("access-token", "refresh-token", 7200, "open-id-123");
+        when(douyinApiClient.getAccessToken(eq(code))).thenReturn(tokenResponse);
+
+        doNothing().when(oauthTokenService).saveOrUpdateToken(anyLong(), anyString(), anyString(), anyString(), anyString(), anyInt(), anyString());
+
+        mockMvc.perform(get("/api/v1/douyin/oauth/callback")
+                        .param("code", code)
+                        .param("state", state))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("授权成功")));
+    }
+
+    @Test
+    @DisplayName("P2-6: OAuth state 防重放 - state 无效应失败")
+    void oauthCallback_invalidState_shouldFail() throws Exception {
+        String state = "invalid-state";
+        String code = "test-code-456";
+
+        // Mock Redis state 验证失败
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("oauth:state:" + state)).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/douyin/oauth/callback")
+                        .param("code", code)
+                        .param("state", state))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("授权失败")));
+    }
+
+    @Test
+    @DisplayName("P2-6: OAuth state 防重放 - state 重复使用应失败")
+    void oauthCallback_reusedState_shouldFail() throws Exception {
+        String userId = "1";
+        long timestamp = System.currentTimeMillis();
+        String payload = userId + "_" + timestamp;
+        String state = payload + "_dummyhmac";
+        String code = "test-code-456";
+
+        // 第一次使用成功
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("oauth:state:" + state)).thenReturn(userId);
+        when(stringRedisTemplate.delete("oauth:state:" + state)).thenReturn(true);
+
+        DouyinApiClient.AccessTokenResponse tokenResponse =
+                new DouyinApiClient.AccessTokenResponse("access-token", "refresh-token", 7200, "open-id-123");
+        when(douyinApiClient.getAccessToken(eq(code))).thenReturn(tokenResponse);
+
+        doNothing().when(oauthTokenService).saveOrUpdateToken(anyLong(), anyString(), anyString(), anyString(), anyString(), anyInt(), anyString());
+
+        mockMvc.perform(get("/api/v1/douyin/oauth/callback")
+                        .param("code", code)
+                        .param("state", state))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("授权成功")));
+
+        // 第二次使用同一 state 应失败（Redis 中已删除）
+        when(valueOperations.get("oauth:state:" + state)).thenReturn(null);
+
+        mockMvc.perform(get("/api/v1/douyin/oauth/callback")
+                        .param("code", code)
+                        .param("state", state))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("授权失败")));
     }
 
     @Test

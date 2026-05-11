@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOCKS5 订阅转换</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4d;
+      --text: #e6edf3;
+      --muted: #8b9cad;
+      --accent: #3d9ee5;
+      --accent-hover: #5cb0f0;
+      --ok: #3fb950;
+      --err: #f85149;
+      --radius: 10px;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 1.25rem clamp(1rem, 4vw, 2rem);
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin: 0 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 1.25rem;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.1rem;
+      margin-bottom: 1rem;
+    }
+    .panel h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin: 0 0 0.65rem;
+      font-weight: 600;
+    }
+    textarea {
+      width: 100%;
+      min-height: 140px;
+      padding: 0.75rem;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-size: 0.8rem;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      resize: vertical;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      align-items: center;
+    }
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      background: var(--accent);
+      color: #fff;
+    }
+    button:hover { background: var(--accent-hover); }
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.secondary:hover { border-color: var(--muted); }
+    .meta {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-left: auto;
+    }
+    .meta strong { color: var(--ok); }
+    pre.out {
+      margin: 0;
+      padding: 0.75rem;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      background: var(--bg);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      max-height: 220px;
+      overflow: auto;
+    }
+    .error {
+      color: var(--err);
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>SOCKS5 订阅转换</h1>
+  <p class="sub">
+    将 <code>socks5://主机:端口:用户:密码</code> 转为标准 URI，并生成明文 / Base64 订阅（仅本地浏览器处理，不上传）。
+  </p>
+
+  <div class="panel">
+    <h2>输入（每行一条）</h2>
+    <textarea id="input" spellcheck="false" placeholder="粘贴多行代理…"></textarea>
+    <div class="row">
+      <button type="button" id="btnSample">填入案例</button>
+      <button type="button" id="btnConvert" class="secondary">转换</button>
+      <button type="button" id="btnClear" class="secondary">清空</button>
+      <span class="meta" id="meta">就绪</span>
+    </div>
+    <p class="hint">以 <code>#</code> 开头的行视为注释；已是 <code>socks5://用户:密码@主机:端口</code> 的行会原样保留。</p>
+    <div class="error" id="err" hidden></div>
+  </div>
+
+  <div class="panel">
+    <h2>转换结果（每行一个）</h2>
+    <pre class="out" id="linesOut">（转换后显示）</pre>
+  </div>
+
+  <div class="panel">
+    <h2>明文订阅</h2>
+    <pre class="out" id="plainOut"></pre>
+  </div>
+
+  <div class="panel">
+    <h2>Base64 订阅</h2>
+    <pre class="out" id="b64Out"></pre>
+  </div>
+
+  <script>
+    /** 内置案例：2 条待转换 + 1 条注释 + 1 条已标准格式 */
+    const SAMPLE = [
+      'socks5://188.64.104.53:45001:111:111',
+      'socks5://203.0.113.10:1080:demo:userPass',
+      '# 本行是注释，会被跳过',
+      'socks5://keep:me@proxy.example.net:45001',
+    ].join('\n');
+
+    function convertLine(line) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return null;
+      if (/^socks5:\/\/.+@.+:\d+$/.test(trimmed)) return trimmed;
+      const m = trimmed.match(/^socks5:\/\/(.+?):(\d+):([^:]+):([\s\S]+)$/);
+      if (!m) {
+        throw new Error(
+          '无法解析行: ' +
+            trimmed.slice(0, 80) +
+            (trimmed.length > 80 ? '…' : ''),
+        );
+      }
+      const [, host, port, user, pass] = m;
+      return (
+        'socks5://' +
+        encodeURIComponent(user) +
+        ':' +
+        encodeURIComponent(pass) +
+        '@' +
+        host +
+        ':' +
+        port
+      );
+    }
+
+    function convertLines(text) {
+      const out = [];
+      for (const line of text.split(/\r?\n/)) {
+        const uri = convertLine(line);
+        if (uri) out.push(uri);
+      }
+      return out;
+    }
+
+    function toPlainSubscription(uris) {
+      return uris.join('\n');
+    }
+
+    function toBase64Utf8(str) {
+      const bytes = new TextEncoder().encode(str);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    }
+
+    const el = (id) => document.getElementById(id);
+
+    function run() {
+      const err = el('err');
+      err.hidden = true;
+      err.textContent = '';
+      const text = el('input').value;
+      let uris;
+      try {
+        uris = convertLines(text);
+      } catch (e) {
+        err.hidden = false;
+        err.textContent = e.message || String(e);
+        el('meta').textContent = '出错';
+        return;
+      }
+      const plain = toPlainSubscription(uris);
+      const b64 = plain ? toBase64Utf8(plain) : '';
+      el('linesOut').textContent = uris.length ? uris.join('\n') : '（无有效行）';
+      el('plainOut').textContent = plain || '（空）';
+      el('b64Out').textContent = b64 || '（空）';
+      el('meta').innerHTML = '有效行数：<strong>' + uris.length + '</strong>';
+    }
+
+    el('btnSample').addEventListener('click', () => {
+      el('input').value = SAMPLE;
+      run();
+    });
+    el('btnConvert').addEventListener('click', run);
+    el('btnClear').addEventListener('click', () => {
+      el('input').value = '';
+      el('linesOut').textContent = '（转换后显示）';
+      el('plainOut').textContent = '';
+      el('b64Out').textContent = '';
+      el('err').hidden = true;
+      el('meta').textContent = '就绪';
+    });
+
+    el('input').addEventListener('input', () => {
+      if (el('input').value.trim() === '') {
+        el('meta').textContent = '就绪';
+      }
+    });
+
+    // 首次打开不自动跑；用户点「填入案例」或「转换」
+  </script>
+</body>
+</html>

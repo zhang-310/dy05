@@ -61,6 +61,15 @@ public class RedisConfig {
         // Douyin account statistics - 5 minutes (updated on video sync)
         cacheConfigs.put("accountStatistics", ttlConfig(5));
 
+        // Agent caches - 5 minutes (P0-6: 智能体列表查询缓存)
+        cacheConfigs.put("agent:list", ttlConfig(5));
+
+        // Live caches - 5 minutes (P0-3: Live 模块缓存策略)
+        cacheConfigs.put("live:session", ttlConfig(5));
+        cacheConfigs.put("live:script", ttlConfig(5));
+        cacheConfigs.put("live:template", ttlConfig(10));
+        cacheConfigs.put("live:product", ttlConfig(5));
+
         return RedisCacheManager.builder(factory)
             .cacheDefaults(defaultConfig)
             .withInitialCacheConfigurations(cacheConfigs)

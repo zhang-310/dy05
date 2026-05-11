@@ -121,21 +121,28 @@ public class ProductServiceImpl implements cn.gaifan.douyinOperations.module.pro
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long userId) {
         DyProduct entity = dyProductRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "商品不存在"));
+
+        // P0-1: 数据所有权校验
+        if (!entity.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限删除该商品");
+        }
+
         entity.setDeleted(1);
         dyProductRepository.save(entity);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void batchDelete(java.util.List<Long> ids) {
+    public void batchDelete(java.util.List<Long> ids, Long userId) {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "商品 ID 列表不能为空");
         }
         List<DyProduct> entities = dyProductRepository.findAllById(ids);
         for (DyProduct entity : entities) {
-            if (entity.getDeleted() == 0) {
+            // P0-1: 数据所有权校验 - 仅删除自己的数据
+            if (entity.getDeleted() == 0 && entity.getUserId().equals(userId)) {
                 entity.setDeleted(1);
             }
         }

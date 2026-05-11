@@ -13,6 +13,7 @@ import cn.gaifan.douyinOperations.module.agent.vo.AgentShareVO;
 import cn.gaifan.douyinOperations.module.agent.vo.AgentVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.apache.commons.text.StringEscapeUtils;
 import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +22,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 @RestController
 @RequestMapping("/api/v1/agent")
@@ -32,6 +34,10 @@ public class AgentController {
 
     @Resource
     private AgentShareService agentShareService;
+
+    // P0-7: 注入共享线程池（避免每次 SSE 请求创建新线程池）
+    @Resource(name = "sseExecutor")
+    private ExecutorService sseExecutor;
 
     // ==================== Agent ====================
 
@@ -70,8 +76,9 @@ public class AgentController {
     @PostMapping("/delete")
     @Operation(summary = "删除智能体")
     public RESTResult<Void> delete(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        agentService.deleteAgent(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        agentService.deleteAgent(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -119,8 +126,9 @@ public class AgentController {
     @PostMapping("/conversation/delete")
     @Operation(summary = "删除对话")
     public RESTResult<Void> deleteConversation(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        agentService.deleteConversation(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        agentService.deleteConversation(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -142,14 +150,19 @@ public class AgentController {
     }
 
     @PostMapping("/message/list")
-    @Operation(summary = "消息列表")
-    public RESTResult<List<Map<String, Object>>> listMessages(HttpServletRequest request,
+    @Operation(summary = "消息列表（分页）")
+    public RESTResult<PageResultVO<Map<String, Object>>> listMessages(HttpServletRequest request,
             @RequestBody(required = false) Map<String, Object> body) {
         if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long conversationId = body != null && body.get("conversationId") != null
                 ? Long.parseLong(body.get("conversationId").toString()) : null;
         if (conversationId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "conversationId 不能为空");
-        RESTResult<List<Map<String, Object>>> r = RESTResult.getSuccess(agentService.listMessages(conversationId));
+
+        // P0-4: 分页参数（默认第 0 页，每页 50 条）
+        int page = body != null && body.get("page") != null ? Integer.parseInt(body.get("page").toString()) : 0;
+        int rows = body != null && body.get("rows") != null ? Integer.parseInt(body.get("rows").toString()) : 50;
+
+        RESTResult<PageResultVO<Map<String, Object>>> r = RESTResult.getSuccess(agentService.listMessages(conversationId, page, rows));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -268,7 +281,8 @@ public class AgentController {
         String content = body.get("content") != null ? body.get("content").toString() : "";
         final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+        // P0-7: 使用共享线程池（避免线程泄漏）
+        sseExecutor.execute(() -> {
             try {
                 emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
                         .name("status")
@@ -325,14 +339,18 @@ public class AgentController {
                 String[] words = reply.split("(?<=[\n，。、！？；：.!?,;:\n])");
                 for (String word : words) {
                     if (word.isEmpty()) continue;
-                    String json = mapper.writeValueAsString(java.util.Map.of("type", "chunk", "content", word));
+                    // P0-1: XSS 防护 - HTML 转义
+                    String safeWord = StringEscapeUtils.escapeHtml4(word);
+                    String json = mapper.writeValueAsString(java.util.Map.of("type", "chunk", "content", safeWord));
                     emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
                             .name("chunk")
                             .data(json));
                     Thread.sleep(20);
                 }
 
-                String doneJson = mapper.writeValueAsString(java.util.Map.of("type", "done", "content", reply));
+                // P0-1: XSS 防护 - HTML 转义
+                String safeReply = StringEscapeUtils.escapeHtml4(reply);
+                String doneJson = mapper.writeValueAsString(java.util.Map.of("type", "done", "content", safeReply));
                 emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
                         .name("done")
                         .data(doneJson));
@@ -354,7 +372,8 @@ public class AgentController {
     @Operation(summary = "SSE 诊断端点（不调 LLM）")
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter sseDiagnostic() {
         org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(30_000L);
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+        // P0-7: 使用共享线程池（避免线程泄漏）
+        sseExecutor.execute(() -> {
             try {
                 for (int i = 1; i <= 5; i++) {
                     Thread.sleep(1000);

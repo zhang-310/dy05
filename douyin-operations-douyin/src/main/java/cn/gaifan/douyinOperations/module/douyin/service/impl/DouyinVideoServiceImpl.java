@@ -11,6 +11,7 @@ import cn.gaifan.douyinOperations.module.douyin.service.DouyinVideoService;
 import cn.gaifan.douyinOperations.module.douyin.vo.*;
 import cn.gaifan.douyinOperations.module.douyinapi.client.DouyinApiClient;
 import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
+import com.github.benmanes.caffeine.cache.Cache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -49,6 +50,9 @@ public class DouyinVideoServiceImpl implements DouyinVideoService {
 
     @Resource
     private OAuthTokenService oauthTokenService;
+
+    @Resource(name = "accountStatisticsCache")
+    private Cache<Long, Object> accountStatisticsCache;
 
     @Override
     public PageResultVO<DouyinVideoVO> search(DouyinVideoSearchVO vo) {
@@ -100,7 +104,9 @@ public class DouyinVideoServiceImpl implements DouyinVideoService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAIL, "视频不存在"));
         } else {
             if (douyinVideoRepository.existsByVideoIdAndDeleted(vo.getVideoId(), 0)) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "视频 ID 已存在");
+                // P2-8: 避免泄露敏感信息，使用通用错误消息
+                log.warn("视频 ID 已存在: videoId={}, accountId={}", vo.getVideoId(), vo.getAccountId());
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "保存失败，请检查输入");
             }
             video = new DouyinVideo();
             video.setAccountId(vo.getAccountId());
@@ -180,6 +186,9 @@ public class DouyinVideoServiceImpl implements DouyinVideoService {
 
         if (!toUpdate.isEmpty()) douyinVideoRepository.saveAll(toUpdate);
         if (!toInsert.isEmpty()) douyinVideoRepository.saveAll(toInsert);
+
+        // P2-5: 清除 L1 缓存
+        accountStatisticsCache.invalidate(accountId);
 
         int synced = toUpdate.size() + toInsert.size();
         log.info("账号 {} 视频同步完成，共处理 {} 条（更新 {}，新增 {}）",

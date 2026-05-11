@@ -8,6 +8,8 @@ import cn.gaifan.douyinOperations.module.douyin.repository.DouyinAccountReposito
 import cn.gaifan.douyinOperations.module.douyinapi.client.DouyinApiClient;
 import cn.gaifan.douyinOperations.module.douyinapi.entity.OAuthToken;
 import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -52,6 +54,9 @@ public class DouyinOAuthController {
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private RateLimiter oauthRateLimiter;
+
     @Value("${douyin.api.callback-url}")
     private String callbackUrl;
 
@@ -70,6 +75,14 @@ public class DouyinOAuthController {
     @GetMapping("/authorize-url")
     @Operation(summary = "获取授权 URL / Get Authorization URL")
     public RESTResult<Map<String, String>> getAuthorizeUrl(HttpServletRequest request) {
+        // P1-3: 限流保护
+        try {
+            oauthRateLimiter.acquirePermission();
+        } catch (RequestNotPermitted e) {
+            log.warn("OAuth 授权接口触发限流: userId={}", AuthTokenFilter.getUserId(request));
+            return RESTResult.error(ErrorCode.TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试");
+        }
+
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
@@ -171,8 +184,9 @@ public class DouyinOAuthController {
                 existingScope
         );
 
+        // P1-2: 不返回 accessToken 明文，前端不需要（后端自动管理）
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(Map.of(
-                "accessToken", tokenResponse.accessToken(),
+                "success", true,
                 "expiresIn", tokenResponse.expiresIn()
         ));
         r.setTraceId(MDC.get("traceId"));
@@ -291,6 +305,14 @@ public class DouyinOAuthController {
     @Operation(summary = "获取授权 URL（POST）/ Get Authorization URL (POST)")
     public RESTResult<Map<String, String>> getAuthUrlPost(HttpServletRequest request,
                                                            @RequestBody(required = false) Map<String, Object> body) {
+        // P1-3: 限流保护
+        try {
+            oauthRateLimiter.acquirePermission();
+        } catch (RequestNotPermitted e) {
+            log.warn("OAuth 授权接口触发限流: userId={}", AuthTokenFilter.getUserId(request));
+            return RESTResult.error(ErrorCode.TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试");
+        }
+
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
@@ -300,6 +322,12 @@ public class DouyinOAuthController {
         String payload = userId + "_" + timestamp;
         String signature = hmacSha256(payload);
         String state = payload + "_" + signature;
+
+        // P1-1: 生成 state 时存储到 Redis（防重放）
+        String redisKey = "oauth:state:" + state;
+        stringRedisTemplate.opsForValue().set(redisKey, String.valueOf(userId), STATE_TTL_MS, TimeUnit.MILLISECONDS);
+        log.debug("OAuth state 已存储到 Redis: key={}, userId={}", redisKey, userId);
+
         String authUrl = douyinApiClient.getAuthUrl(callbackUrl, state);
 
         RESTResult<Map<String, String>> r = RESTResult.getSuccess(Map.of(

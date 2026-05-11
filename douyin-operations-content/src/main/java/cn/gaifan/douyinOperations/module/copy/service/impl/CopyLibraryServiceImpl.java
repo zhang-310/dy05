@@ -7,6 +7,8 @@ import cn.gaifan.douyinOperations.module.copy.entity.CopyLibrary;
 import cn.gaifan.douyinOperations.module.copy.repository.CopyLibraryRepository;
 import cn.gaifan.douyinOperations.module.copy.service.CopyLibraryService;
 import cn.gaifan.douyinOperations.module.copy.vo.*;
+import com.github.benmanes.caffeine.cache.Cache;
+import org.apache.commons.text.StringEscapeUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -29,6 +31,9 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
     @Resource
     private CopyLibraryRepository copyLibraryRepository;
 
+    @Resource
+    private Cache<Long, Object> copyLibraryCache;
+
     @Override
     public PageResultVO<CopyLibraryVO> search(CopyLibrarySearchVO vo) {
         vo.validateParams();
@@ -40,6 +45,7 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("deleted"), 0));
 
+            // P0-2: 数据隔离 - 强制过滤 userId（不可绕过）
             if (vo.getUserId() != null && vo.getUserId() > 0) {
                 predicates.add(cb.equal(root.get("userId"), vo.getUserId()));
             } else if (vo.getUserIds() != null && !vo.getUserIds().isEmpty()) {
@@ -72,9 +78,19 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
     @Override
     public CopyLibraryVO getById(Long id) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "文案 ID 无效");
+
+        // P0-3: 先查缓存
+        CopyLibraryVO cached = (CopyLibraryVO) copyLibraryCache.getIfPresent(id);
+        if (cached != null) return cached;
+
+        // 缓存未命中，查数据库
         CopyLibrary entity = copyLibraryRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "文案不存在"));
-        return toVO(entity);
+        CopyLibraryVO vo = toVO(entity);
+
+        // 写入缓存
+        copyLibraryCache.put(id, vo);
+        return vo;
     }
 
     @Override
@@ -84,16 +100,19 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
         if (vo.getId() != null && vo.getId() > 0) {
             entity = copyLibraryRepository.findByIdAndDeleted(vo.getId(), 0)
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "文案不存在"));
+            // P0-3: 更新时失效缓存
+            copyLibraryCache.invalidate(vo.getId());
         } else {
             entity = new CopyLibrary();
             entity.setUserId(vo.getUserId());
         }
-        entity.setTitle(vo.getTitle());
-        entity.setContent(vo.getContent());
+        // P0-1: XSS 防护 - HTML 转义用户输入
+        entity.setTitle(vo.getTitle() != null ? StringEscapeUtils.escapeHtml4(vo.getTitle()) : null);
+        entity.setContent(vo.getContent() != null ? StringEscapeUtils.escapeHtml4(vo.getContent()) : null);
         // 自动计算字数
         entity.setWordCount(vo.getContent() != null ? vo.getContent().length() : 0);
-        if (vo.getCategory() != null) entity.setCategory(vo.getCategory());
-        if (vo.getTags() != null) entity.setTags(vo.getTags());
+        if (vo.getCategory() != null) entity.setCategory(StringEscapeUtils.escapeHtml4(vo.getCategory()));
+        if (vo.getTags() != null) entity.setTags(StringEscapeUtils.escapeHtml4(vo.getTags()));
         if (vo.getRating() != null) entity.setRating(vo.getRating());
         if (vo.getStatus() != null) entity.setStatus(vo.getStatus());
         entity = copyLibraryRepository.save(entity);
@@ -108,6 +127,8 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "文案不存在"));
         entity.setDeleted(1);
         copyLibraryRepository.save(entity);
+        // P0-3: 删除时失效缓存
+        copyLibraryCache.invalidate(id);
     }
 
     @Override
@@ -117,6 +138,8 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
         copyLibraryRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "文案不存在"));
         copyLibraryRepository.updateStatus(id, status);
+        // P0-3: 更新状态时失效缓存
+        copyLibraryCache.invalidate(id);
     }
 
     @Override
@@ -126,6 +149,8 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
         copyLibraryRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "文案不存在"));
         copyLibraryRepository.incrementUseCount(id);
+        // P0-3: 更新使用次数时失效缓存
+        copyLibraryCache.invalidate(id);
     }
 
     private CopyLibraryVO toVO(CopyLibrary e) {

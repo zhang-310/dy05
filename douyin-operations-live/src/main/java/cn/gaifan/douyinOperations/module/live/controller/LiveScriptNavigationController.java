@@ -2,15 +2,21 @@ package cn.gaifan.douyinOperations.module.live.controller;
 
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.live.service.LiveMonitorService;
+import cn.gaifan.douyinOperations.module.live.vo.LiveScriptNavigationSearchVO;
+import cn.gaifan.douyinOperations.module.live.vo.LiveScriptNavigationVO;
+import cn.gaifan.douyinOperations.module.live.vo.SkipToSlotVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +33,13 @@ public class LiveScriptNavigationController {
 
     @Resource
     private LiveMonitorService liveMonitorService;
+
+    @PostMapping("/search")
+    @Operation(summary = "查询话术导航列表 / Search Script Navigation")
+    public RESTResult<PageResultVO<LiveScriptNavigationVO>> search(@Valid @RequestBody LiveScriptNavigationSearchVO vo) {
+        vo.validateParams();
+        return RESTResult.success(new PageResultVO<>(0L, Collections.emptyList(), vo.getPage(), vo.getRows()));
+    }
 
     @GetMapping("/current-slot/{sessionId}")
     @Operation(summary = "获取当前话术段 / Get Current Script Slot")
@@ -86,10 +99,9 @@ public class LiveScriptNavigationController {
 
     @PostMapping("/skip/{sessionId}")
     @Operation(summary = "跳转到指定话术段 / Skip to Slot")
-    public RESTResult<Map<String, Object>> skipToSlot(@PathVariable Long sessionId, @RequestBody Map<String, Object> body) {
+    public RESTResult<Map<String, Object>> skipToSlot(@PathVariable Long sessionId, @Valid @RequestBody SkipToSlotVO vo) {
         try {
-            int slotIndex = body.get("slotIndex") != null ? ((Number) body.get("slotIndex")).intValue() : 0;
-            Map<String, Object> result = liveMonitorService.skipToSlot(sessionId, slotIndex);
+            Map<String, Object> result = liveMonitorService.skipToSlot(sessionId, vo.getSlotIndex());
             return RESTResult.ok(result);
         } catch (BusinessException e) {
             return RESTResult.fail(e.getErrorCode(), e.getMessage());

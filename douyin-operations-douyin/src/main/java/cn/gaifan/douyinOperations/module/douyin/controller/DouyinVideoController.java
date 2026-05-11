@@ -8,11 +8,15 @@ import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinAccountRepository;
 import cn.gaifan.douyinOperations.module.douyin.service.DouyinVideoService;
 import cn.gaifan.douyinOperations.module.douyin.vo.*;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,12 +34,17 @@ import java.util.List;
 @Tag(name = "抖音视频 / Douyin Video", description = "抖音视频的管理（需登录）")
 public class DouyinVideoController {
 
+    private static final Logger log = LoggerFactory.getLogger(DouyinVideoController.class);
+
     @Resource
     private DouyinVideoService douyinVideoService;
     @Resource
     private DataScopeResolver dataScopeService;
     @Resource
     private DouyinAccountRepository douyinAccountRepository;
+
+    @Resource
+    private RateLimiter videoSyncRateLimiter;
 
     @PostMapping("/search")
     @Operation(
@@ -131,6 +140,14 @@ public class DouyinVideoController {
             description = "账号 ID / Account ID",
             required = true
     ) @RequestParam Long accountId) {
+        // P1-3: 限流保护
+        try {
+            videoSyncRateLimiter.acquirePermission();
+        } catch (RequestNotPermitted e) {
+            log.warn("视频同步接口触发限流: userId={}, accountId={}", AuthTokenFilter.getUserId(request), accountId);
+            return RESTResult.error(ErrorCode.TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试");
+        }
+
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");

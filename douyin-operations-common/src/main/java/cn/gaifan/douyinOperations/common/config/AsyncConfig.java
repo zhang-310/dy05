@@ -111,4 +111,22 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * P1-5: 话术学习管道线程池
+     * 用于并行处理视频话术提取任务
+     */
+    @Bean("learningTaskExecutor")
+    public Executor learningTaskExecutor(
+            @Value("${app.async.learning-core:4}") int core,
+            @Value("${app.async.learning-max:8}") int max) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(core);
+        executor.setMaxPoolSize(max);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("learning-task-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
 }

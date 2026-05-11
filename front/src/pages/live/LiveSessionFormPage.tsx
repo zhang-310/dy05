@@ -44,7 +44,9 @@ export default function LiveSessionFormPage() {
       const accList = accRes.list || []
       setAccounts(accList)
       setPersonas(personaRes || [])
-    }).catch((e) => { console.error('Failed to load accounts/personas:', e); toast('加载账号和人设失败', 'error') })
+    }).catch(() => {
+      toast('加载账号和人设失败', 'error')
+    })
 
     if (isEdit && id) {
       setLoading(true)

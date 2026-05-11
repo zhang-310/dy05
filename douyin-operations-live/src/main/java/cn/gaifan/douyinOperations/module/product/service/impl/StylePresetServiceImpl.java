@@ -71,6 +71,12 @@ public class StylePresetServiceImpl implements StylePresetService {
     public void delete(Long id, Long userId) {
         StylePreset preset = stylePresetRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "风格预设不存在"));
+
+        // P0-1: 数据所有权校验
+        if (preset.getCreatedBy() != null && !preset.getCreatedBy().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限删除该风格预设");
+        }
+
         preset.setDeleted(1);
         stylePresetRepository.save(preset);
     }

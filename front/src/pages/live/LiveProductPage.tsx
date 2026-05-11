@@ -10,9 +10,9 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
-import { DataGrid, GridColDef, GridToolbarContainer } from '@mui/x-data-grid'
+import { DataGrid, GridColDef, GridToolbarContainer, GridRowSelectionModel } from '@mui/x-data-grid'
 import { useToast } from '@/contexts/ToastContext'
-import { PageHeader, ConfirmDialog } from '@/components/base'
+import { PageHeader, ConfirmDialog, TableSkeleton, EmptyState } from '@/components/base'
 import { liveApi, type LiveProduct } from '@/api/live'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
@@ -21,10 +21,12 @@ interface ToolbarProps {
   sessionId: string
   setSessionId: (v: string) => void
   sessions: Array<{ id: number; liveTitle: string }>
+  selection: GridRowSelectionModel
+  onBatchAddToSession: () => void
 }
 
 function Toolbar(props: ToolbarProps) {
-  const { onAdd, sessionId, setSessionId, sessions } = props
+  const { onAdd, sessionId, setSessionId, sessions, selection, onBatchAddToSession } = props
   return (
     <GridToolbarContainer sx={{ px: 1, py: 0.5, gap: 1 }}>
       <FormControl size="small" sx={{ minWidth: 200 }}>
@@ -37,13 +39,30 @@ function Toolbar(props: ToolbarProps) {
         </Select>
       </FormControl>
       <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={onAdd}>添加商品</Button>
+      {selection.length > 0 && (
+        <>
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+            已选 {selection.length} 条
+          </Typography>
+          <Button size="small" variant="outlined" onClick={onBatchAddToSession}>
+            批量添加到场次
+          </Button>
+        </>
+      )}
     </GridToolbarContainer>
   )
 }
 
-function buildToolbar(onAdd: () => void, sessionId: string, setSessionId: (v: string) => void, sessions: Array<{ id: number; liveTitle: string }>) {
+function buildToolbar(
+  onAdd: () => void,
+  sessionId: string,
+  setSessionId: (v: string) => void,
+  sessions: Array<{ id: number; liveTitle: string }>,
+  selection: GridRowSelectionModel,
+  onBatchAddToSession: () => void
+) {
   return function ToolbarWrapper() {
-    return <Toolbar onAdd={onAdd} sessionId={sessionId} setSessionId={setSessionId} sessions={sessions} />
+    return <Toolbar onAdd={onAdd} sessionId={sessionId} setSessionId={setSessionId} sessions={sessions} selection={selection} onBatchAddToSession={onBatchAddToSession} />
   }
 }
 
@@ -58,6 +77,9 @@ export default function LiveProductPage() {
   const [editRow, setEditRow] = useState<LiveProduct | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [form, setForm] = useState<Partial<LiveProduct>>({})
+  const [selection, setSelection] = useState<GridRowSelectionModel>([])
+  const [batchSessionDialogOpen, setBatchSessionDialogOpen] = useState(false)
+  const [targetSessionId, setTargetSessionId] = useState('')
 
   const { data: sessionsData } = useQuery({
     queryKey: ['live-sessions-select'],
@@ -83,6 +105,35 @@ export default function LiveProductPage() {
     onSuccess: () => { toast('已删除', 'success'); qc.invalidateQueries({ queryKey: ['live-products'] }); setDeleteId(null) },
     onError: () => toast('删除失败', 'error'),
   })
+
+  const batchAddToSessionMut = useMutation({
+    mutationFn: async ({ productIds, sessionId }: { productIds: number[]; sessionId: number }) => {
+      await Promise.all(productIds.map(id => {
+        const product = rows.find(r => r.id === id)
+        if (!product) return Promise.resolve()
+        return liveApi.productSave({ ...product, sessionId })
+      }))
+    },
+    onSuccess: () => {
+      toast('批量添加成功', 'success')
+      qc.invalidateQueries({ queryKey: ['live-products'] })
+      setBatchSessionDialogOpen(false)
+      setSelection([])
+      setTargetSessionId('')
+    },
+    onError: () => toast('批量添加失败', 'error'),
+  })
+
+  const handleBatchAddToSession = () => {
+    if (!targetSessionId) {
+      toast('请选择目标场次', 'warning')
+      return
+    }
+    batchAddToSessionMut.mutate({
+      productIds: selection as number[],
+      sessionId: Number(targetSessionId),
+    })
+  }
 
   const openAdd = () => { setForm({ sessionId: sessionId ? Number(sessionId) : undefined, status: 1 }); setEditRow(null); setAddOpen(true) }
   const openEdit = (row: LiveProduct) => { setForm({ ...row }); setEditRow(row); setAddOpen(true) }
@@ -148,20 +199,36 @@ export default function LiveProductPage() {
       </Grid>
 
       <Box sx={{ height: 520 }}>
-        <DataGrid
-          rows={rows}
-          columns={columns}
-          loading={isLoading}
-          rowCount={total}
-          paginationMode="server"
-          paginationModel={{ page, pageSize }}
-          onPaginationModelChange={(m) => { setPage(m.page); setPageSize(m.pageSize) }}
-          pageSizeOptions={[10, 20, 50]}
-          slots={{ toolbar: buildToolbar(openAdd, sessionId, setSessionId, sessions) }}
-          slotProps={undefined}
-          disableRowSelectionOnClick
-          getRowId={(r) => (r as LiveProduct).id ?? 0}
-        />
+        {isLoading && rows.length === 0 ? (
+          <TableSkeleton rows={10} columns={6} />
+        ) : rows.length === 0 && !sessionId ? (
+          <EmptyState
+            title="还没有商品"
+            description="添加第一个商品到直播场次，开始商品讲解"
+            action={{
+              text: '添加商品',
+              onClick: openAdd,
+            }}
+          />
+        ) : (
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            loading={isLoading}
+            rowCount={total}
+            paginationMode="server"
+            paginationModel={{ page, pageSize }}
+            onPaginationModelChange={(m) => { setPage(m.page); setPageSize(m.pageSize) }}
+            pageSizeOptions={[10, 20, 50]}
+            checkboxSelection
+            rowSelectionModel={selection}
+            onRowSelectionModelChange={setSelection}
+            slots={{ toolbar: buildToolbar(openAdd, sessionId, setSessionId, sessions, selection, () => setBatchSessionDialogOpen(true)) }}
+            slotProps={undefined}
+            disableRowSelectionOnClick
+            getRowId={(r) => (r as LiveProduct).id ?? 0}
+          />
+        )}
       </Box>
 
       {/* Add / Edit dialog */}
@@ -233,6 +300,38 @@ export default function LiveProductPage() {
         onConfirm={() => deleteId !== null && deleteMut.mutate(deleteId)}
         loading={deleteMut.isPending}
       />
+
+      {/* Batch add to session dialog */}
+      <Dialog open={batchSessionDialogOpen} onClose={() => setBatchSessionDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>批量添加到场次</DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>选择目标场次</InputLabel>
+            <Select
+              value={targetSessionId}
+              label="选择目标场次"
+              onChange={(e) => setTargetSessionId(e.target.value)}
+            >
+              {sessions.map((s) => (
+                <MenuItem key={s.id} value={String(s.id)}>{s.liveTitle}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            将 {selection.length} 个商品添加到选定的场次
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBatchSessionDialogOpen(false)}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={handleBatchAddToSession}
+            disabled={!targetSessionId || batchAddToSessionMut.isPending}
+          >
+            {batchAddToSessionMut.isPending ? '添加中...' : '确认添加'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

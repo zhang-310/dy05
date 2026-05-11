@@ -28,8 +28,9 @@ public interface AiCallLogService {
      * @param callLogId 调用日志 ID
      * @param videoId   短视频 ID（与 sessionId 二选一）
      * @param sessionId 直播场次 ID
+     * @param userId    当前用户 ID（用于数据隔离校验）
      */
-    void linkToPublish(Long callLogId, Long videoId, Long sessionId);
+    void linkToPublish(Long callLogId, Long videoId, Long sessionId, Long userId);
 
     /** 日志条目构建器 */
     record LogEntry(

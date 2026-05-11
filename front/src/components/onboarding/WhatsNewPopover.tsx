@@ -12,7 +12,8 @@ export function WhatsNewPopover() {
   const [hasUnread, setHasUnread] = useState(() => {
     try {
       return localStorage.getItem(LAST_SEEN_KEY) !== '2026-03-21'
-    } catch {
+    } catch (storageError) {
+      console.warn('Failed to read localStorage:', storageError)
       return true
     }
   })
@@ -23,8 +24,8 @@ export function WhatsNewPopover() {
     setHasUnread(false)
     try {
       localStorage.setItem(LAST_SEEN_KEY, '2026-03-21')
-    } catch {
-      /* ignore */
+    } catch (storageError) {
+      console.warn('Failed to write localStorage:', storageError)
     }
   }
 

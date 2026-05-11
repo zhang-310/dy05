@@ -23,6 +23,10 @@ public class CopyApproval {
     @Column(name = "copy_id", nullable = false)
     private Long copyId;
 
+    /** P0-2: 数据隔离 - 审批记录所有者 ID */
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;
+
     /** 审核员 ID（可为空，待审核时为空） */
     @Column(name = "user_id")
     private Long userId;
@@ -50,6 +54,8 @@ public class CopyApproval {
     public void prePersist() {
         if (createTime == null) createTime = new Timestamp(System.currentTimeMillis());
         if (updateTime == null) updateTime = new Timestamp(System.currentTimeMillis());
+        // P0-2: 自动设置 ownerId（从 userId 复制）
+        if (ownerId == null && userId != null) ownerId = userId;
     }
 
     @PreUpdate

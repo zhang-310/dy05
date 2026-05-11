@@ -7,6 +7,11 @@ import cn.gaifan.douyinOperations.module.live.entity.LiveSession;
 import cn.gaifan.douyinOperations.module.live.repository.LiveSessionRepository;
 import cn.gaifan.douyinOperations.module.live.service.LiveSessionService;
 import cn.gaifan.douyinOperations.module.live.vo.*;
+import com.github.benmanes.caffeine.cache.Cache;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -27,8 +32,17 @@ import java.util.stream.Collectors;
 @Service
 public class LiveSessionServiceImpl implements LiveSessionService {
 
+    private static final Logger log = LoggerFactory.getLogger(LiveSessionServiceImpl.class);
+
     @Resource
     private LiveSessionRepository liveSessionRepository;
+
+    // P0-10: 注入 Caffeine L1 缓存
+    @Resource(name = "liveSessionListCache")
+    private Cache<String, Object> liveSessionListCache;
+
+    @Resource(name = "liveSessionDetailCache")
+    private Cache<Long, Object> liveSessionDetailCache;
 
     private static final Set<String> SORTABLE_FIELDS = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList("id", "userId", "status", "startTime", "endTime", "viewers", "likes", "createTime", "updateTime")));
@@ -36,6 +50,15 @@ public class LiveSessionServiceImpl implements LiveSessionService {
     @Override
     public PageResultVO<LiveSessionVO> search(LiveSessionSearchVO vo) {
         vo.validateParams();
+
+        // P0-10: L1 缓存查询
+        String cacheKey = buildListCacheKey(vo);
+        PageResultVO<LiveSessionVO> cached = (PageResultVO<LiveSessionVO>) liveSessionListCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            log.debug("[LiveCache] L1 list cache hit: {}", cacheKey);
+            return cached;
+        }
+
         String sortName = SORTABLE_FIELDS.contains(vo.getSortName()) ? vo.getSortName() : "id";
         Pageable pageable = PageRequest.of(vo.getPage(), vo.getRows(),
                 Sort.by("desc".equalsIgnoreCase(vo.getSortOrder()) ? Sort.Direction.DESC : Sort.Direction.ASC, sortName));
@@ -69,21 +92,56 @@ public class LiveSessionServiceImpl implements LiveSessionService {
 
         Page<LiveSession> page = liveSessionRepository.findAll(spec, pageable);
         List<LiveSessionVO> list = page.getContent().stream().map(this::toLiveSessionVO).collect(Collectors.toList());
-        return PageResultVO.of(page.getTotalElements(), list, vo.getPage(), vo.getRows());
+        PageResultVO<LiveSessionVO> result = PageResultVO.of(page.getTotalElements(), list, vo.getPage(), vo.getRows());
+
+        // P0-10: 存入 L1 缓存
+        liveSessionListCache.put(cacheKey, result);
+        log.debug("[LiveCache] L1 list cache stored: {}", cacheKey);
+
+        return result;
     }
 
+    private String buildListCacheKey(LiveSessionSearchVO vo) {
+        return String.format("list:%d:%d:%s:%s:%s:%s:%s",
+                vo.getUserId() != null ? vo.getUserId() : 0,
+                vo.getStatus() != null ? vo.getStatus() : -1,
+                vo.getKeyword() != null ? vo.getKeyword() : "",
+                vo.getLiveTitle() != null ? vo.getLiveTitle() : "",
+                vo.getSortName(),
+                vo.getSortOrder(),
+                vo.getPage() + ":" + vo.getRows());
+    }
+
+    // P0-3: 添加缓存 - 场次详情查询
     @Override
+    @Cacheable(value = "live:session", key = "#id")
     public LiveSessionVO getById(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
         }
+
+        // P0-10: L1 缓存查询
+        LiveSessionVO cached = (LiveSessionVO) liveSessionDetailCache.getIfPresent(id);
+        if (cached != null) {
+            log.debug("[LiveCache] L1 detail cache hit: {}", id);
+            return cached;
+        }
+
         LiveSession session = liveSessionRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
-        return toLiveSessionVO(session);
+        LiveSessionVO vo = toLiveSessionVO(session);
+
+        // P0-10: 存入 L1 缓存
+        liveSessionDetailCache.put(id, vo);
+        log.debug("[LiveCache] L1 detail cache stored: {}", id);
+
+        return vo;
     }
 
+    // P0-3: 保存时清除缓存
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "live:session", key = "#vo.id", condition = "#vo.id != null")
     public long save(LiveSessionSaveVO vo) {
         if (vo.getUserId() == null || vo.getUserId() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "用户 ID 无效");
@@ -92,6 +150,8 @@ public class LiveSessionServiceImpl implements LiveSessionService {
         if (vo.getId() != null && vo.getId() > 0) {
             session = liveSessionRepository.findByIdAndDeleted(vo.getId(), 0)
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+            // P0-10: 清除 L1 缓存
+            liveSessionDetailCache.invalidate(vo.getId());
         } else {
             session = new LiveSession();
             session.setUserId(vo.getUserId());
@@ -104,11 +164,18 @@ public class LiveSessionServiceImpl implements LiveSessionService {
             session.setStatus(vo.getStatus());
         }
         session = liveSessionRepository.save(session);
+
+        // P0-10: 清除 L1 列表缓存
+        liveSessionListCache.invalidateAll();
+        log.debug("[LiveCache] L1 caches invalidated after save: id={}", session.getId());
+
         return session.getId();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    // P0-3: 删除时清除缓存
+    @CacheEvict(value = "live:session", key = "#id")
     public void delete(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
@@ -117,6 +184,11 @@ public class LiveSessionServiceImpl implements LiveSessionService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
         session.setDeleted(1);
         liveSessionRepository.save(session);
+
+        // P0-10: 清除 L1 缓存
+        liveSessionDetailCache.invalidate(id);
+        liveSessionListCache.invalidateAll();
+        log.debug("[LiveCache] L1 caches invalidated after delete: id={}", id);
     }
 
     @Override
@@ -129,6 +201,11 @@ public class LiveSessionServiceImpl implements LiveSessionService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
         session.setStatus(status);
         liveSessionRepository.save(session);
+
+        // P0-10: 清除 L1 缓存
+        liveSessionDetailCache.invalidate(id);
+        liveSessionListCache.invalidateAll();
+        log.debug("[LiveCache] L1 caches invalidated after updateStatus: id={}", id);
     }
 
     @Override
@@ -141,6 +218,11 @@ public class LiveSessionServiceImpl implements LiveSessionService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
         session.setViewers(viewers);
         liveSessionRepository.save(session);
+
+        // P0-10: 清除 L1 缓存
+        liveSessionDetailCache.invalidate(id);
+        liveSessionListCache.invalidateAll();
+        log.debug("[LiveCache] L1 caches invalidated after updateViewers: id={}", id);
     }
 
     @Override
@@ -153,6 +235,11 @@ public class LiveSessionServiceImpl implements LiveSessionService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
         session.setLikes(likes);
         liveSessionRepository.save(session);
+
+        // P0-10: 清除 L1 缓存
+        liveSessionDetailCache.invalidate(id);
+        liveSessionListCache.invalidateAll();
+        log.debug("[LiveCache] L1 caches invalidated after updateLikes: id={}", id);
     }
 
     @Override

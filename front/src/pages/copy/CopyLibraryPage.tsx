@@ -16,7 +16,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import LabelIcon from '@mui/icons-material/Label'
 import SendIcon from '@mui/icons-material/Send'
 import type { GridColDef, GridRenderCellParams, GridRowSelectionModel } from '@mui/x-data-grid'
-import { StandardDataGrid } from '@/components/base'
+import { StandardDataGrid, EmptyState } from '@/components/base'
 import { copyApi, type CopyItem, type CopyApproval, type CopyTemplate } from '@/api/copy'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -255,18 +255,33 @@ function CopyLibraryTab() {
         )}
       </Stack>
 
-      <StandardDataGrid
-        rows={data?.list ?? []}
-        columns={columns}
-        rowCount={data?.total ?? 0}
-        loading={isFetching}
-        checkboxSelection
-        rowSelectionModel={selection}
-        onRowSelectionModelChange={setSelection}
-        paginationModel={{ page, pageSize }}
-        onPaginationModelChange={m => { setPage(m.page); setPageSize(m.pageSize) }}
-        getRowId={r => (r as CopyItem).id}
-      />
+      {isFetching && (data?.list ?? []).length === 0 ? (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <Typography color="text.secondary">加载中...</Typography>
+        </Box>
+      ) : (data?.list ?? []).length === 0 && !keyword && selectedTags.length === 0 && !minScore && !category && !statusFilter ? (
+        <EmptyState
+          title="还没有文案"
+          description="创建第一条文案，开始构建您的文案库"
+          action={{
+            text: '新建文案',
+            onClick: () => saveMut.mutate({ title: '新文案', content: '', status: 0 }),
+          }}
+        />
+      ) : (
+        <StandardDataGrid
+          rows={data?.list ?? []}
+          columns={columns}
+          rowCount={data?.total ?? 0}
+          loading={isFetching}
+          checkboxSelection
+          rowSelectionModel={selection}
+          onRowSelectionModelChange={setSelection}
+          paginationModel={{ page, pageSize }}
+          onPaginationModelChange={m => { setPage(m.page); setPageSize(m.pageSize) }}
+          getRowId={r => (r as CopyItem).id}
+        />
+      )}
 
       {/* 预览抽屉 */}
       <Drawer anchor="right" open={!!preview} onClose={() => setPreview(null)}

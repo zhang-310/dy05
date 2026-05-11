@@ -30,7 +30,7 @@ public interface AgentWorkflowService {
     /**
      * 删除工作流
      */
-    void delete(Long workflowId);
+    void delete(Long workflowId, Long userId);
 
     /**
      * 执行工作流编排
@@ -55,5 +55,5 @@ public interface AgentWorkflowService {
     /**
      * 获取执行详情
      */
-    AgentWorkflowExecutionVO getExecutionById(Long executionId);
+    AgentWorkflowExecutionVO getExecutionById(Long executionId, Long userId);
 }

@@ -90,6 +90,7 @@ vi.mock('echarts-for-react', () => ({
 
 vi.mock('@/utils/echarts-registry', () => ({
   echarts: {},
+  LazyECharts: () => <div data-testid="lazy-echarts-mock">ECharts</div>,
 }))
 
 import DashboardPage from '../DashboardPage'

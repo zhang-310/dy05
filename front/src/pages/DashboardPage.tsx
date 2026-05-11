@@ -23,7 +23,7 @@ import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'
 import WhatshotIcon from '@mui/icons-material/Whatshot'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import ReactECharts from 'echarts-for-react'
+import { LazyECharts } from '@/utils/echarts-registry'
 import { ADMIN_AI_VIRAL_ANALYSIS_EVOLUTION } from '@/constants/shortvideoRoutes'
 import { dashboardApi } from '@/api/dashboard'
 import { aiApi } from '@/api/ai'
@@ -516,7 +516,7 @@ export default function DashboardPage() {
               <Typography variant="subtitle2" fontWeight={600} mb={1}>GMV & 场次趋势</Typography>
               {cockpitLoading ? <Skeleton height={240} /> : (
                 cockpit.length > 0
-                  ? <ReactECharts option={trendOption} style={{ height: 240 }} />
+                  ? <LazyECharts option={trendOption} style={{ height: 240 }} />
                   : <Box sx={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Typography color="text.secondary">暂无数据</Typography>
                     </Box>
@@ -528,7 +528,7 @@ export default function DashboardPage() {
           <Card variant="outlined" sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Typography variant="subtitle2" fontWeight={600} mb={1}>AI调用类型分布</Typography>
-              <ReactECharts option={pieOption} style={{ height: 240 }} />
+              <LazyECharts option={pieOption} style={{ height: 240 }} />
             </CardContent>
           </Card>
         </Grid>
@@ -541,7 +541,7 @@ export default function DashboardPage() {
             <Card variant="outlined">
               <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
                 <Typography variant="subtitle2" fontWeight={600} mb={1}>直播格式GMV分布</Typography>
-                <ReactECharts option={liveFormatOption} style={{ height: 200 }} />
+                <LazyECharts option={liveFormatOption} style={{ height: 200 }} />
               </CardContent>
             </Card>
           </Grid>
@@ -570,7 +570,7 @@ export default function DashboardPage() {
                   <Typography color="text.secondary">暂无漏斗数据</Typography>
                 </Box>
               ) : (
-                <ReactECharts option={{
+                <LazyECharts option={{
                   tooltip: {
                     trigger: 'item',
                     formatter: (p: { name: string; value: number; percent: number }) =>
