@@ -191,30 +191,14 @@ public class UploadServiceImpl implements UploadService {
         }
 
         try {
-            // 这里应该调用 BOS SDK 上传分块
-            // 为简化，仅做状态更新
-            chunk.setStatus("COMPLETED");
-            chunk.setUploadedAt(new Timestamp(System.currentTimeMillis()));
-            chunk.setBosEtag(UUID.randomUUID().toString());  // 模拟 ETag
-            chunk.setBosPartNumber(chunkIndex + 1);
+            // 验证分块上传
+            validateChunkUpload(chunkFile, chunkMd5, task);
 
-            if (chunk.getId() == null) {
-                chunkRepository.save(chunk);
-            } else {
-                Timestamp now = new Timestamp(System.currentTimeMillis());
-                chunkRepository.updateChunk(chunk.getId(), "COMPLETED", chunk.getBosEtag(),
-                    chunk.getBosPartNumber(), now);
-            }
+            // 处理分块上传
+            processChunk(chunk, chunkFile, chunkIndex);
 
             // 更新任务进度
-            List<SysUploadChunk> uploadedChunks = chunkRepository.findByTaskIdAndStatus(task.getId(), "COMPLETED");
-            int uploadedCount = uploadedChunks.size();
-            long uploadedBytes = uploadedChunks.stream().mapToLong(SysUploadChunk::getChunkSize).sum();
-
-            String newStatus = (uploadedCount == task.getTotalChunks()) ? "UPLOADING" : "UPLOADING";
-            Timestamp now = new Timestamp(System.currentTimeMillis());
-            taskRepository.updateProgress(task.getId(), uploadedCount, uploadedBytes, now);
-            taskRepository.updateStatus(task.getId(), newStatus, now);
+            updateTaskProgress(task);
 
             log.info("分块上传: uploadId={}, chunkIndex={}, status=completed", uploadId, chunkIndex);
 
@@ -225,6 +209,48 @@ public class UploadServiceImpl implements UploadService {
             log.error("分块上传失败: uploadId={}, chunkIndex={}, 原因={}", uploadId, chunkIndex, e.getMessage());
             throw new BusinessException(ErrorCode.STORAGE_UPLOAD_FAIL, "分块上传失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * P1-9: 验证分块上传参数
+     */
+    private void validateChunkUpload(MultipartFile chunkFile, String chunkMd5, SysUploadTask task) {
+        // 文件不为空已在上层检查，此处可添加额外验证
+        // 例如：MD5 校验、文件大小校验等
+    }
+
+    /**
+     * P1-9: 处理分块上传
+     */
+    private void processChunk(SysUploadChunk chunk, MultipartFile chunkFile, Integer chunkIndex) {
+        // 这里应该调用 BOS SDK 上传分块
+        // 为简化，仅做状态更新
+        chunk.setStatus("COMPLETED");
+        chunk.setUploadedAt(new Timestamp(System.currentTimeMillis()));
+        chunk.setBosEtag(UUID.randomUUID().toString());  // 模拟 ETag
+        chunk.setBosPartNumber(chunkIndex + 1);
+
+        if (chunk.getId() == null) {
+            chunkRepository.save(chunk);
+        } else {
+            Timestamp now = new Timestamp(System.currentTimeMillis());
+            chunkRepository.updateChunk(chunk.getId(), "COMPLETED", chunk.getBosEtag(),
+                chunk.getBosPartNumber(), now);
+        }
+    }
+
+    /**
+     * P1-9: 更新任务进度
+     */
+    private void updateTaskProgress(SysUploadTask task) {
+        List<SysUploadChunk> uploadedChunks = chunkRepository.findByTaskIdAndStatus(task.getId(), "COMPLETED");
+        int uploadedCount = uploadedChunks.size();
+        long uploadedBytes = uploadedChunks.stream().mapToLong(SysUploadChunk::getChunkSize).sum();
+
+        String newStatus = (uploadedCount == task.getTotalChunks()) ? "UPLOADING" : "UPLOADING";
+        Timestamp now = new Timestamp(System.currentTimeMillis());
+        taskRepository.updateProgress(task.getId(), uploadedCount, uploadedBytes, now);
+        taskRepository.updateStatus(task.getId(), newStatus, now);
     }
 
     /**
