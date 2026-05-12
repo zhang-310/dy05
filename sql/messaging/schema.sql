@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS msg_platform_config (
 
 CREATE INDEX IF NOT EXISTS idx_msg_config_owner ON msg_platform_config (owner_id, deleted);
 CREATE INDEX IF NOT EXISTS idx_msg_config_platform ON msg_platform_config (platform, status) WHERE deleted = 0;
+CREATE INDEX IF NOT EXISTS idx_msg_config_webhook ON msg_platform_config (platform, callback_token, deleted);  -- P2-001: Webhook 查询优化
 
 COMMENT ON TABLE  msg_platform_config             IS '企微/飞书接入配置表';
 COMMENT ON COLUMN msg_platform_config.platform    IS '平台：wecom=企业微信, feishu=飞书';
