@@ -151,9 +151,7 @@ public class UploadServiceImpl implements UploadService {
             .orElseThrow(() -> new BusinessException(ErrorCode.STORAGE_FILE_NOT_FOUND, "上传任务不存在"));
 
         // 权限检查
-        if (!task.getOwnerId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作该上传任务");
-        }
+        validateTaskOwnership(task, userId, "操作");
 
         // 状态检查
         if (!("PENDING".equals(task.getStatus()) || "UPLOADING".equals(task.getStatus()))) {
@@ -254,6 +252,15 @@ public class UploadServiceImpl implements UploadService {
     }
 
     /**
+     * P2-10: 验证用户对上传任务的权限
+     */
+    private void validateTaskOwnership(SysUploadTask task, Long userId, String operation) {
+        if (!task.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权" + operation + "该上传任务");
+        }
+    }
+
+    /**
      * P1-1: 获取文件扩展名
      */
     private String getFileExtension(String filename) {
@@ -271,9 +278,7 @@ public class UploadServiceImpl implements UploadService {
         SysUploadTask task = taskRepository.findByUploadId(uploadId)
             .orElseThrow(() -> new BusinessException(ErrorCode.STORAGE_FILE_NOT_FOUND, "上传任务不存在"));
 
-        if (!task.getOwnerId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "无权查询该上传任务");
-        }
+        validateTaskOwnership(task, userId, "查询");
 
         int progressPercent = (int) (task.getUploadedBytes() * 100 / task.getFileSize());
 
@@ -296,9 +301,7 @@ public class UploadServiceImpl implements UploadService {
         SysUploadTask task = taskRepository.findByUploadId(uploadId)
             .orElseThrow(() -> new BusinessException(ErrorCode.STORAGE_FILE_NOT_FOUND, "上传任务不存在"));
 
-        if (!task.getOwnerId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "无权查询该上传任务");
-        }
+        validateTaskOwnership(task, userId, "查询");
 
         return chunkRepository.findByTaskIdAndStatus(task.getId(), "COMPLETED")
             .stream()
@@ -316,9 +319,7 @@ public class UploadServiceImpl implements UploadService {
         SysUploadTask task = taskRepository.findByUploadId(uploadId)
             .orElseThrow(() -> new BusinessException(ErrorCode.STORAGE_FILE_NOT_FOUND, "上传任务不存在"));
 
-        if (!task.getOwnerId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作该上传任务");
-        }
+        validateTaskOwnership(task, userId, "操作");
 
         // 检查所有分块是否已完成
         List<SysUploadChunk> chunks = chunkRepository.findByTaskIdOrderByChunkIndex(task.getId());
@@ -355,9 +356,7 @@ public class UploadServiceImpl implements UploadService {
         SysUploadTask task = taskRepository.findByUploadId(uploadId)
             .orElseThrow(() -> new BusinessException(ErrorCode.STORAGE_FILE_NOT_FOUND, "上传任务不存在"));
 
-        if (!task.getOwnerId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作该上传任务");
-        }
+        validateTaskOwnership(task, userId, "操作");
 
         // 清理分块记录
         chunkRepository.deleteByTaskId(task.getId());
