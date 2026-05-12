@@ -11,6 +11,7 @@ import cn.gaifan.douyinOperations.module.agent.vo.AgentSaveVO;
 import cn.gaifan.douyinOperations.module.agent.vo.AgentShareRequestVO;
 import cn.gaifan.douyinOperations.module.agent.vo.AgentShareVO;
 import cn.gaifan.douyinOperations.module.agent.vo.AgentVO;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.apache.commons.text.StringEscapeUtils;
@@ -262,6 +263,7 @@ public class AgentController {
 
     @PostMapping(value = "/chat-stream", produces = "text/event-stream;charset=UTF-8")
     @Operation(summary = "SSE 流式对话")
+    @RateLimiter(name = "aiChat", fallbackMethod = "chatStreamFallback")
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter chatStream(
             HttpServletRequest request,
             @RequestBody Map<String, Object> body) {
@@ -365,6 +367,22 @@ public class AgentController {
                 } catch (Exception ex) { emitter.completeWithError(ex); }
             }
         });
+        return emitter;
+    }
+
+    // P1-1: AI 对话限流 fallback 方法
+    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter chatStreamFallback(
+            HttpServletRequest request, Map<String, Object> body, Exception e) {
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter =
+            new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(5_000L);
+        try {
+            emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
+                    .name("error")
+                    .data("{\"message\":\"请求频率过高，请稍后再试\"}"));
+            emitter.complete();
+        } catch (Exception ex) {
+            emitter.completeWithError(ex);
+        }
         return emitter;
     }
 

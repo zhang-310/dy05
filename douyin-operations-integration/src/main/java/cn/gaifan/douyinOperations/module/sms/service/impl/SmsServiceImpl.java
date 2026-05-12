@@ -237,6 +237,25 @@ public class SmsServiceImpl implements SmsService {
 
     @Transactional(rollbackFor = Exception.class)
     public void sendVerificationCode(SmsVerificationCodeSendVO vo) {
+        // P1-1: 短信发送频率限制 - 同一手机号 1 分钟内只能发送 1 次
+        String phoneNumber = vo.getPhoneNumber();
+        String bizType = vo.getBizType();
+
+        Optional<SmsVerificationCode> recent = verificationCodeRepository
+                .findTopByPhoneNumberAndBizTypeOrderByCreatedAtDesc(phoneNumber, bizType);
+
+        if (recent.isPresent()) {
+            SmsVerificationCode lastCode = recent.get();
+            long timeSinceLastSend = System.currentTimeMillis() - lastCode.getCreatedAt().getTime();
+            long oneMinuteMs = 60 * 1000;
+
+            if (timeSinceLastSend < oneMinuteMs) {
+                long remainingSeconds = (oneMinuteMs - timeSinceLastSend) / 1000;
+                throw new BusinessException(ErrorCode.RATE_LIMIT,
+                    "发送过于频繁，请 " + remainingSeconds + " 秒后再试");
+            }
+        }
+
         // 生成 6 位验证码
         String code = String.format("%06d", new Random().nextInt(1000000));
 

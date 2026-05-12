@@ -18,6 +18,7 @@ public class ConfigSaveVO implements Serializable {
     @Size(max = 128)
     private String configKey;
 
+    @Size(max = 10000, message = "配置值长度不能超过10000字符")
     private String configValue;
 
     @Size(max = 16)

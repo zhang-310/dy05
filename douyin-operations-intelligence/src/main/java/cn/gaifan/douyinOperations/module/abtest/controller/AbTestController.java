@@ -50,8 +50,9 @@ public class AbTestController {
     @PostMapping("/experiment/get")
     @Operation(summary = "实验详情（含变体）")
     public RESTResult<AbExperimentVO> get(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        RESTResult<AbExperimentVO> r = RESTResult.getSuccess(abTestService.getById(id));
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        RESTResult<AbExperimentVO> r = RESTResult.getSuccess(abTestService.getById(id, userId));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -70,8 +71,9 @@ public class AbTestController {
     @PostMapping("/experiment/delete")
     @Operation(summary = "删除实验（级联删除变体）")
     public RESTResult<Void> delete(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        abTestService.delete(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        abTestService.delete(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -81,8 +83,9 @@ public class AbTestController {
     @Operation(summary = "更新实验状态（0=草稿 1=运行中 2=已完成 3=已暂停）")
     public RESTResult<Void> updateStatus(HttpServletRequest request,
             @RequestParam Long id, @RequestParam Integer status) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        abTestService.updateStatus(id, status);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        abTestService.updateStatus(id, status, userId);
         RESTResult<Void> r = RESTResult.updateSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -91,8 +94,9 @@ public class AbTestController {
     @PostMapping("/experiment/set-winner")
     @Operation(summary = "设置获胜变体（结束实验）")
     public RESTResult<Void> setWinner(HttpServletRequest request, @Valid @RequestBody AbSetWinnerVO vo) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        abTestService.setWinner(vo);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        abTestService.setWinner(vo, userId);
         RESTResult<Void> r = RESTResult.updateSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -103,8 +107,9 @@ public class AbTestController {
     @PostMapping("/variant/save")
     @Operation(summary = "新增/更新变体")
     public RESTResult<Long> saveVariant(HttpServletRequest request, @Valid @RequestBody AbVariantSaveVO vo) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        RESTResult<Long> r = RESTResult.addSuccess(abTestService.saveVariant(vo));
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        RESTResult<Long> r = RESTResult.addSuccess(abTestService.saveVariant(vo, userId));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -112,8 +117,9 @@ public class AbTestController {
     @PostMapping("/variant/delete")
     @Operation(summary = "删除变体")
     public RESTResult<Void> deleteVariant(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        abTestService.deleteVariant(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        abTestService.deleteVariant(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -124,8 +130,9 @@ public class AbTestController {
     @PostMapping("/event/record")
     @Operation(summary = "记录事件（view/click/conversion，自动去重）")
     public RESTResult<Void> recordEvent(HttpServletRequest request, @Valid @RequestBody AbEventSaveVO vo) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        abTestService.recordEvent(vo);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        abTestService.recordEvent(vo, userId);
         RESTResult<Void> r = RESTResult.addSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;

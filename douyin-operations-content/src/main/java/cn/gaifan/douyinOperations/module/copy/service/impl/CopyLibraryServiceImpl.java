@@ -121,10 +121,14 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long userId) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "文案 ID 无效");
         CopyLibrary entity = copyLibraryRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "文案不存在"));
+        // P1-4: IDOR 防护 - 校验所有权
+        if (!entity.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权删除他人的文案");
+        }
         entity.setDeleted(1);
         copyLibraryRepository.save(entity);
         // P0-3: 删除时失效缓存
@@ -133,10 +137,14 @@ public class CopyLibraryServiceImpl implements CopyLibraryService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateStatus(Long id, Integer status) {
+    public void updateStatus(Long id, Integer status, Long userId) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "文案 ID 无效");
-        copyLibraryRepository.findByIdAndDeleted(id, 0)
+        CopyLibrary entity = copyLibraryRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "文案不存在"));
+        // P1-4: IDOR 防护 - 校验所有权
+        if (!entity.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权修改他人的文案");
+        }
         copyLibraryRepository.updateStatus(id, status);
         // P0-3: 更新状态时失效缓存
         copyLibraryCache.invalidate(id);

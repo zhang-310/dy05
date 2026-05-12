@@ -41,8 +41,10 @@ public class MessagingController {
     @PostMapping("/config/get")
     @Operation(summary = "配置详情")
     public RESTResult<MsgPlatformConfigVO> get(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        RESTResult<MsgPlatformConfigVO> r = RESTResult.getSuccess(messagingPlatformService.getById(id));
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-1: IDOR 防护 - 传入 userId 校验所有权
+        RESTResult<MsgPlatformConfigVO> r = RESTResult.getSuccess(messagingPlatformService.getById(id, userId));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -53,7 +55,8 @@ public class MessagingController {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         if (vo.getId() == null) vo.setOwnerId(userId);
-        RESTResult<Long> r = RESTResult.addSuccess(messagingPlatformService.save(vo));
+        // P1-1: IDOR 防护 - 传入 userId 校验所有权
+        RESTResult<Long> r = RESTResult.addSuccess(messagingPlatformService.save(vo, userId));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -61,8 +64,10 @@ public class MessagingController {
     @PostMapping("/config/delete")
     @Operation(summary = "删除配置")
     public RESTResult<Void> delete(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        messagingPlatformService.delete(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-1: IDOR 防护 - 传入 userId 校验所有权
+        messagingPlatformService.delete(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;

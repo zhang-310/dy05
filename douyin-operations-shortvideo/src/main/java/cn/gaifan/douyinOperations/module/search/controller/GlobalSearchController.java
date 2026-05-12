@@ -36,6 +36,7 @@ public class GlobalSearchController {
 
     @PostMapping("/global")
     @Operation(summary = "全局搜索")
+    @io.github.resilience4j.ratelimiter.annotation.RateLimiter(name = "searchApi", fallbackMethod = "searchFallback")
     public RESTResult<GlobalSearchResponseVO> globalSearch(
             @Valid @RequestBody GlobalSearchRequestVO vo,
             HttpServletRequest request) {
@@ -49,5 +50,13 @@ public class GlobalSearchController {
         RESTResult<GlobalSearchResponseVO> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
+    }
+
+    // P1-1: 限流降级方法
+    private RESTResult<GlobalSearchResponseVO> searchFallback(
+            GlobalSearchRequestVO vo,
+            HttpServletRequest request,
+            io.github.resilience4j.ratelimiter.RequestNotPermitted ex) {
+        return RESTResult.error(ErrorCode.RATE_LIMIT, "搜索请求过于频繁，请稍后再试");
     }
 }

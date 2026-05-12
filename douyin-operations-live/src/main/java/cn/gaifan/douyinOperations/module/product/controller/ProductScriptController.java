@@ -128,6 +128,7 @@ public class ProductScriptController {
 
     @PostMapping("/generate-multi-style")
     @Operation(summary = "AI 多风格生成 / Generate Multi-Style Scripts")
+    @io.github.resilience4j.ratelimiter.annotation.RateLimiter(name = "aiGenerate", fallbackMethod = "generateFallback")
     public RESTResult<MultiStyleGenerateResultVO> generateMultiStyle(HttpServletRequest request,
                                                                       @Valid @RequestBody MultiStyleGenerateRequestVO vo) {
         Long userId = AuthTokenFilter.getUserId(request);
@@ -138,6 +139,13 @@ public class ProductScriptController {
         RESTResult<MultiStyleGenerateResultVO> r = RESTResult.getSuccess(result);
         r.setTraceId(MDC.get("traceId"));
         return r;
+    }
+
+    // P1-2: 限流降级方法
+    private RESTResult<MultiStyleGenerateResultVO> generateFallback(HttpServletRequest request,
+                                                                     MultiStyleGenerateRequestVO vo,
+                                                                     io.github.resilience4j.ratelimiter.RequestNotPermitted ex) {
+        return RESTResult.error(ErrorCode.RATE_LIMIT, "AI 生成请求过于频繁，请稍后再试");
     }
 
     @GetMapping(value = "/generate-multi-sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

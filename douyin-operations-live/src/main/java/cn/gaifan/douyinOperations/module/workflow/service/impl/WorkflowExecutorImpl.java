@@ -43,19 +43,24 @@ public class WorkflowExecutorImpl implements WorkflowExecutor {
         if (workflowCode == null || workflowCode.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "workflowCode 不能为空");
         }
-        WorkflowDefinition def = definitionRepository.findByWorkflowCodeAndDeleted(workflowCode, 0)
-                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "工作流不存在: " + workflowCode));
+
+        // P0-1: 提前提取 userId 用于数据隔离校验
+        Long userId = paramLong(params, "userId");
+        Long sessionId = paramLong(params, "sessionId");
+        if (userId == null || sessionId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "缺少 userId 或 sessionId");
+        }
+
+        // P0-1: 强制数据隔离 - 只能执行自己创建的工作流
+        WorkflowDefinition def = definitionRepository.findByWorkflowCodeAndOwnerIdAndDeleted(workflowCode, userId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "工作流不存在或无权限"));
+
         List<WorkflowStep> steps = stepRepository.findByDefinitionIdAndDeletedOrderBySequenceNoAsc(def.getId(), 0);
         if (steps.isEmpty()) {
             throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "工作流无步骤配置");
         }
 
         Map<String, Object> outputs = new LinkedHashMap<>();
-        Long userId = paramLong(params, "userId");
-        Long sessionId = paramLong(params, "sessionId");
-        if (userId == null || sessionId == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "缺少 userId 或 sessionId");
-        }
 
         List<Long> scriptIds = new ArrayList<>();
         try {
@@ -109,9 +114,25 @@ public class WorkflowExecutorImpl implements WorkflowExecutor {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            log.error("工作流执行失败: {}", e.getMessage());
+            // P1-2: 敏感参数日志脱敏
+            log.error("工作流执行失败: workflowCode={}, params={}, error={}",
+                workflowCode, sanitizeParams(params), e.getMessage(), e);
             throw new BusinessException(ErrorCode.WORKFLOW_EXECUTION_FAILED, "工作流执行失败: " + e.getMessage());
         }
+    }
+
+    // P1-2: 参数脱敏方法
+    private Map<String, Object> sanitizeParams(Map<String, Object> params) {
+        if (params == null) return null;
+        Map<String, Object> sanitized = new LinkedHashMap<>(params);
+        List<String> sensitiveKeys = List.of("password", "token", "apiKey", "secret", "accessKey", "accessToken");
+
+        for (String key : sensitiveKeys) {
+            if (sanitized.containsKey(key)) {
+                sanitized.put(key, "***");
+            }
+        }
+        return sanitized;
     }
 
     private static Long paramLong(Map<String, Object> params, String key) {

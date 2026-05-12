@@ -279,6 +279,47 @@ public class BosStorageServiceImpl implements BosStorageService {
     public String putObjectFromUrl(String key, String sourceUrl) {
         if (!StringUtils.hasText(key)) throw new IllegalArgumentException("key 不能为空");
         if (!StringUtils.hasText(sourceUrl)) throw new IllegalArgumentException("sourceUrl 不能为空");
+
+        // P1-2: SSRF 防护 - 仅允许 HTTP/HTTPS 协议
+        String urlLower = sourceUrl.toLowerCase().trim();
+        if (!urlLower.startsWith("http://") && !urlLower.startsWith("https://")) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "仅支持 HTTP/HTTPS 协议");
+        }
+
+        // P1-2: SSRF 防护 - 禁止访问内网地址
+        try {
+            URL url = new URL(sourceUrl);
+            String host = url.getHost().toLowerCase();
+
+            // 禁止 localhost 和 127.0.0.1
+            if (host.equals("localhost") || host.equals("127.0.0.1") || host.startsWith("127.")) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "禁止访问本地地址");
+            }
+
+            // 禁止内网 IP 段
+            if (host.startsWith("10.") || host.startsWith("192.168.") ||
+                host.startsWith("172.16.") || host.startsWith("172.17.") ||
+                host.startsWith("172.18.") || host.startsWith("172.19.") ||
+                host.startsWith("172.20.") || host.startsWith("172.21.") ||
+                host.startsWith("172.22.") || host.startsWith("172.23.") ||
+                host.startsWith("172.24.") || host.startsWith("172.25.") ||
+                host.startsWith("172.26.") || host.startsWith("172.27.") ||
+                host.startsWith("172.28.") || host.startsWith("172.29.") ||
+                host.startsWith("172.30.") || host.startsWith("172.31.")) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "禁止访问内网地址");
+            }
+
+            // 禁止 169.254.x.x (链路本地地址)
+            if (host.startsWith("169.254.")) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "禁止访问链路本地地址");
+            }
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "URL 格式错误");
+        }
+
         BosClient client = null;
         try {
             URL url = new URL(sourceUrl);
@@ -303,8 +344,12 @@ public class BosStorageServiceImpl implements BosStorageService {
                 client.putObject(putReq);
             }
             return getPublicUrl(objectKey);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("BOS putObjectFromUrl 失败 key={}, sourceUrl={}", key, sourceUrl, e);
+            // P1-3: 敏感信息日志脱敏 - 不记录完整 URL
+            String maskedUrl = sourceUrl.length() > 50 ? sourceUrl.substring(0, 50) + "..." : sourceUrl;
+            log.error("BOS putObjectFromUrl 失败 key={}, sourceUrl={}", key, maskedUrl, e);
             throw new BusinessException(ErrorCode.STORAGE_UPLOAD_FAIL, "从 URL 上传失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
         }
     }

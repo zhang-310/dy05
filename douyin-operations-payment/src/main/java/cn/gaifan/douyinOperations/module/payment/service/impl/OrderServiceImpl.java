@@ -13,6 +13,8 @@ import cn.gaifan.douyinOperations.module.payment.vo.OrderSaveVO;
 import cn.gaifan.douyinOperations.module.payment.vo.OrderVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -26,8 +28,7 @@ import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -44,6 +45,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = {"payment:order", "payment:order:no"}, allEntries = true)
     public long createOrder(OrderSaveVO vo, Long userId) {
         if (vo == null || vo.getProductId() == null || vo.getProductId() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "参数校验失败");
@@ -89,12 +91,14 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         order = orderRepository.save(order);
-        log.info("Order created: orderId={}, orderNo={}, amount={}", order.getId(), order.getOrderNo(), order.getAmount());
+        // P1-3: 敏感信息脱敏 - 不记录金额到日志
+        log.info("Order created: orderId={}, orderNo={}", order.getId(), order.getOrderNo());
         return order.getId();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = {"payment:order", "payment:order:no"}, allEntries = true)
     public void updateOrderStatus(Long orderId, String newStatus) {
         PaymentOrder order = getOrderEntity(orderId);
 
@@ -127,6 +131,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Cacheable(value = "payment:order", key = "#orderId", unless = "#result == null")
     public OrderVO getOrder(Long orderId, Long userId) {
         PaymentOrder order = getOrderEntity(orderId);
         // P0-4: 验证订单归属（防止 IDOR 漏洞）
@@ -142,6 +147,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Cacheable(value = "payment:order:no", key = "#orderNo", unless = "#result == null")
     public OrderVO getByOrderNo(String orderNo, Long userId) {
         PaymentOrder order = orderRepository.findByOrderNo(orderNo)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
@@ -198,9 +204,8 @@ public class OrderServiceImpl implements OrderService {
     public void shipOrder(Long orderId, String trackingNumber) {
         PaymentOrder order = getOrderEntity(orderId);
 
-        if (order.getStatus() != OrderStatus.PAID) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_INVALID, "订单状态不允许发货");
-        }
+        // P1-2: 状态转换验证
+        validateStatusTransition(order.getStatus(), OrderStatus.SHIPPED);
 
         order.setStatus(OrderStatus.SHIPPED);
         order.setTrackingNumber(trackingNumber);
@@ -214,9 +219,8 @@ public class OrderServiceImpl implements OrderService {
     public void completeOrder(Long orderId) {
         PaymentOrder order = getOrderEntity(orderId);
 
-        if (order.getStatus() != OrderStatus.SHIPPED) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_INVALID, "订单状态不允许完成");
-        }
+        // P1-2: 状态转换验证
+        validateStatusTransition(order.getStatus(), OrderStatus.COMPLETED);
 
         order.setStatus(OrderStatus.COMPLETED);
         order.setCompletedAt(LocalDateTime.now());
@@ -229,9 +233,8 @@ public class OrderServiceImpl implements OrderService {
     public void cancelOrder(Long orderId) {
         PaymentOrder order = getOrderEntity(orderId);
 
-        if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_INVALID, "订单状态不允许取消");
-        }
+        // P1-2: 状态转换验证
+        validateStatusTransition(order.getStatus(), OrderStatus.CANCELLED);
 
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
@@ -251,9 +254,21 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
     }
 
+    // P1-2: 完整的状态机验证
     private void validateStatusTransition(OrderStatus from, OrderStatus to) {
-        if (from == OrderStatus.COMPLETED || from == OrderStatus.CANCELLED) {
-            throw new BusinessException(ErrorCode.ORDER_STATUS_INVALID, "已完成或已取消订单不能更改状态");
+        // 定义合法的状态转换
+        Map<OrderStatus, Set<OrderStatus>> allowedTransitions = Map.of(
+            OrderStatus.PENDING_PAYMENT, Set.of(OrderStatus.PAID, OrderStatus.CANCELLED),
+            OrderStatus.PAID, Set.of(OrderStatus.SHIPPED, OrderStatus.CANCELLED),
+            OrderStatus.SHIPPED, Set.of(OrderStatus.COMPLETED),
+            OrderStatus.COMPLETED, Set.of(),  // 终态
+            OrderStatus.CANCELLED, Set.of()   // 终态
+        );
+
+        Set<OrderStatus> allowed = allowedTransitions.get(from);
+        if (allowed == null || !allowed.contains(to)) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_INVALID,
+                String.format("不允许从 %s 转换到 %s", from, to));
         }
     }
 

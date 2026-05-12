@@ -197,10 +197,32 @@ public class AttributionServiceImpl implements AttributionService {
                 .stream().map(this::toMap).collect(Collectors.toList());
     }
 
+    // P0-1: 带所有权校验的 getBySessionId
+    @Override
+    public List<Map<String, Object>> getBySessionId(Long sessionId, Long userId) {
+        LiveSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该场次的归因数据");
+        }
+        return getBySessionId(sessionId);
+    }
+
     @Override
     public Map<String, Object> getById(Long id) {
         return toMap(attributionRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "归因数据不存在")));
+    }
+
+    // P0-1: 带所有权校验的 getById
+    @Override
+    public Map<String, Object> getById(Long id, Long userId) {
+        Attribution attr = attributionRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "归因数据不存在"));
+        if (!attr.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该归因数据");
+        }
+        return toMap(attr);
     }
 
     @Override
@@ -244,12 +266,35 @@ public class AttributionServiceImpl implements AttributionService {
         return summary;
     }
 
+    // P0-1: 带所有权校验的 getSummary
+    @Override
+    public Map<String, Object> getSummary(Long sessionId, Long userId) {
+        LiveSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该场次的归因数据");
+        }
+        return getSummary(sessionId);
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteBySessionId(Long sessionId) {
         List<Attribution> attrs = attributionRepository.findBySessionIdAndDeleted(sessionId, 0);
         attrs.forEach(a -> a.setDeleted(1));
         attributionRepository.saveAll(attrs);
+    }
+
+    // P0-1: 带所有权校验的 deleteBySessionId
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteBySessionId(Long sessionId, Long userId) {
+        LiveSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权删除该场次的归因数据");
+        }
+        deleteBySessionId(sessionId);
     }
 
     private int calculateProductScore(LiveProduct product, BigDecimal totalGmv) {

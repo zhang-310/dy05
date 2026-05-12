@@ -173,4 +173,19 @@ public class CacheConfig {
                 .recordStats()
                 .build();
     }
+
+    /**
+     * P1-8: 系统配置 L1 本地缓存
+     * 缓存系统配置项，减少 Redis 网络开销
+     * TTL: 1 小时（配置变更频率低）
+     * 容量: 10000 个配置项（覆盖所有配置）
+     */
+    @Bean("sysConfigCache")
+    public Cache<String, Object> sysConfigCache() {
+        return Caffeine.newBuilder()
+                .expireAfterWrite(1, TimeUnit.HOURS)
+                .maximumSize(10000)
+                .recordStats()
+                .build();
+    }
 }

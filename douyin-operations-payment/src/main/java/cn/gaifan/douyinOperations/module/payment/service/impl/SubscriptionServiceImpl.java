@@ -5,6 +5,7 @@ import cn.gaifan.douyinOperations.module.payment.repository.SubscriptionReposito
 import cn.gaifan.douyinOperations.module.payment.service.SubscriptionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,6 +13,7 @@ import java.sql.Timestamp;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -20,6 +22,11 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     @Autowired
     private SubscriptionRepository subscriptionRepository;
 
+    // P1-10: 配额检查性能优化 - 使用本地缓存减少数据库查询
+    private final Map<Long, Subscription> subscriptionCache = new ConcurrentHashMap<>();
+    private final Map<Long, Long> cacheTimestamps = new ConcurrentHashMap<>();
+    private static final long CACHE_TTL_MS = 5 * 60 * 1000; // 5分钟缓存
+
     private static final Map<String, Map<String, Integer>> PLAN_LIMITS = Map.of(
             "free", Map.of("maxLiveSessions", 5, "maxSvProjects", 10, "maxAiGenerations", 50, "maxStorageMb", 500),
             "pro", Map.of("maxLiveSessions", 50, "maxSvProjects", 100, "maxAiGenerations", -1, "maxStorageMb", 5000),
@@ -27,10 +34,29 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     );
 
     @Override
+    @Cacheable(value = "payment:subscription", key = "#userId", unless = "#result == null")
     public Subscription getActiveSubscription(Long userId) {
-        return subscriptionRepository.findByUserIdAndDeletedAndStatus(userId, 0, "active")
+        // P1-10: 先检查本地缓存
+        Long cacheTime = cacheTimestamps.get(userId);
+        if (cacheTime != null && System.currentTimeMillis() - cacheTime < CACHE_TTL_MS) {
+            Subscription cached = subscriptionCache.get(userId);
+            if (cached != null && !cached.isExpired()) {
+                return cached;
+            }
+        }
+
+        // 缓存未命中，查询数据库
+        Subscription sub = subscriptionRepository.findByUserIdAndDeletedAndStatus(userId, 0, "active")
                 .filter(s -> !s.isExpired())
                 .orElse(null);
+
+        // 更新本地缓存
+        if (sub != null) {
+            subscriptionCache.put(userId, sub);
+            cacheTimestamps.put(userId, System.currentTimeMillis());
+        }
+
+        return sub;
     }
 
     @Override
@@ -66,11 +92,17 @@ public class SubscriptionServiceImpl implements SubscriptionService {
 
         subscriptionRepository.save(sub);
         log.info("[Subscription] 创建/升级订阅: userId={}, plan={}", userId, plan);
+
+        // P1-10: 清除缓存
+        subscriptionCache.remove(userId);
+        cacheTimestamps.remove(userId);
+
         return sub;
     }
 
     @Override
     public Map<String, Object> checkQuota(Long userId, String metric) {
+        // P1-10: 使用缓存的订阅信息
         Subscription sub = getActiveSubscription(userId);
         String plan = sub != null ? sub.getPlan() : "free";
         Map<String, Integer> limits = PLAN_LIMITS.getOrDefault(plan, PLAN_LIMITS.get("free"));

@@ -47,6 +47,11 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrder, Long
     List<PaymentOrder> findExpiredPendingOrders(@Param("expiryTime") LocalDateTime expiryTime);
 
     /**
+     * P1-8: 按状态和创建时间查询订单（用于超时取消）
+     */
+    List<PaymentOrder> findByStatusAndCreatedAtBefore(OrderStatus status, LocalDateTime createdAt);
+
+    /**
      * 按日期范围统计金额
      */
     @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM PaymentOrder o WHERE o.status = 'COMPLETED' AND o.completedAt BETWEEN :startTime AND :endTime")
@@ -58,9 +63,9 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrder, Long
     Long countByStatus(OrderStatus status);
 
     /**
-     * GMV 对账：按直播场次 ID 和状态列表汇总实付金额
-     * 注：PaymentOrder 暂无 liveSessionId 字段，返回 0（待数据模型扩展）
+     * P1-13: GMV 对账：按直播场次 ID 和状态列表汇总实付金额
+     * 用于直播模块统计场次 GMV
      */
-    @Query("SELECT COALESCE(SUM(0), 0) FROM PaymentOrder o WHERE 1=0")
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM PaymentOrder o WHERE o.liveSessionId = :liveSessionId AND o.status IN :statuses")
     java.math.BigDecimal sumActualAmountByLiveSessionIdAndStatuses(@Param("liveSessionId") Long liveSessionId, @Param("statuses") List<OrderStatus> statuses);
 }

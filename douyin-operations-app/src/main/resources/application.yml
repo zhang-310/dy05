@@ -420,6 +420,41 @@ resilience4j:
         limitRefreshPeriod: 1m
         limitForPeriod: 5
         timeoutDuration: 5s
+      # P1-3: 企业微信推送速率限制（每分钟10次）
+      wecomPush:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 10
+        timeoutDuration: 0s
+      # P1-1: AI 对话速率限制（每分钟20次）
+      aiChat:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 20
+        timeoutDuration: 0s
+      # P1-1: 工作流执行速率限制（每分钟5次）
+      workflowExec:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 5
+        timeoutDuration: 0s
+      # P1-2: AI 生成接口限流（每分钟10次）
+      aiGenerate:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 10
+        timeoutDuration: 5s
+      # P1-1: 搜索 API 限流（每分钟30次）
+      searchApi:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 30
+        timeoutDuration: 5s
+      # P1-1: 归因分析触发限流（每分钟10次）
+      attributionTrigger:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 10
+        timeoutDuration: 0s
+      # P1-1: Dashboard 统计限流（每分钟10次）
+      dashboard:
+        limitRefreshPeriod: 1m
+        limitForPeriod: 10
+        timeoutDuration: 0s
   circuitbreaker:
     instances:
       api-circuit-breaker:

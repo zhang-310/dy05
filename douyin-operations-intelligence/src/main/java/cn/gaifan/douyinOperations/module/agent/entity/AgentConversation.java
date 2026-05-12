@@ -44,6 +44,11 @@ public class AgentConversation {
     @Column(name = "update_time")
     private Timestamp updateTime;
 
+    // P1-3: N+1 查询优化 - 关联智能体实体
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "agent_id", insertable = false, updatable = false)
+    private Agent agent;
+
     @PrePersist
     public void prePersist() {
         if (createTime == null) createTime = new Timestamp(System.currentTimeMillis());

@@ -30,6 +30,8 @@ public class CopyTemplateController {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         if (vo == null) vo = new CopyTemplateSearchVO();
+        // P1-2: 数据隔离 - 强制设置 userId，防止绕过
+        vo.setUserId(userId);
         RESTResult<PageResultVO<CopyTemplateVO>> r = RESTResult.getSuccess(copyTemplateService.search(vo));
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -64,8 +66,10 @@ public class CopyTemplateController {
             @RequestBody(required = false) java.util.Map<String, Object> body) {
         Long id = parseLong(body, "id");
         if (id == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id");
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        copyTemplateService.delete(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-4: IDOR 防护 - 传入 userId 校验所有权
+        copyTemplateService.delete(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -78,8 +82,10 @@ public class CopyTemplateController {
         Long id = parseLong(body, "id");
         Integer status = body != null && body.get("status") != null ? ((Number) body.get("status")).intValue() : null;
         if (id == null || status == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id 或 status");
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        copyTemplateService.updateStatus(id, status);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-4: IDOR 防护 - 传入 userId 校验所有权
+        copyTemplateService.updateStatus(id, status, userId);
         RESTResult<Void> r = RESTResult.updateSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;

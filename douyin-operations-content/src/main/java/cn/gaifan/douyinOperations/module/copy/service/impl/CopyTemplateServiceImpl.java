@@ -51,10 +51,11 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
         Specification<CopyTemplate> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("deleted"), 0));
-            // P0-2: 数据隔离 - 强制过滤 userId（不可绕过）
-            if (vo.getUserId() != null) {
-                predicates.add(cb.equal(root.get("userId"), vo.getUserId()));
+            // P1-2: 数据隔离 - 强制过滤 userId（不可绕过）
+            if (vo.getUserId() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "userId 不能为空");
             }
+            predicates.add(cb.equal(root.get("userId"), vo.getUserId()));
             if (vo.getCategory() != null && !vo.getCategory().trim().isEmpty()) {
                 predicates.add(cb.equal(root.get("category"), vo.getCategory().trim()));
             }
@@ -131,10 +132,14 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long userId) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "模板 ID 无效");
         CopyTemplate entity = copyTemplateRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "模板不存在"));
+        // P1-4: IDOR 防护 - 校验所有权
+        if (!entity.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权删除他人的模板");
+        }
         entity.setDeleted(1);
         copyTemplateRepository.save(entity);
         // P0-3: 删除时失效缓存
@@ -143,10 +148,14 @@ public class CopyTemplateServiceImpl implements CopyTemplateService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateStatus(Long id, Integer status) {
+    public void updateStatus(Long id, Integer status, Long userId) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "模板 ID 无效");
-        copyTemplateRepository.findByIdAndDeleted(id, 0)
+        CopyTemplate entity = copyTemplateRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "模板不存在"));
+        // P1-4: IDOR 防护 - 校验所有权
+        if (!entity.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权修改他人的模板");
+        }
         copyTemplateRepository.updateStatus(id, status);
         // P0-3: 更新状态时失效缓存
         copyTemplateCache.invalidate(id);

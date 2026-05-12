@@ -31,6 +31,7 @@ public class AgentSaveVO {
     private String systemPrompt;
 
     /** 模型配置（JSON 格式，可选，包含 modelId 和 parameters） */
+    @Size(max = 5000, message = "模型配置长度不能超过 5000")
     private String modelConfig;
 
     /** 响应模式：1=即时 2=异步（可选，默认 1） */
@@ -40,6 +41,7 @@ public class AgentSaveVO {
     private String description;
 
     /** 可用工具列表（JSON 数组，如 ["kb_rag_search","product_search"]） */
+    @Size(max = 2000, message = "可用工具列表长度不能超过 2000")
     private String availableTools;
 }
 

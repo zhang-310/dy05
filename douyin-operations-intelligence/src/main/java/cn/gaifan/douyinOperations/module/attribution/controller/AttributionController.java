@@ -26,6 +26,7 @@ public class AttributionController {
 
     @PostMapping("/trigger")
     @Operation(summary = "触发归因分析 / Trigger Attribution Analysis")
+    @io.github.resilience4j.ratelimiter.annotation.RateLimiter(name = "attributionTrigger", fallbackMethod = "triggerFallback")
     public RESTResult<Long> trigger(HttpServletRequest request, @Valid @RequestBody AttributionTriggerVO vo) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
@@ -33,6 +34,13 @@ public class AttributionController {
         RESTResult<Long> r = RESTResult.addSuccess(id);
         r.setTraceId(MDC.get("traceId"));
         return r;
+    }
+
+    // P1-1: 限流降级方法
+    private RESTResult<Long> triggerFallback(HttpServletRequest request,
+                                              AttributionTriggerVO vo,
+                                              io.github.resilience4j.ratelimiter.RequestNotPermitted ex) {
+        return RESTResult.error(ErrorCode.RATE_LIMIT, "归因分析请求过于频繁，请稍后再试");
     }
 
     @PostMapping("/session")
@@ -43,7 +51,7 @@ public class AttributionController {
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long sessionId = body != null ? body.get("sessionId") : null;
         if (sessionId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 sessionId");
-        List<Map<String, Object>> data = attributionService.getBySessionId(sessionId);
+        List<Map<String, Object>> data = attributionService.getBySessionId(sessionId, userId);
         RESTResult<List<Map<String, Object>>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -57,7 +65,7 @@ public class AttributionController {
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long sessionId = body != null ? body.get("sessionId") : null;
         if (sessionId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 sessionId");
-        Map<String, Object> data = attributionService.getSummary(sessionId);
+        Map<String, Object> data = attributionService.getSummary(sessionId, userId);
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -71,7 +79,7 @@ public class AttributionController {
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long id = body != null ? body.get("id") : null;
         if (id == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id");
-        Map<String, Object> data = attributionService.getById(id);
+        Map<String, Object> data = attributionService.getById(id, userId);
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -82,7 +90,7 @@ public class AttributionController {
     public RESTResult<Void> deleteBySession(HttpServletRequest request, @PathVariable Long sessionId) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        attributionService.deleteBySessionId(sessionId);
+        attributionService.deleteBySessionId(sessionId, userId);
         RESTResult<Void> r = RESTResult.getSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;

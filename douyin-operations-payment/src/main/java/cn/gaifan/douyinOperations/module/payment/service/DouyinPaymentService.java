@@ -50,8 +50,8 @@ public class DouyinPaymentService {
      * 创建订单并生成支付链接
      */
     public PaymentResponse createOrder(CreateOrderRequest request) {
-        log.info("📦 创建订单：userId={}, productId={}, amount={}",
-                request.userId, request.productId, request.amount);
+        // P1-3: 敏感信息脱敏 - 不记录金额到日志
+        log.info("📦 创建订单：userId={}, productId={}", request.userId, request.productId);
 
         try {
             // 1. 验证商品价格（P0-2 修复）
@@ -67,8 +67,8 @@ public class DouyinPaymentService {
             // 2. 验证客户端提交的金额是否与商品价格一致
             BigDecimal expectedAmount = productPrice.multiply(BigDecimal.valueOf(request.quantity != null ? request.quantity : 1));
             if (request.amount.compareTo(expectedAmount) != 0) {
-                log.warn("订单金额不匹配: productId={}, expected={}, actual={}",
-                        request.productId, expectedAmount, request.amount);
+                // P1-3: 敏感信息脱敏 - 不记录金额到日志
+                log.warn("订单金额不匹配: productId={}", request.productId);
                 return PaymentResponse.builder()
                         .success(false)
                         .errorMessage("订单金额不正确")
@@ -162,67 +162,71 @@ public class DouyinPaymentService {
     }
 
     /**
-     * 处理支付回调
+     * 处理支付回调（P1-1: 添加幂等性保护）
      */
     public void handlePaymentCallback(PaymentCallbackRequest callback) {
         log.info("🔔 处理支付回调：orderId={}, status={}", callback.orderId, callback.status);
 
-        try {
-            // 1. 验证签名
-            if (!verifySignature(callback)) {
-                log.error("✗ 回调签名验证失败");
-                throw new RuntimeException("签名验证失败");
+        // P1-1: 使用 synchronized 块保证单机幂等性（简化实现，生产环境应使用 Redis 分布式锁）
+        String lockKey = "payment:callback:" + callback.orderId;
+        synchronized (lockKey.intern()) {
+            try {
+                // 1. 验证签名
+                if (!verifySignature(callback)) {
+                    log.error("✗ 回调签名验证失败");
+                    throw new RuntimeException("签名验证失败");
+                }
+
+                // 2. 获取订单
+                PaymentOrder order = getOrderByOrderNo(callback.orderId);
+                if (order == null) {
+                    log.error("✗ 订单不存在：orderId={}", callback.orderId);
+                    throw new RuntimeException("订单不存在");
+                }
+
+                // 3. 检查订单状态（幂等性保护 - 防止重复处理）
+                if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+                    log.info("⚠️ 订单已处理，忽略回调：orderId={}, currentStatus={}",
+                            callback.orderId, order.getStatus());
+                    return;
+                }
+
+                // 4. 更新订单状态
+                if ("SUCCESS".equals(callback.status)) {
+                    order.setStatus(OrderStatus.PAID);
+                    order.setPaidAt(LocalDateTime.now());
+                    order.setPaymentMethod("抖音支付");
+                    order.setTransactionId(callback.transactionId);
+
+                    // 保存订单更新
+                    // orderRepository.save(order);
+
+                    // 记录交易日志
+                    recordTransaction(order.getId(), TransactionType.PAYMENT,
+                            order.getActualAmount(), TransactionStatus.SUCCESS, callback.transactionId);
+
+                    log.info("✓ 支付成功：orderId={}, transactionId={}",
+                            order.getId(), callback.transactionId);
+
+                    // 触发支付成功事件（发送邮件、更新用户配额等）
+                    handlePaymentSuccess(order);
+
+                } else if ("FAILED".equals(callback.status)) {
+                    order.setStatus(OrderStatus.CANCELLED);
+
+                    // 记录失败事务
+                    recordTransaction(order.getId(), TransactionType.PAYMENT,
+                            order.getActualAmount(), TransactionStatus.FAILED, callback.transactionId);
+
+                    log.warn("⚠️ 支付失败：orderId={}, reason={}",
+                            order.getId(), callback.failureReason);
+                }
+
+            } catch (Exception e) {
+                log.error("✗ 回调处理失败", e);
+                // 需要重试机制
+                throw new RuntimeException("回调处理失败", e);
             }
-
-            // 2. 获取订单
-            PaymentOrder order = getOrderByOrderNo(callback.orderId);
-            if (order == null) {
-                log.error("✗ 订单不存在：orderId={}", callback.orderId);
-                throw new RuntimeException("订单不存在");
-            }
-
-            // 3. 检查订单状态（防止重复处理）
-            if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-                log.warn("⚠️ 订单状态非待支付，忽略回调：orderId={}, status={}",
-                        callback.orderId, order.getStatus());
-                return;
-            }
-
-            // 4. 更新订单状态
-            if ("SUCCESS".equals(callback.status)) {
-                order.setStatus(OrderStatus.PAID);
-                order.setPaidAt(LocalDateTime.now());
-                order.setPaymentMethod("抖音支付");
-                order.setTransactionId(callback.transactionId);
-
-                // 保存订单更新
-                // orderRepository.save(order);
-
-                // 记录交易日志
-                recordTransaction(order.getId(), TransactionType.PAYMENT,
-                        order.getActualAmount(), TransactionStatus.SUCCESS, callback.transactionId);
-
-                log.info("✓ 支付成功：orderId={}, transactionId={}",
-                        order.getId(), callback.transactionId);
-
-                // 触发支付成功事件（发送邮件、更新用户配额等）
-                handlePaymentSuccess(order);
-
-            } else if ("FAILED".equals(callback.status)) {
-                order.setStatus(OrderStatus.CANCELLED);
-
-                // 记录失败事务
-                recordTransaction(order.getId(), TransactionType.PAYMENT,
-                        order.getActualAmount(), TransactionStatus.FAILED, callback.transactionId);
-
-                log.warn("⚠️ 支付失败：orderId={}, reason={}",
-                        order.getId(), callback.failureReason);
-            }
-
-        } catch (Exception e) {
-            log.error("✗ 回调处理失败", e);
-            // 需要重试机制
-            throw new RuntimeException("回调处理失败", e);
         }
     }
 
@@ -299,9 +303,15 @@ public class DouyinPaymentService {
 
     /**
      * 辅助方法：生成订单号
+     * P1-6: 使用安全随机数生成不可预测的订单号
      */
     private String generateOrderNo(Long userId) {
-        return "ORD" + System.currentTimeMillis() + userId;
+        // 使用时间戳 + 随机数 + 用户哈希
+        String timestamp = java.time.LocalDateTime.now().format(
+            java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String random = String.format("%06d", new java.security.SecureRandom().nextInt(1000000));
+        String userHash = String.format("%04d", userId % 10000);
+        return "ORD" + timestamp + random + userHash;
     }
 
     /**

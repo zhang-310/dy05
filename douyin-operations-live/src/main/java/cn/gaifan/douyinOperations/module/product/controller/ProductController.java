@@ -199,9 +199,28 @@ public class ProductController {
     @Operation(summary = "更新库存（delta 可为负数）")
     public RESTResult<Void> updateInventory(HttpServletRequest request,
             @RequestBody(required = false) java.util.Map<String, Object> body) {
+        // P1-1: Map 参数校验 - 类型转换风险
+        if (body == null) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "请求体不能为空");
+        }
+
         Long id = parseLong(body, "id");
-        Long quantity = body != null && body.get("quantity") != null ? ((Number) body.get("quantity")).longValue() : null;
-        if (id == null || quantity == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id 或 quantity");
+        if (id == null) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id");
+        }
+
+        Object quantityObj = body.get("quantity");
+        if (quantityObj == null) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 quantity");
+        }
+
+        Long quantity;
+        try {
+            quantity = quantityObj instanceof Number ? ((Number) quantityObj).longValue() : Long.parseLong(quantityObj.toString());
+        } catch (NumberFormatException e) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "quantity 必须是数字");
+        }
+
         if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         productService.updateInventory(id, quantity);
         RESTResult<Void> r = RESTResult.updateSuccess(null);
@@ -239,9 +258,28 @@ public class ProductController {
     @Operation(summary = "设置推荐标记")
     public RESTResult<Void> setFeatured(HttpServletRequest request,
             @RequestBody(required = false) java.util.Map<String, Object> body) {
+        // P1-1: Map 参数校验 - 类型转换风险
+        if (body == null) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "请求体不能为空");
+        }
+
         Long id = parseLong(body, "id");
-        Integer featured = body != null && body.get("featured") != null ? ((Number) body.get("featured")).intValue() : null;
-        if (id == null || featured == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id 或 featured");
+        if (id == null) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id");
+        }
+
+        Object featuredObj = body.get("featured");
+        if (featuredObj == null) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 featured");
+        }
+
+        Integer featured;
+        try {
+            featured = featuredObj instanceof Number ? ((Number) featuredObj).intValue() : Integer.parseInt(featuredObj.toString());
+        } catch (NumberFormatException e) {
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "featured 必须是数字");
+        }
+
         if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         productService.setFeatured(id, featured);
         RESTResult<Void> r = RESTResult.updateSuccess(null);

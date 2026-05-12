@@ -5,6 +5,10 @@ import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.system.service.SystemService;
+import cn.gaifan.douyinOperations.module.system.vo.ApiLogIdVO;
+import cn.gaifan.douyinOperations.module.system.vo.ApiLogSearchVO;
+import cn.gaifan.douyinOperations.module.system.vo.ApiLogStatsVO;
+import cn.gaifan.douyinOperations.module.system.vo.SyncLogSearchVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.MDC;
@@ -12,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.util.Map;
 
 @RestController
@@ -34,26 +39,21 @@ public class SystemController {
     @Operation(summary = "API调用日志列表")
     public RESTResult<PageResultVO<Map<String, Object>>> apiLogList(
             HttpServletRequest request,
-            @RequestBody(required = false) Map<String, Object> body) {
+            @Valid @RequestBody(required = false) ApiLogSearchVO vo) {
 
         if (AuthTokenFilter.getUserId(request) == null)
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         if (!isAdmin(request))
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问");
 
-        body = body == null ? Map.of() : body;
-        String module    = (String) body.get("module");
-        String apiName   = (String) body.get("apiName");
-        Integer status   = body.get("status") != null ? ((Number) body.get("status")).intValue() : null;
-        String startTime = (String) body.get("startTime");
-        String endTime   = (String) body.get("endTime");
-        int page = body.get("page") != null ? ((Number) body.get("page")).intValue() : 0;
-        int rows = body.get("rows") != null ? ((Number) body.get("rows")).intValue() : 30;
-        String sortName = (String) body.get("sortName");
-        String sortOrder = (String) body.get("sortOrder");
+        // P1-9: 使用 BasicQueryDto 自动校验分页参数
+        if (vo == null) vo = new ApiLogSearchVO();
+        vo.validateParams();
 
         RESTResult<PageResultVO<Map<String, Object>>> r = RESTResult.getSuccess(
-                systemService.searchApiLogs(module, apiName, status, startTime, endTime, sortName, sortOrder, page, rows));
+                systemService.searchApiLogs(vo.getModule(), vo.getApiName(), vo.getStatus(),
+                        vo.getStartTime(), vo.getEndTime(), vo.getSortName(), vo.getSortOrder(),
+                        vo.getPage(), vo.getRows()));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -62,20 +62,18 @@ public class SystemController {
     @Operation(summary = "API调用统计")
     public RESTResult<Map<String, Object>> apiLogStats(
             HttpServletRequest request,
-            @RequestBody(required = false) Map<String, Object> body) {
+            @Valid @RequestBody(required = false) ApiLogStatsVO vo) {
 
         if (AuthTokenFilter.getUserId(request) == null)
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         if (!isAdmin(request))
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问");
 
-        body = body == null ? Map.of() : body;
-        String module    = (String) body.get("module");
-        String startTime = (String) body.get("startTime");
-        String endTime   = (String) body.get("endTime");
+        // P1-9: 使用强类型 VO，避免 Map 手动转换
+        if (vo == null) vo = new ApiLogStatsVO();
 
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(
-                systemService.getApiLogStats(module, startTime, endTime));
+                systemService.getApiLogStats(vo.getModule(), vo.getStartTime(), vo.getEndTime()));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -84,18 +82,15 @@ public class SystemController {
     @Operation(summary = "API调用日志详情（含请求/响应体）")
     public RESTResult<Map<String, Object>> apiLogGet(
             HttpServletRequest request,
-            @RequestBody Map<String, Object> body) {
+            @Valid @RequestBody ApiLogIdVO vo) {
 
         if (AuthTokenFilter.getUserId(request) == null)
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         if (!isAdmin(request))
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问");
 
-        Long id = body != null && body.get("id") != null ? ((Number) body.get("id")).longValue() : null;
-        if (id == null)
-            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "id 不能为空");
-
-        Map<String, Object> data = systemService.getApiLogById(id);
+        // P1-9: 使用强类型 VO，@Valid 自动校验 @NotNull
+        Map<String, Object> data = systemService.getApiLogById(vo.getId());
         if (data == null)
             return RESTResult.error(ErrorCode.DATA_NOT_FOUND, "记录不存在");
 
@@ -110,24 +105,20 @@ public class SystemController {
     @Operation(summary = "数据同步日志列表")
     public RESTResult<PageResultVO<Map<String, Object>>> syncLogList(
             HttpServletRequest request,
-            @RequestBody(required = false) Map<String, Object> body) {
+            @Valid @RequestBody(required = false) SyncLogSearchVO vo) {
 
         if (AuthTokenFilter.getUserId(request) == null)
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         if (!isAdmin(request))
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问");
 
-        body = body == null ? Map.of() : body;
-        String syncType  = (String) body.get("syncType");
-        String status    = (String) body.get("status");
-        Long userId      = body.get("userId") != null ? ((Number) body.get("userId")).longValue() : null;
-        String startTime = (String) body.get("startTime");
-        String endTime   = (String) body.get("endTime");
-        int page = body.get("page") != null ? ((Number) body.get("page")).intValue() : 0;
-        int rows = body.get("rows") != null ? ((Number) body.get("rows")).intValue() : 30;
+        // P1-9: 使用 BasicQueryDto 自动校验分页参数
+        if (vo == null) vo = new SyncLogSearchVO();
+        vo.validateParams();
 
         RESTResult<PageResultVO<Map<String, Object>>> r = RESTResult.getSuccess(
-                systemService.searchSyncLogs(syncType, status, userId, startTime, endTime, page, rows));
+                systemService.searchSyncLogs(vo.getSyncType(), vo.getStatus(), vo.getUserId(),
+                        vo.getStartTime(), vo.getEndTime(), vo.getPage(), vo.getRows()));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

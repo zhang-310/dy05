@@ -31,6 +31,9 @@ public class WorkflowStep {
     @Column(name = "step_config", columnDefinition = "TEXT")
     private String stepConfig;
 
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;
+
     @Column(name = "deleted", nullable = false)
     private Integer deleted = 0;
 

@@ -32,12 +32,31 @@ public class UploadServiceImpl implements UploadService {
     private static final int DEFAULT_CHUNK_SIZE = 5242880;  // 5 MB
     private static final int MAX_RETRIES = 3;
 
+    // P1-1: 文件类型白名单
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+        "jpg", "jpeg", "png", "gif", "bmp", "webp",  // 图片
+        "mp4", "avi", "mov", "wmv", "flv", "mkv",    // 视频
+        "mp3", "wav", "aac", "flac", "ogg",          // 音频
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv",  // 文档
+        "zip", "rar", "7z", "tar", "gz"              // 压缩包
+    );
+
     /**
      * 初始化上传
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UploadInitResultVO initUpload(Long userId, UploadInitVO vo) {
+        // P1-1: 文件类型白名单校验
+        String filename = vo.getOriginalFilename();
+        if (filename == null || filename.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "文件名不能为空");
+        }
+        String extension = getFileExtension(filename).toLowerCase();
+        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "不支持的文件类型: " + extension);
+        }
+
         // 参数校验
         if (vo.getFileSize() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "文件大小必须大于 0");
@@ -206,6 +225,16 @@ public class UploadServiceImpl implements UploadService {
             log.error("分块上传失败: uploadId={}, chunkIndex={}, 原因={}", uploadId, chunkIndex, e.getMessage());
             throw new BusinessException(ErrorCode.STORAGE_UPLOAD_FAIL, "分块上传失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * P1-1: 获取文件扩展名
+     */
+    private String getFileExtension(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return "";
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1);
     }
 
     /**

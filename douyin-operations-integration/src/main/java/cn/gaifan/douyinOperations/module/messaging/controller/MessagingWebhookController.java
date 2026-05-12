@@ -6,6 +6,8 @@ import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.messaging.entity.MsgPlatformConfig;
 import cn.gaifan.douyinOperations.module.messaging.service.MessagingPlatformService;
 import cn.gaifan.douyinOperations.module.messaging.service.MessagingWebhookHandler;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -31,11 +33,20 @@ public class MessagingWebhookController {
     @Resource
     @Qualifier("webhookExecutor")
     private Executor webhookExecutor;
+    @Resource
+    private RateLimiter webhookRateLimiter;
 
     @PostMapping(value = "/feishu", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "飞书事件回调（POST）")
     public Object feishuPost(@RequestParam(required = false) String token,
             @RequestBody(required = false) String body) {
+        // P1-2: Webhook 速率限制 - 防止恶意重放攻击
+        try {
+            webhookRateLimiter.acquirePermission();
+        } catch (RequestNotPermitted e) {
+            return RESTResult.error(ErrorCode.RATE_LIMIT, "请求过于频繁，请稍后再试");
+        }
+
         MsgPlatformConfig config = resolveConfig("feishu", token);
         if (config == null) return RESTResult.error(ErrorCode.WECOM_AUTH_FAIL, "无效的 token");
         if (body == null || body.isBlank()) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "请求体为空");
@@ -80,6 +91,13 @@ public class MessagingWebhookController {
             @RequestParam(required = false) String timestamp,
             @RequestParam(required = false) String nonce,
             @RequestBody(required = false) String body) {
+        // P1-2: Webhook 速率限制 - 防止恶意重放攻击
+        try {
+            webhookRateLimiter.acquirePermission();
+        } catch (RequestNotPermitted e) {
+            return RESTResult.error(ErrorCode.RATE_LIMIT, "请求过于频繁，请稍后再试");
+        }
+
         MsgPlatformConfig config = resolveConfig("wecom", token);
         if (config == null) return RESTResult.error(ErrorCode.WECOM_AUTH_FAIL, "无效的 token");
         if (body == null || body.isBlank()) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "请求体为空");

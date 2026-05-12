@@ -61,10 +61,15 @@ public class ScriptLibraryServiceImpl implements ScriptLibraryService {
     }
 
     @Override
-    public ScriptVO getById(Long id) {
+    public ScriptVO getById(Long id, Long userId) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "话术 ID 无效");
-        return toVO(scriptLibraryRepository.findByIdAndDeleted(id, 0)
-                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "话术不存在")));
+        ScriptLibrary entity = scriptLibraryRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "话术不存在"));
+        // P1-6: IDOR 防护 - 校验所有权
+        if (!entity.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问他人的话术");
+        }
+        return toVO(entity);
     }
 
     @Override
@@ -91,10 +96,14 @@ public class ScriptLibraryServiceImpl implements ScriptLibraryService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long userId) {
         if (id == null || id <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "话术 ID 无效");
         ScriptLibrary entity = scriptLibraryRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "话术不存在"));
+        // P1-6: IDOR 防护 - 校验所有权
+        if (!entity.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权删除他人的话术");
+        }
         entity.setDeleted(1);
         scriptLibraryRepository.save(entity);
     }

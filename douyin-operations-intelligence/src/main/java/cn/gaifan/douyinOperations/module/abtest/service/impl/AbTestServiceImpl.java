@@ -77,9 +77,40 @@ public class AbTestServiceImpl implements cn.gaifan.douyinOperations.module.abte
         return vo;
     }
 
+    // P0-1: 带所有权校验的 getById
+    public AbExperimentVO getById(Long id, Long userId) {
+        AbExperiment e = experimentRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        if (!e.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问此实验");
+        }
+        AbExperimentVO vo = toExperimentVO(e);
+        vo.setVariants(variantRepository.findByExperimentIdAndDeleted(id, 0)
+                .stream().map(this::toVariantVO).collect(Collectors.toList()));
+        return vo;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "abtest:experiment", key = "#result")
     public long save(AbExperimentSaveVO vo) {
+        // P1-2: 业务规则校验
+        if (vo.getVariants() != null && !vo.getVariants().isEmpty()) {
+            if (vo.getVariants().size() < 2) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "至少需要 2 个变体");
+            }
+            Set<String> types = vo.getVariants().stream()
+                    .map(v -> v.getVariantType())
+                    .collect(Collectors.toSet());
+            if (!types.contains("A") || !types.contains("B")) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "必须包含 A 和 B 变体");
+            }
+        }
+
+        if (vo.getExperimentType() != null &&
+            !Set.of("video", "live", "copy", "script_style").contains(vo.getExperimentType())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "实验类型不合法");
+        }
+
         AbExperiment entity;
         if (vo.getId() != null && vo.getId() > 0) {
             entity = experimentRepository.findByIdAndDeleted(vo.getId(), 0)
@@ -121,6 +152,24 @@ public class AbTestServiceImpl implements cn.gaifan.douyinOperations.module.abte
         });
     }
 
+    // P0-1: 带所有权校验的 delete
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "abtest:experiment", key = "#id")
+    public void delete(Long id, Long userId) {
+        AbExperiment entity = experimentRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        if (!entity.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权删除此实验");
+        }
+        entity.setDeleted(1);
+        experimentRepository.save(entity);
+        // 同步删除变体
+        variantRepository.findByExperimentIdAndDeleted(id, 0).forEach(v -> {
+            v.setDeleted(1);
+            variantRepository.save(v);
+        });
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "abtest:experiment", key = "#id")
     public void updateStatus(Long id, Integer status) {
@@ -129,11 +178,39 @@ public class AbTestServiceImpl implements cn.gaifan.douyinOperations.module.abte
         experimentRepository.updateStatus(id, status, new Timestamp(System.currentTimeMillis()));
     }
 
+    // P0-1: 带所有权校验的 updateStatus
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "abtest:experiment", key = "#id")
+    public void updateStatus(Long id, Integer status, Long userId) {
+        AbExperiment entity = experimentRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        if (!entity.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权修改此实验");
+        }
+        experimentRepository.updateStatus(id, status, new Timestamp(System.currentTimeMillis()));
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "abtest:experiment", key = "#vo.experimentId")
     public void setWinner(AbSetWinnerVO vo) {
         experimentRepository.findByIdAndDeleted(vo.getExperimentId(), 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        variantRepository.findByIdAndDeleted(vo.getVariantId(), 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "变体不存在"));
+        experimentRepository.setWinner(vo.getExperimentId(), vo.getVariantId(),
+                vo.getConclusion(), new Timestamp(System.currentTimeMillis()));
+        variantRepository.updateIsWinner(vo.getVariantId(), 1);
+    }
+
+    // P0-1: 带所有权校验的 setWinner
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "abtest:experiment", key = "#vo.experimentId")
+    public void setWinner(AbSetWinnerVO vo, Long userId) {
+        AbExperiment entity = experimentRepository.findByIdAndDeleted(vo.getExperimentId(), 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        if (!entity.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权修改此实验");
+        }
         variantRepository.findByIdAndDeleted(vo.getVariantId(), 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "变体不存在"));
         experimentRepository.setWinner(vo.getExperimentId(), vo.getVariantId(),
@@ -162,6 +239,33 @@ public class AbTestServiceImpl implements cn.gaifan.douyinOperations.module.abte
         return variantRepository.save(entity).getId();
     }
 
+    // P0-1: 带所有权校验的 saveVariant
+    @Transactional(rollbackFor = Exception.class)
+    public long saveVariant(AbVariantSaveVO vo, Long userId) {
+        // 校验实验所有权
+        AbExperiment exp = experimentRepository.findByIdAndDeleted(vo.getExperimentId(), 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        if (!exp.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作此实验");
+        }
+
+        AbVariant entity;
+        if (vo.getId() != null && vo.getId() > 0) {
+            entity = variantRepository.findByIdAndDeleted(vo.getId(), 0)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "变体不存在"));
+        } else {
+            entity = new AbVariant();
+            entity.setExperimentId(vo.getExperimentId());
+            entity.setVariantType(vo.getVariantType());
+        }
+        entity.setVariantName(vo.getVariantName());
+        if (vo.getContent() != null) entity.setContent(vo.getContent());
+        if (vo.getEntityType() != null) entity.setEntityType(vo.getEntityType());
+        if (vo.getEntityId() != null) entity.setEntityId(vo.getEntityId());
+        if (vo.getStyleCode() != null) entity.setStyleCode(vo.getStyleCode());
+        return variantRepository.save(entity).getId();
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void deleteVariant(Long id) {
         AbVariant entity = variantRepository.findByIdAndDeleted(id, 0)
@@ -170,10 +274,59 @@ public class AbTestServiceImpl implements cn.gaifan.douyinOperations.module.abte
         variantRepository.save(entity);
     }
 
+    // P0-1: 带所有权校验的 deleteVariant
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteVariant(Long id, Long userId) {
+        AbVariant entity = variantRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "变体不存在"));
+        // 校验实验所有权
+        AbExperiment exp = experimentRepository.findByIdAndDeleted(entity.getExperimentId(), 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        if (!exp.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作此实验");
+        }
+        entity.setDeleted(1);
+        variantRepository.save(entity);
+    }
+
     // ==================== 事件记录 ====================
 
     @Transactional(rollbackFor = Exception.class)
     public void recordEvent(AbEventSaveVO vo) {
+        // P1-1: SHA256 哈希 user_fingerprint
+        String hashedFingerprint = org.apache.commons.codec.digest.DigestUtils.sha256Hex(vo.getUserFingerprint());
+
+        // 去重：同一用户同一变体同一事件类型只记录一次
+        if (eventRepository.existsByVariantIdAndEventTypeAndUserFingerprint(
+                vo.getVariantId(), vo.getEventType(), hashedFingerprint)) {
+            return;
+        }
+        AbEvent event = new AbEvent();
+        event.setExperimentId(vo.getExperimentId());
+        event.setVariantId(vo.getVariantId());
+        event.setEventType(vo.getEventType());
+        event.setUserFingerprint(hashedFingerprint);
+        event.setSessionId(vo.getSessionId());
+        eventRepository.save(event);
+
+        // 同步更新变体计数
+        switch (vo.getEventType()) {
+            case "view" -> variantRepository.incrementViewCount(vo.getVariantId());
+            case "click" -> variantRepository.incrementClickCount(vo.getVariantId());
+            case "conversion" -> variantRepository.incrementConversionCount(vo.getVariantId());
+        }
+    }
+
+    // P0-1: 带所有权校验的 recordEvent
+    @Transactional(rollbackFor = Exception.class)
+    public void recordEvent(AbEventSaveVO vo, Long userId) {
+        // 校验实验所有权
+        AbExperiment exp = experimentRepository.findByIdAndDeleted(vo.getExperimentId(), 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "实验不存在"));
+        if (!exp.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作此实验");
+        }
+
         // 去重：同一用户同一变体同一事件类型只记录一次
         if (eventRepository.existsByVariantIdAndEventTypeAndUserFingerprint(
                 vo.getVariantId(), vo.getEventType(), vo.getUserFingerprint())) {

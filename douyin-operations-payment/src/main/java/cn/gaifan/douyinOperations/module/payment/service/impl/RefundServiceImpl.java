@@ -5,6 +5,7 @@ import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentRefund;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentOrder;
 import cn.gaifan.douyinOperations.module.payment.entity.RefundStatus;
+import cn.gaifan.douyinOperations.module.payment.entity.OrderStatus;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentRefundRepository;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentOrderRepository;
 import cn.gaifan.douyinOperations.module.payment.service.RefundService;
@@ -142,22 +143,41 @@ public class RefundServiceImpl implements RefundService {
 
     @Override
     public BigDecimal calculateRefundedAmount(Long orderId) {
-        List<PaymentRefund> refunds = refundRepository.findByOrderId(orderId);
-        return refunds.stream()
-                .filter(r -> r.getStatus() == RefundStatus.COMPLETED || r.getStatus() == RefundStatus.APPROVED)
-                .map(PaymentRefund::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // P1-11: 退款金额计算优化 - 使用数据库聚合查询替代内存计算
+        // 原实现：查询所有退款记录到内存，然后过滤和求和（N+1 查询问题）
+        // 优化后：使用数据库 SUM 聚合，减少内存占用和网络传输
+        BigDecimal sum = refundRepository.sumRefundedAmountByOrderId(orderId);
+        return sum != null ? sum : BigDecimal.ZERO;
     }
 
     @Override
     public boolean canRefund(Long orderId, BigDecimal requestAmount) {
+        // P1-4: 退款金额验证增强
+        // 1. 验证退款金额格式
+        if (requestAmount == null || requestAmount.scale() > 2) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "退款金额格式错误");
+        }
+
+        if (requestAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "退款金额必须大于 0");
+        }
+
+        // 2. 获取订单
         PaymentOrder order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
 
+        // 3. 验证订单状态（仅已支付订单可退款）
+        if (order.getStatus() != OrderStatus.PAID &&
+            order.getStatus() != OrderStatus.SHIPPED &&
+            order.getStatus() != OrderStatus.COMPLETED) {
+            throw new BusinessException(ErrorCode.ORDER_STATUS_INVALID, "订单状态不允许退款");
+        }
+
+        // 4. 计算可退款金额
         BigDecimal refundedAmount = calculateRefundedAmount(orderId);
         BigDecimal refundableAmount = order.getActualAmount().subtract(refundedAmount);
 
-        return requestAmount.compareTo(refundableAmount) <= 0 && requestAmount.compareTo(BigDecimal.ZERO) > 0;
+        return requestAmount.compareTo(refundableAmount) <= 0;
     }
 
     private PaymentRefund getRefundEntity(Long refundId) {

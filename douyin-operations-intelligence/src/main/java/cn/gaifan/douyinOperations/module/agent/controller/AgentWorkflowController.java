@@ -8,6 +8,7 @@ import cn.gaifan.douyinOperations.module.agent.service.AgentWorkflowService;
 import cn.gaifan.douyinOperations.module.agent.vo.AgentWorkflowExecutionVO;
 import cn.gaifan.douyinOperations.module.agent.vo.AgentWorkflowSaveVO;
 import cn.gaifan.douyinOperations.module.agent.vo.AgentWorkflowVO;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.MDC;
@@ -105,6 +106,7 @@ public class AgentWorkflowController {
 
     @PostMapping("/execute")
     @Operation(summary = "执行工作流编排")
+    @RateLimiter(name = "workflowExec", fallbackMethod = "executeFallback")
     public RESTResult<Map<String, Object>> execute(HttpServletRequest request,
             @RequestBody Map<String, Object> body) {
         Long userId = AuthTokenFilter.getUserId(request);
@@ -116,6 +118,14 @@ public class AgentWorkflowController {
         if (userInput == null || userInput.isBlank()) return RESTResult.error(ErrorCode.INVALID_PARAMS, "输入内容不能为空");
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(
                 workflowService.execute(workflowId, userId, conversationId, userInput));
+        r.setTraceId(MDC.get("traceId"));
+        return r;
+    }
+
+    // P1-1: 工作流执行限流 fallback 方法
+    public RESTResult<Map<String, Object>> executeFallback(HttpServletRequest request,
+            Map<String, Object> body, Exception e) {
+        RESTResult<Map<String, Object>> r = RESTResult.error(ErrorCode.RATE_LIMIT, "执行频率过高，请稍后再试");
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

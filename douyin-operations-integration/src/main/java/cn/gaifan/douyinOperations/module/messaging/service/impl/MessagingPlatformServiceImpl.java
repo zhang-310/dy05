@@ -51,18 +51,27 @@ public class MessagingPlatformServiceImpl implements MessagingPlatformService {
     }
 
     @Override
-    public MsgPlatformConfigVO getById(Long id) {
-        return toVO(repository.findByIdAndDeleted(id, 0)
-                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "配置不存在")));
+    public MsgPlatformConfigVO getById(Long id, Long userId) {
+        MsgPlatformConfig entity = repository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "配置不存在"));
+        // P1-1: IDOR 防护 - 校验所有权
+        if (!entity.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问他人的配置");
+        }
+        return toVO(entity);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public long save(MsgPlatformConfigSaveVO vo) {
+    public long save(MsgPlatformConfigSaveVO vo, Long userId) {
         MsgPlatformConfig entity;
         if (vo.getId() != null && vo.getId() > 0) {
             entity = repository.findByIdAndDeleted(vo.getId(), 0)
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "配置不存在"));
+            // P1-1: IDOR 防护 - 校验所有权
+            if (!entity.getOwnerId().equals(userId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "无权修改他人的配置");
+            }
         } else {
             entity = new MsgPlatformConfig();
             entity.setOwnerId(vo.getOwnerId());
@@ -80,9 +89,13 @@ public class MessagingPlatformServiceImpl implements MessagingPlatformService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long userId) {
         MsgPlatformConfig entity = repository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "配置不存在"));
+        // P1-1: IDOR 防护 - 校验所有权
+        if (!entity.getOwnerId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权删除他人的配置");
+        }
         entity.setDeleted(1);
         repository.save(entity);
     }

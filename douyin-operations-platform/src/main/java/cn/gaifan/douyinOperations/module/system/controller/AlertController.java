@@ -3,7 +3,11 @@ package cn.gaifan.douyinOperations.module.system.controller;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.system.service.AlertEngineService;
 import cn.gaifan.douyinOperations.module.system.service.DashboardDataService;
+import cn.gaifan.douyinOperations.module.system.vo.AlertRecordIdVO;
+import cn.gaifan.douyinOperations.module.system.vo.AlertRuleIdVO;
+import cn.gaifan.douyinOperations.module.system.vo.AlertRuleUpdateVO;
 import cn.gaifan.douyinOperations.module.system.vo.AlertRuleVO;
+import cn.gaifan.douyinOperations.module.system.vo.PageQueryVO;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,7 +16,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import java.util.Map;
 
 /**
  * 告警和仪表板控制器
@@ -40,61 +43,70 @@ public class AlertController {
 
     /**
      * 更新告警规则
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/rule/update")
-    public RESTResult<?> updateAlertRule(@RequestBody Map<String, Object> request) {
-        Long ruleId = Long.parseLong(request.get("ruleId").toString());
-        AlertRuleVO vo = convertToAlertRuleVO(request);
-        alertEngineService.updateAlertRule(ruleId, vo);
+    public RESTResult<?> updateAlertRule(@Valid @RequestBody AlertRuleUpdateVO vo) {
+        AlertRuleVO ruleVO = AlertRuleVO.builder()
+                .name(vo.getName())
+                .metricName(vo.getMetricName())
+                .type(vo.getType())
+                .threshold(vo.getThreshold())
+                .operator(vo.getOperator())
+                .duration(vo.getDuration())
+                .severity(vo.getSeverity())
+                .description(vo.getDescription())
+                .enabled(vo.getEnabled())
+                .build();
+        alertEngineService.updateAlertRule(vo.getRuleId(), ruleVO);
         return RESTResult.success();
     }
 
     /**
      * 删除告警规则
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/rule/delete")
-    public RESTResult<?> deleteAlertRule(@RequestBody Map<String, Long> request) {
-        Long ruleId = request.get("ruleId");
-        alertEngineService.deleteAlertRule(ruleId);
+    public RESTResult<?> deleteAlertRule(@Valid @RequestBody AlertRuleIdVO vo) {
+        alertEngineService.deleteAlertRule(vo.getRuleId());
         return RESTResult.success();
     }
 
     /**
      * 获取告警规则详情
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/rule/get")
-    public RESTResult<?> getAlertRule(@RequestBody Map<String, Long> request) {
-        Long ruleId = request.get("ruleId");
-        return RESTResult.success(alertEngineService.getAlertRule(ruleId));
+    public RESTResult<?> getAlertRule(@Valid @RequestBody AlertRuleIdVO vo) {
+        return RESTResult.success(alertEngineService.getAlertRule(vo.getRuleId()));
     }
 
     /**
      * 分页查询告警规则
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/rule/list")
-    public RESTResult<?> listAlertRules(@RequestBody Map<String, Integer> request) {
-        Integer page = request.getOrDefault("page", 0);
-        Integer rows = request.getOrDefault("rows", 30);
-        return RESTResult.success(alertEngineService.listAlertRules(page, rows));
+    public RESTResult<?> listAlertRules(@Valid @RequestBody PageQueryVO vo) {
+        return RESTResult.success(alertEngineService.listAlertRules(vo.getPage(), vo.getRows()));
     }
 
     /**
      * 启用告警规则
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/rule/enable")
-    public RESTResult<?> enableAlertRule(@RequestBody Map<String, Long> request) {
-        Long ruleId = request.get("ruleId");
-        alertEngineService.enableAlertRule(ruleId);
+    public RESTResult<?> enableAlertRule(@Valid @RequestBody AlertRuleIdVO vo) {
+        alertEngineService.enableAlertRule(vo.getRuleId());
         return RESTResult.success();
     }
 
     /**
      * 禁用告警规则
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/rule/disable")
-    public RESTResult<?> disableAlertRule(@RequestBody Map<String, Long> request) {
-        Long ruleId = request.get("ruleId");
-        alertEngineService.disableAlertRule(ruleId);
+    public RESTResult<?> disableAlertRule(@Valid @RequestBody AlertRuleIdVO vo) {
+        alertEngineService.disableAlertRule(vo.getRuleId());
         return RESTResult.success();
     }
 
@@ -102,21 +114,20 @@ public class AlertController {
 
     /**
      * 获取告警记录详情
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/record/get")
-    public RESTResult<?> getAlertRecord(@RequestBody Map<String, Long> request) {
-        Long recordId = request.get("recordId");
-        return RESTResult.success(alertEngineService.getAlertRecord(recordId));
+    public RESTResult<?> getAlertRecord(@Valid @RequestBody AlertRecordIdVO vo) {
+        return RESTResult.success(alertEngineService.getAlertRecord(vo.getRecordId()));
     }
 
     /**
      * 分页查询告警记录
+     * P1-6: 使用强类型 VO，避免 Map 手动转换的 NPE 风险
      */
     @PostMapping("/alert/record/list")
-    public RESTResult<?> listAlertRecords(@RequestBody Map<String, Integer> request) {
-        Integer page = request.getOrDefault("page", 0);
-        Integer rows = request.getOrDefault("rows", 30);
-        return RESTResult.success(alertEngineService.listAlertRecords(page, rows));
+    public RESTResult<?> listAlertRecords(@Valid @RequestBody PageQueryVO vo) {
+        return RESTResult.success(alertEngineService.listAlertRecords(vo.getPage(), vo.getRows()));
     }
 
     // ==================== 仪表板数据 ====================
@@ -167,21 +178,5 @@ public class AlertController {
     @GetMapping("/dashboard/health")
     public RESTResult<?> getHealthStatus() {
         return RESTResult.success(dashboardDataService.getHealthStatus());
-    }
-
-    // ==================== 辅助方法 ====================
-
-    private AlertRuleVO convertToAlertRuleVO(Map<String, Object> request) {
-        return AlertRuleVO.builder()
-                .name((String) request.get("name"))
-                .metricName((String) request.get("metricName"))
-                .type((String) request.get("type"))
-                .threshold(((Number) request.get("threshold")).doubleValue())
-                .operator((String) request.get("operator"))
-                .duration(((Number) request.get("duration")).intValue())
-                .severity((String) request.get("severity"))
-                .description((String) request.get("description"))
-                .enabled((Boolean) request.get("enabled"))
-                .build();
     }
 }

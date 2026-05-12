@@ -100,3 +100,29 @@ COMMENT ON COLUMN sys_industry.icon           IS '行业图标';
 COMMENT ON COLUMN sys_industry.sort_order     IS '排序';
 COMMENT ON COLUMN sys_industry.status         IS '状态：1=启用 0=禁用';
 COMMENT ON COLUMN sys_industry.deleted        IS '逻辑删除：0=正常 1=已删除';
+
+-- ============================================================
+-- 4. sys_config_version_history - 配置变更历史表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS sys_config_version_history (
+    id           BIGSERIAL       PRIMARY KEY,
+    config_id    BIGINT          NOT NULL,                           -- 配置 ID
+    config_key   VARCHAR(128)    NOT NULL,                           -- 配置键
+    old_value    TEXT,                                               -- 旧值
+    new_value    TEXT,                                               -- 新值
+    operator_id  BIGINT,                                             -- 操作人用户 ID
+    create_time  TIMESTAMP                DEFAULT CURRENT_TIMESTAMP
+);
+
+-- P1-2: 配置历史表索引优化
+CREATE INDEX IF NOT EXISTS idx_config_version_config_id ON sys_config_version_history(config_id);
+CREATE INDEX IF NOT EXISTS idx_config_version_create_time ON sys_config_version_history(create_time DESC);
+CREATE INDEX IF NOT EXISTS idx_config_version_key ON sys_config_version_history(config_key);
+CREATE INDEX IF NOT EXISTS idx_config_version_key_time ON sys_config_version_history(config_key, create_time DESC);
+
+COMMENT ON TABLE  sys_config_version_history              IS '配置变更历史（每次更新配置时写入一条）';
+COMMENT ON COLUMN sys_config_version_history.config_id    IS '配置 ID';
+COMMENT ON COLUMN sys_config_version_history.config_key   IS '配置键';
+COMMENT ON COLUMN sys_config_version_history.old_value    IS '旧值';
+COMMENT ON COLUMN sys_config_version_history.new_value    IS '新值';
+COMMENT ON COLUMN sys_config_version_history.operator_id  IS '操作人用户 ID，可为空';

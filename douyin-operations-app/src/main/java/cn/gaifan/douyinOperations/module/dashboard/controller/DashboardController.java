@@ -34,6 +34,7 @@ public class DashboardController {
      */
     @PostMapping("/admin/stats")
     @Operation(summary = "管理员统计 / Admin Stats")
+    @io.github.resilience4j.ratelimiter.annotation.RateLimiter(name = "dashboard", fallbackMethod = "rateLimitFallback")
     public RESTResult<Map<String, Object>> getAdminStats(HttpServletRequest request) {
         String roleCode = AuthTokenFilter.getRoleCode(request);
         if (!"admin".equals(roleCode)) {
@@ -51,6 +52,7 @@ public class DashboardController {
      */
     @PostMapping("/org/stats")
     @Operation(summary = "机构统计 / Organization Stats")
+    @io.github.resilience4j.ratelimiter.annotation.RateLimiter(name = "dashboard", fallbackMethod = "rateLimitFallback")
     public RESTResult<Map<String, Object>> getOrgStats(HttpServletRequest request) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
@@ -61,6 +63,12 @@ public class DashboardController {
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(stats);
         r.setTraceId(MDC.get("traceId"));
         return r;
+    }
+
+    // P1-1: 限流降级方法
+    private RESTResult<Map<String, Object>> rateLimitFallback(HttpServletRequest request,
+                                                               io.github.resilience4j.ratelimiter.RequestNotPermitted ex) {
+        return RESTResult.error(ErrorCode.RATE_LIMIT, "Dashboard 请求过于频繁，请稍后再试");
     }
 
     // ===================== D5 升级：KPI / GMV / 驾驶舱端点 =====================

@@ -7,6 +7,6 @@ public interface CopyTemplateService {
     PageResultVO<CopyTemplateVO> search(CopyTemplateSearchVO vo);
     CopyTemplateVO getById(Long id);
     long save(CopyTemplateSaveVO vo);
-    void delete(Long id);
-    void updateStatus(Long id, Integer status);
+    void delete(Long id, Long userId);
+    void updateStatus(Long id, Integer status, Long userId);
 }

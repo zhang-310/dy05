@@ -1,42 +1,36 @@
 package cn.gaifan.douyinOperations.module.system.config;
 
+import cn.gaifan.douyinOperations.common.service.ApiCallLogService;
 import cn.gaifan.douyinOperations.module.system.service.SystemService;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpRequest;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StreamUtils;
 
 import jakarta.annotation.Resource;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
- * 外部 API 调用日志拦截器：自动记录 RestTemplate 请求到 sys_api_call_log
- * 参数脱敏：access_token、client_secret、api_key 等替换为 ***
+ * P1-10: 外部 API 调用日志拦截器（使用统一的 ApiCallLogService）
  */
 @Component
 public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(ApiCallLogInterceptor.class);
-    private static final Set<String> SENSITIVE_KEYS = Set.of(
-            "access_token", "accesstoken", "refresh_token", "client_secret", "clientsecret",
-            "api_key", "apikey", "authorization", "password", "secret", "token"
-    );
-    private static final int MAX_PARAMS_LEN = 2000;
     private static final int MAX_RESPONSE_LEN = 2000;
 
     @Resource
     private SystemService systemService;
+
+    @Resource
+    private ApiCallLogService apiCallLogService;
 
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body,
@@ -47,7 +41,9 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
         String apiName = resolveApiName(uri);
         String requestUrl = uri.toString();
         String requestMethod = request.getMethod() != null ? request.getMethod().name() : "GET";
-        String requestParams = sanitizeParams(body);
+
+        // P1-10: 使用统一的 ApiCallLogService 脱敏
+        String requestParams = apiCallLogService.sanitizeParams(body);
         Integer responseStatus = null;
         String responseBody = null;
         String errorMessage = null;
@@ -58,6 +54,8 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
             responseStatus = response.getStatusCode().value();
             // P0-4: 仅读取前 2000 字符，避免大响应体导致内存溢出
             responseBody = readFirst2000Chars(response.getBody());
+            // P1-10: 使用统一的 ApiCallLogService 脱敏响应
+            responseBody = apiCallLogService.sanitizeResponse(responseBody);
             if (responseStatus < 200 || responseStatus >= 300) {
                 status = 0;
             }
@@ -78,6 +76,11 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
             } catch (Exception ignored) {
             }
             try {
+                // P1-10: 使用统一的日志记录入口
+                apiCallLogService.logApiCall(module, apiName, requestUrl, requestMethod,
+                        requestParams, responseStatus, responseBody,
+                        status, errorMessage, durationMs, userId);
+                // 实际存储仍由 SystemService 完成
                 systemService.saveApiLog(module, apiName, requestUrl, requestMethod,
                         requestParams, responseStatus, responseBody,
                         status, errorMessage, durationMs, userId);
@@ -106,55 +109,6 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
             return p.length() > 64 ? p.substring(0, 64) : p;
         }
         return uri.getHost() != null ? uri.getHost() : "unknown";
-    }
-
-    private String sanitizeParams(byte[] body) {
-        if (body == null || body.length == 0) return null;
-        String raw = new String(body, StandardCharsets.UTF_8);
-        try {
-            if (raw.trim().startsWith("{")) {
-                return sanitizeJson(raw);
-            }
-            if (raw.contains("=")) {
-                return sanitizeFormData(raw);
-            }
-        } catch (Exception ignored) {
-        }
-        return truncate(raw, MAX_PARAMS_LEN);
-    }
-
-    private String sanitizeJson(String json) {
-        StringBuilder sb = new StringBuilder(json);
-        for (String key : SENSITIVE_KEYS) {
-            Pattern p = Pattern.compile("(\"" + key + "\"\\s*:\\s*)\"[^\"]*\"", Pattern.CASE_INSENSITIVE);
-            sb = new StringBuilder(p.matcher(sb).replaceAll("$1\"***\""));
-        }
-        return truncate(sb.toString(), MAX_PARAMS_LEN);
-    }
-
-    private String sanitizeFormData(String form) {
-        StringBuilder sb = new StringBuilder();
-        for (String pair : form.split("&")) {
-            int eq = pair.indexOf('=');
-            if (eq > 0) {
-                String k = pair.substring(0, eq).toLowerCase().replace("-", "");
-                String v = pair.substring(eq + 1);
-                if (SENSITIVE_KEYS.stream().anyMatch(s -> k.contains(s.replace("_", "")))) {
-                    v = "***";
-                }
-                if (sb.length() > 0) sb.append("&");
-                sb.append(pair.substring(0, eq + 1)).append(v);
-            } else {
-                if (sb.length() > 0) sb.append("&");
-                sb.append(pair);
-            }
-        }
-        return truncate(sb.toString(), MAX_PARAMS_LEN);
-    }
-
-    private String truncate(String s, int max) {
-        if (s == null) return null;
-        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     /**

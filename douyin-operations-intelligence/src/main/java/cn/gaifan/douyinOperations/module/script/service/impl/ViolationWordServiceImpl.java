@@ -420,11 +420,13 @@ public class ViolationWordServiceImpl implements ViolationWordService {
                 continue;
             }
             if (i == 0 && "word".equalsIgnoreCase(word)) continue; // skip header
+            // P1-5: CSV 注入防护 - 过滤公式字符
+            word = sanitizeCsvValue(word);
             Integer level = parseLevel(parts.length > 1 ? parts[1].trim() : "2");
             String scope = parts.length > 2 ? parts[2].trim() : "all";
             if (scope.isEmpty()) scope = "all";
-            String reason = parts.length > 3 ? parts[3].trim() : null;
-            String replacement = parts.length > 4 ? parts[4].trim() : null;
+            String reason = parts.length > 3 ? sanitizeCsvValue(parts[3].trim()) : null;
+            String replacement = parts.length > 4 ? sanitizeCsvValue(parts[4].trim()) : null;
             if (violationWordRepository.existsByWordAndDeleted(word, 0)) {
                 skipped++;
                 continue;
@@ -454,13 +456,27 @@ public class ViolationWordServiceImpl implements ViolationWordService {
         StringBuilder sb = new StringBuilder();
         sb.append("word,level,scope,reason,replacement\n");
         for (ViolationWord e : list) {
-            sb.append(escapeCsv(e.getWord())).append(",");
+            // P1-5: CSV 注入防护 - 导出时也过滤公式字符
+            sb.append(escapeCsv(sanitizeCsvValue(e.getWord()))).append(",");
             sb.append(e.getLevel() != null ? e.getLevel() : 2).append(",");
             sb.append(escapeCsv(e.getScope() != null ? e.getScope() : "all")).append(",");
-            sb.append(escapeCsv(e.getReason())).append(",");
-            sb.append(escapeCsv(e.getReplacement())).append("\n");
+            sb.append(escapeCsv(sanitizeCsvValue(e.getReason()))).append(",");
+            sb.append(escapeCsv(sanitizeCsvValue(e.getReplacement()))).append("\n");
         }
         return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * P1-5: CSV 注入防护 - 过滤公式字符
+     * 如果值以 =, +, -, @, \t, \r 开头，添加单引号前缀阻止公式执行
+     */
+    private String sanitizeCsvValue(String value) {
+        if (value == null || value.isEmpty()) return value;
+        char first = value.charAt(0);
+        if (first == '=' || first == '+' || first == '-' || first == '@' || first == '\t' || first == '\r') {
+            return "'" + value;
+        }
+        return value;
     }
 
     private String[] parseCsvLine(String line) {

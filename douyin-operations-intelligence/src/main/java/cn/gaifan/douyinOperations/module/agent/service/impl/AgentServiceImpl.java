@@ -190,15 +190,14 @@ public class AgentServiceImpl implements cn.gaifan.douyinOperations.module.agent
     }
 
     public List<Map<String, Object>> listConversations(Long userId, Long agentId) {
-        Specification<AgentConversation> spec = (root, query, cb) -> {
-            List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("deleted"), 0));
-            predicates.add(cb.equal(root.get("userId"), userId));
-            if (agentId != null) predicates.add(cb.equal(root.get("agentId"), agentId));
-            return cb.and(predicates.toArray(new Predicate[0]));
-        };
-        return conversationRepository.findAll(spec, Sort.by(Sort.Direction.DESC, "lastMessageTime"))
-                .stream().map(this::convToMap).collect(Collectors.toList());
+        // P1-3: N+1 查询优化 - 使用 JOIN FETCH 一次性加载智能体信息
+        List<AgentConversation> conversations;
+        if (agentId != null) {
+            conversations = conversationRepository.findByUserIdAndAgentIdWithAgent(userId, agentId);
+        } else {
+            conversations = conversationRepository.findByUserIdWithAgent(userId);
+        }
+        return conversations.stream().map(this::convToMap).collect(Collectors.toList());
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -63,10 +63,34 @@ public class AttributionServiceImpl implements AttributionService {
                 .stream().map(this::toMap).collect(Collectors.toList());
     }
 
+    // P0-1: 带所有权校验的 getBySessionId
+    @Override
+    public List<Map<String, Object>> getBySessionId(Long sessionId, Long userId) {
+        LiveSession session = sessionRepository.findByIdAndDeleted(sessionId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该场次的归因数据");
+        }
+        return getBySessionId(sessionId);
+    }
+
     @Override
     public Map<String, Object> getById(Long id) {
         return toMap(attributionRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "归因数据不存在")));
+    }
+
+    // P0-1: 带所有权校验的 getById
+    @Override
+    public Map<String, Object> getById(Long id, Long userId) {
+        Attribution attr = attributionRepository.findByIdAndDeleted(id, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "归因数据不存在"));
+        LiveSession session = sessionRepository.findByIdAndDeleted(attr.getSessionId(), 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该归因数据");
+        }
+        return getById(id);
     }
 
     @Override
@@ -110,12 +134,35 @@ public class AttributionServiceImpl implements AttributionService {
         return summary;
     }
 
+    // P0-1: 带所有权校验的 getSummary
+    @Override
+    public Map<String, Object> getSummary(Long sessionId, Long userId) {
+        LiveSession session = sessionRepository.findByIdAndDeleted(sessionId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该场次的归因数据");
+        }
+        return getSummary(sessionId);
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteBySessionId(Long sessionId) {
         List<Attribution> attrs = attributionRepository.findBySessionIdAndDeleted(sessionId, 0);
         attrs.forEach(a -> a.setDeleted(1));
         attributionRepository.saveAll(attrs);
+    }
+
+    // P0-1: 带所有权校验的 deleteBySessionId
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteBySessionId(Long sessionId, Long userId) {
+        LiveSession session = sessionRepository.findByIdAndDeleted(sessionId, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播场次不存在"));
+        if (!session.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权删除该场次的归因数据");
+        }
+        deleteBySessionId(sessionId);
     }
 
     private int calculateProductScore(LiveProduct product, BigDecimal totalGmv) {
@@ -157,11 +204,41 @@ public class AttributionServiceImpl implements AttributionService {
         m.put("id", a.getId()); m.put("sessionId", a.getSessionId());
         m.put("attributionType", a.getAttributionType());
         m.put("scriptId", a.getScriptId()); m.put("productId", a.getProductId());
-        m.put("scriptContent", a.getScriptContent()); m.put("productName", a.getProductName());
-        m.put("contributedGmv", a.getContributedGmv()); m.put("contributedSales", a.getContributedSales());
-        m.put("conversionRate", a.getConversionRate()); m.put("contributionRatio", a.getContributionRatio());
-        m.put("effectScore", a.getEffectScore()); m.put("analysis", a.getAnalysis());
-        m.put("modelUsed", a.getModelUsed()); m.put("status", a.getStatus());
+
+        // P0-2: 敏感数据脱敏 - 话术内容和商品名称仅返回摘要
+        if (a.getScriptContent() != null) {
+            m.put("scriptContent", a.getScriptContent().length() > 100
+                ? a.getScriptContent().substring(0, 100) + "..."
+                : a.getScriptContent());
+        } else {
+            m.put("scriptContent", null);
+        }
+
+        if (a.getProductName() != null) {
+            m.put("productName", a.getProductName().length() > 50
+                ? a.getProductName().substring(0, 50) + "..."
+                : a.getProductName());
+        } else {
+            m.put("productName", null);
+        }
+
+        m.put("contributedGmv", a.getContributedGmv());
+        m.put("contributedSales", a.getContributedSales());
+        m.put("conversionRate", a.getConversionRate());
+        m.put("contributionRatio", a.getContributionRatio());
+        m.put("effectScore", a.getEffectScore());
+
+        // P0-2: AI 分析报告脱敏 - 仅返回摘要
+        if (a.getAnalysis() != null) {
+            m.put("analysis", a.getAnalysis().length() > 200
+                ? a.getAnalysis().substring(0, 200) + "..."
+                : a.getAnalysis());
+        } else {
+            m.put("analysis", null);
+        }
+
+        m.put("modelUsed", a.getModelUsed());
+        m.put("status", a.getStatus());
         m.put("createTime", a.getCreateTime());
         return m;
     }

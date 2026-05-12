@@ -31,6 +31,9 @@ public class AgentFunctionCallingService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentFunctionCallingService.class);
     private static final int MAX_TOOL_CALL_ROUNDS = 3;
+    // P1-4: Function Calling 超时控制
+    private static final long TOTAL_TIMEOUT_MS = 120_000; // 总超时 2 分钟
+    private static final long PER_ROUND_TIMEOUT_MS = 30_000; // 每轮超时 30 秒
 
     @Resource
     private LlmClient llmClient;
@@ -111,13 +114,30 @@ public class AgentFunctionCallingService {
         // 解析默认模型（用于工具调用循环）
         AiModel model = resolveDefaultModel();
 
+        // P1-4: 总超时控制
+        long startTime = System.currentTimeMillis();
+
         for (int round = 1; round <= MAX_TOOL_CALL_ROUNDS; round++) {
+            // P1-4: 检查总超时
+            if (System.currentTimeMillis() - startTime > TOTAL_TIMEOUT_MS) {
+                log.warn("[AgentFC] 总超时，已执行 {} 轮", round - 1);
+                return FunctionCallingResult.fallback("AI 处理超时，请稍后重试");
+            }
+
             log.info("[AgentFC] 第 {} 轮工具调用", round);
 
-            // 3.1 调用 LLM
+            // 3.1 调用 LLM（P1-4: 每轮超时控制）
             sendStatus(statusCallback, "正在思考... (第" + round + "轮)");
+
+            long roundStartTime = System.currentTimeMillis();
             LlmClient.LlmToolResponse response = llmClient.chatWithToolsStructured(
                     model, messages, toolsJson);
+            long roundDuration = System.currentTimeMillis() - roundStartTime;
+
+            // P1-4: 检查单轮超时（记录警告但不中断，因为已经拿到响应）
+            if (roundDuration > PER_ROUND_TIMEOUT_MS) {
+                log.warn("[AgentFC] 第 {} 轮耗时 {}ms，超过阈值 {}ms", round, roundDuration, PER_ROUND_TIMEOUT_MS);
+            }
 
             totalTokens += response.tokensUsed();
 

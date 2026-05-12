@@ -6,6 +6,8 @@ import cn.gaifan.douyinOperations.module.messaging.entity.MsgPlatformConfig;
 import cn.gaifan.douyinOperations.module.messaging.service.MessagingReplyService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +17,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class MessagingReplyServiceImpl implements MessagingReplyService {
@@ -28,7 +30,11 @@ public class MessagingReplyServiceImpl implements MessagingReplyService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final long TOKEN_EXPIRE_SEC = 7000;
-    private final Map<String, TokenHolder> tokenCache = new ConcurrentHashMap<>();
+    // P1-3: Token 缓存内存泄漏修复 - 使用 Caffeine 替代 ConcurrentHashMap
+    private final Cache<String, TokenHolder> tokenCache = Caffeine.newBuilder()
+            .maximumSize(1000)
+            .expireAfterWrite(TOKEN_EXPIRE_SEC, TimeUnit.SECONDS)
+            .build();
 
     @Override
     public void sendText(MsgPlatformConfig config, String receiveId, String content) {
@@ -98,13 +104,13 @@ public class MessagingReplyServiceImpl implements MessagingReplyService {
 
     private String getWecomAccessToken(MsgPlatformConfig config) {
         String key = "wecom:" + config.getCorpId() + ":" + config.getSecret();
-        TokenHolder h = tokenCache.get(key);
+        TokenHolder h = tokenCache.getIfPresent(key);
         if (h != null && !h.isExpired()) return h.token;
 
         // P0-003: 使用 synchronized 防止并发重复请求 access_token
         synchronized (this) {
             // Double-check: 可能其他线程已获取
-            h = tokenCache.get(key);
+            h = tokenCache.getIfPresent(key);
             if (h != null && !h.isExpired()) return h.token;
 
             String url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=" + config.getCorpId() + "&corpsecret=" + config.getSecret();
@@ -127,13 +133,13 @@ public class MessagingReplyServiceImpl implements MessagingReplyService {
 
     private String getFeishuAccessToken(MsgPlatformConfig config) {
         String key = "feishu:" + config.getAppId() + ":" + config.getSecret();
-        TokenHolder h = tokenCache.get(key);
+        TokenHolder h = tokenCache.getIfPresent(key);
         if (h != null && !h.isExpired()) return h.token;
 
         // P0-003: 使用 synchronized 防止并发重复请求 access_token
         synchronized (this) {
             // Double-check: 可能其他线程已获取
-            h = tokenCache.get(key);
+            h = tokenCache.getIfPresent(key);
             if (h != null && !h.isExpired()) return h.token;
 
             String url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";

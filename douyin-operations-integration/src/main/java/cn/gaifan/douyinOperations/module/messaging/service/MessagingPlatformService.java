@@ -13,11 +13,11 @@ public interface MessagingPlatformService {
 
     PageResultVO<MsgPlatformConfigVO> search(MsgPlatformConfigSearchVO vo);
 
-    MsgPlatformConfigVO getById(Long id);
+    MsgPlatformConfigVO getById(Long id, Long userId);
 
-    long save(MsgPlatformConfigSaveVO vo);
+    long save(MsgPlatformConfigSaveVO vo, Long userId);
 
-    void delete(Long id);
+    void delete(Long id, Long userId);
 
     MsgPlatformConfigVO getByPlatformAndToken(String platform, String callbackToken);
 

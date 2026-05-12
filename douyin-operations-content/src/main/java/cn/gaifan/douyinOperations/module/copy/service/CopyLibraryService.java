@@ -7,7 +7,7 @@ public interface CopyLibraryService {
     PageResultVO<CopyLibraryVO> search(CopyLibrarySearchVO vo);
     CopyLibraryVO getById(Long id);
     long save(CopyLibrarySaveVO vo);
-    void delete(Long id);
-    void updateStatus(Long id, Integer status);
+    void delete(Long id, Long userId);
+    void updateStatus(Long id, Integer status, Long userId);
     void incrementUseCount(Long id);
 }

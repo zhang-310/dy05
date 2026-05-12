@@ -44,6 +44,12 @@ public class GlobalSearchServiceImpl implements GlobalSearchService {
     public GlobalSearchResponseVO search(GlobalSearchRequestVO request, List<Long> visibleUserIds) {
         long t0 = System.currentTimeMillis();
         String kw = request.getQ().trim();
+
+        // P1-2: 空关键词提前校验
+        if (kw.isEmpty()) {
+            return GlobalSearchResponseVO.builder().hits(List.of()).tookMs(0L).build();
+        }
+
         int cap = request.getLimit() != null ? request.getLimit() : 24;
 
         if (visibleUserIds != null && visibleUserIds.isEmpty()) {

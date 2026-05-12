@@ -71,6 +71,9 @@ public class PaymentOrder {
     // 完成信息
     private LocalDateTime completedAt;   // 完成时间
 
+    // P1-13: GMV 对账字段
+    private Long liveSessionId;          // 直播场次 ID（用于 GMV 对账）
+
     // 备注
     private String remark;               // 备注
 

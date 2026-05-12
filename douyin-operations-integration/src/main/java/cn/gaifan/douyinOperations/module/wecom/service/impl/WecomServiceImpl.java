@@ -6,6 +6,8 @@ import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.wecom.entity.*;
 import cn.gaifan.douyinOperations.module.wecom.repository.*;
 import cn.gaifan.douyinOperations.module.wecom.vo.*;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
@@ -18,6 +20,7 @@ import org.springframework.cache.annotation.CacheEvict;
 
 import jakarta.annotation.Resource;
 import jakarta.persistence.criteria.Predicate;
+import java.net.URI;
 import java.sql.Timestamp;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -28,6 +31,12 @@ public class WecomServiceImpl implements cn.gaifan.douyinOperations.module.wecom
     private static final Set<String> ROBOT_SORTABLE = Set.of("id", "ownerId", "robotName", "status", "createTime");
     private static final Set<String> LOG_SORTABLE = Set.of("id", "ownerId", "robotId", "status", "sendTime", "createTime");
 
+    // P1-1: SSRF 防护 - 企业微信 webhook URL 白名单
+    private static final Set<String> ALLOWED_WEBHOOK_HOSTS = Set.of(
+        "qyapi.weixin.qq.com",
+        "qyapi.wechat.com"
+    );
+
     @Resource
     private WcRobotConfigRepository robotConfigRepository;
     @Resource
@@ -36,6 +45,8 @@ public class WecomServiceImpl implements cn.gaifan.douyinOperations.module.wecom
     private WcMessageLogRepository messageLogRepository;
     @Resource
     private RestTemplate restTemplate;
+    @Resource
+    private ObjectMapper objectMapper;
 
     // ==================== 机器人管理 ====================
 
@@ -71,6 +82,9 @@ public class WecomServiceImpl implements cn.gaifan.douyinOperations.module.wecom
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "wecom:robot", key = "#result")
     public long saveRobot(WcRobotConfigSaveVO vo) {
+        // P1-1: SSRF 防护 - 验证 webhook URL
+        validateWebhookUrl(vo.getWebhookUrl());
+
         WcRobotConfig entity;
         if (vo.getId() != null && vo.getId() > 0) {
             entity = robotConfigRepository.findByIdAndDeleted(vo.getId(), 0)
@@ -186,6 +200,9 @@ public class WecomServiceImpl implements cn.gaifan.douyinOperations.module.wecom
             throw new BusinessException(ErrorCode.OPERATION_NOT_ALLOWED, "机器人已禁用");
         }
 
+        // P1-1: SSRF 防护 - 验证 webhook URL（双重保险）
+        validateWebhookUrl(robot.getWebhookUrl());
+
         WcMessageLog log = new WcMessageLog();
         log.setOwnerId(ownerId);
         log.setRobotId(vo.getRobotId());
@@ -218,16 +235,53 @@ public class WecomServiceImpl implements cn.gaifan.douyinOperations.module.wecom
     }
 
     private String buildWecomPayload(String messageType, String content) {
+        // P1-2: JSON 注入防护 - 使用 Jackson ObjectMapper 替代手动转义
         String type = messageType != null ? messageType : "text";
-        return switch (type) {
-            case "markdown" -> "{\"msgtype\":\"markdown\",\"markdown\":{\"content\":\"" + escapeJson(content) + "\"}}";
-            default -> "{\"msgtype\":\"text\",\"text\":{\"content\":\"" + escapeJson(content) + "\"}}";
-        };
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("msgtype", type);
+
+        if ("markdown".equals(type)) {
+            payload.put("markdown", Map.of("content", content));
+        } else {
+            payload.put("text", Map.of("content", content));
+        }
+
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "消息序列化失败: " + e.getMessage());
+        }
     }
 
-    private String escapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    // P1-2: 移除不安全的手动 JSON 转义方法（已被 Jackson 替代）
+    // private String escapeJson(String s) { ... }
+
+    // P1-1: SSRF 防护 - 验证企业微信 webhook URL
+    private void validateWebhookUrl(String url) {
+        if (url == null || url.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "Webhook URL 不能为空");
+        }
+
+        try {
+            URI uri = new URI(url);
+
+            // 检查协议必须是 HTTPS
+            if (!"https".equalsIgnoreCase(uri.getScheme())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "Webhook URL 必须使用 HTTPS 协议");
+            }
+
+            // 检查域名必须在白名单中
+            String host = uri.getHost();
+            if (host == null || !ALLOWED_WEBHOOK_HOSTS.contains(host.toLowerCase())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL,
+                    "Webhook URL 域名不在白名单中，仅允许: " + String.join(", ", ALLOWED_WEBHOOK_HOSTS));
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "Webhook URL 格式错误: " + e.getMessage());
+        }
     }
 
     // ==================== toVO ====================

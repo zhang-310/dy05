@@ -48,8 +48,10 @@ public class ScriptController {
     @PostMapping("/get")
     @Operation(summary = "话术详情")
     public RESTResult<ScriptVO> get(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        RESTResult<ScriptVO> r = RESTResult.getSuccess(scriptLibraryService.getById(id));
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-6: IDOR 防护 - 传入 userId 校验所有权
+        RESTResult<ScriptVO> r = RESTResult.getSuccess(scriptLibraryService.getById(id, userId));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -68,8 +70,10 @@ public class ScriptController {
     @PostMapping("/delete")
     @Operation(summary = "删除话术")
     public RESTResult<Void> delete(HttpServletRequest request, @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        scriptLibraryService.delete(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-6: IDOR 防护 - 传入 userId 校验所有权
+        scriptLibraryService.delete(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;

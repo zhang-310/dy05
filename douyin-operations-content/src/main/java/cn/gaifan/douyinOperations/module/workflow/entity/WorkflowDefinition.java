@@ -25,6 +25,9 @@ public class WorkflowDefinition {
     @Column(name = "description", length = 512)
     private String description;
 
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;
+
     @Column(name = "status", nullable = false)
     private Integer status = 1;
 

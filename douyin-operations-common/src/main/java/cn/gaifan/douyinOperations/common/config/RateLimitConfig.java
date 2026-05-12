@@ -74,4 +74,19 @@ public class RateLimitConfig {
 
         return RateLimiterRegistry.of(config).rateLimiter("generalApi");
     }
+
+    /**
+     * P1-2: Webhook 接口限流器
+     * 限制：每分钟 30 次请求（防止恶意重放攻击）
+     */
+    @Bean
+    public RateLimiter webhookRateLimiter() {
+        RateLimiterConfig config = RateLimiterConfig.custom()
+                .limitForPeriod(30)
+                .limitRefreshPeriod(Duration.ofMinutes(1))
+                .timeoutDuration(Duration.ofSeconds(5))
+                .build();
+
+        return RateLimiterRegistry.of(config).rateLimiter("webhook");
+    }
 }

@@ -82,6 +82,9 @@ public class LiveScriptGenerationController {
     private LiveProductRepository liveProductRepository;
 
     @Resource
+    private cn.gaifan.douyinOperations.module.live.service.LiveScriptGenerationService liveScriptGenerationService;
+
+    @Resource
     private ObjectMapper objectMapper;
 
     // ==================== 单段生成（已废弃，请使用 generate-full-sse 或 generate-slot-sse）====================
@@ -239,7 +242,7 @@ public class LiveScriptGenerationController {
                 writeSseEvent(out, "progress", Map.of("current", 0, "total", 1, "percent", 0, "slotType", "连接成功，准备生成"));
             }
             log.info("generate-full-sse [sessionId={}] SSE已发送: progress 0/1 连接成功 (首条)", vo.getSessionId());
-            LiveAiFullResultVO full = liveAiService.generateFullWithProgress(vo, new LiveAiService.FullGenerateProgressCallback() {
+            LiveAiFullResultVO full = liveScriptGenerationService.generateFullPipelined(vo, new LiveAiService.FullGenerateProgressCallback() {
                 @Override
                 public void onProgress(int current, int total, String slotType) {
                     if (finalTaskId != null && current == 0 && total > 0) {

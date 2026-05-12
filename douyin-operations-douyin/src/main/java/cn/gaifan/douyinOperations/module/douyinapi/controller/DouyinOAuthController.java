@@ -115,7 +115,8 @@ public class DouyinOAuthController {
     @GetMapping("/callback")
     @Operation(summary = "OAuth 回调 / OAuth Callback")
     public String callback(@RequestParam String code, @RequestParam String state) {
-        log.info("收到抖音 OAuth 回调: code={}, state={}", code, state);
+        // P1-2: 敏感信息日志脱敏
+        log.info("收到抖音 OAuth 回调: code={}, state={}", maskSensitive(code), maskSensitive(state));
 
         try {
             // 1. 使用 code 换取 access_token
@@ -128,7 +129,7 @@ public class DouyinOAuthController {
             // 2. 从 state 中提取 userId
             String userId = extractUserIdFromState(state);
             if (userId == null) {
-                log.error("无效的 state: {}", state);
+                log.error("无效的 state: {}", maskSensitive(state));
                 return "授权失败：无效的 state";
             }
 
@@ -143,7 +144,8 @@ public class DouyinOAuthController {
                     oauthScope
             );
 
-            log.info("抖音授权成功: userId={}, openId={}", userId, tokenResponse.openId());
+            // P1-2: 日志脱敏 openId
+            log.info("抖音授权成功: userId={}, openId={}", userId, maskSensitive(tokenResponse.openId()));
 
             // 4. 重定向到前端成功页面
             return "<html><body><h2>授权成功！</h2><p>您可以关闭此页面。</p><script>window.close();</script></body></html>";
@@ -152,6 +154,12 @@ public class DouyinOAuthController {
             log.error("处理 OAuth 回调失败", e);
             return "授权失败：" + e.getMessage();
         }
+    }
+
+    // P1-2: 敏感信息脱敏方法
+    private String maskSensitive(String value) {
+        if (value == null || value.length() <= 8) return "***";
+        return value.substring(0, 4) + "***" + value.substring(value.length() - 4);
     }
 
     /**

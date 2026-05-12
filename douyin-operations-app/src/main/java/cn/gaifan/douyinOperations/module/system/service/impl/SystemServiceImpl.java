@@ -14,6 +14,7 @@ import io.milvus.param.collection.HasCollectionParam;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -102,7 +103,9 @@ public class SystemServiceImpl implements SystemService {
     }
 
     @Override
+    @Cacheable(value = "apiLogStats", key = "#module + '_' + #startTime + '_' + #endTime", unless = "#result == null")
     public Map<String, Object> getApiLogStats(String module, String startTime, String endTime) {
+        // P1-4: 使用单次查询合并统计，避免 N+1 问题
         StringBuilder jpql = new StringBuilder(
                 "SELECT COUNT(l), SUM(CASE WHEN l.status=1 THEN 1 ELSE 0 END), AVG(l.durationMs) FROM SysApiCallLog l WHERE 1=1");
         Map<String, Object> params = new LinkedHashMap<>();
@@ -209,15 +212,38 @@ public class SystemServiceImpl implements SystemService {
         log.setApiName(apiName);
         log.setRequestUrl(requestUrl);
         log.setRequestMethod(requestMethod);
-        log.setRequestParams(requestParams);
+        // P1-8: 敏感信息脱敏 - 过滤密码、token、apiKey、secret
+        log.setRequestParams(maskSensitiveInfo(requestParams));
         log.setResponseStatus(responseStatus);
-        log.setResponseBody(responseBody != null && responseBody.length() > 2000
-                ? responseBody.substring(0, 2000) : responseBody);
+        // P1-8: 敏感信息脱敏 - 响应体也需要脱敏
+        String maskedResponse = maskSensitiveInfo(responseBody);
+        log.setResponseBody(maskedResponse != null && maskedResponse.length() > 2000
+                ? maskedResponse.substring(0, 2000) : maskedResponse);
         log.setStatus(status);
         log.setErrorMessage(errorMessage);
         log.setDurationMs(durationMs);
         log.setUserId(userId);
         apiCallLogRepository.save(log);
+    }
+
+    /**
+     * P1-8: 敏感信息脱敏 - 过滤密码、token、apiKey、secret 等敏感字段
+     */
+    private String maskSensitiveInfo(String content) {
+        if (content == null || content.isEmpty()) return content;
+
+        // 敏感字段列表（不区分大小写）
+        String[] sensitiveFields = {"password", "token", "apiKey", "apiSecret", "secret", "accessToken", "refreshToken"};
+
+        String result = content;
+        for (String field : sensitiveFields) {
+            // 匹配 JSON 格式：\"field\":\"value\" 或 \"field\": \"value\"
+            result = result.replaceAll("\"" + field + "\"\\s*:\\s*\"[^\"]*\"", "\"" + field + "\":\"***\"");
+            // 匹配 URL 参数格式：field=value&
+            result = result.replaceAll(field + "=[^&\\s]*", field + "=***");
+        }
+
+        return result;
     }
 
     // ─── 同步日志 ────────────────────────────────────────────────

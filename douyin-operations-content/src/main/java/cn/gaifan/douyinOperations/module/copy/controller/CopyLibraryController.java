@@ -68,8 +68,10 @@ public class CopyLibraryController {
     @Operation(summary = "删除文案")
     public RESTResult<Void> delete(HttpServletRequest request,
             @Parameter(description = "文案 ID") @RequestParam Long id) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        copyLibraryService.delete(id);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-4: IDOR 防护 - 传入 userId 校验所有权
+        copyLibraryService.delete(id, userId);
         RESTResult<Void> r = RESTResult.deleteSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -79,8 +81,10 @@ public class CopyLibraryController {
     @Operation(summary = "更新文案状态（admin）")
     public RESTResult<Void> updateStatus(HttpServletRequest request,
             @RequestParam Long id, @RequestParam Integer status) {
-        if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        copyLibraryService.updateStatus(id, status);
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        // P1-4: IDOR 防护 - 传入 userId 校验所有权
+        copyLibraryService.updateStatus(id, status, userId);
         RESTResult<Void> r = RESTResult.updateSuccess(null);
         r.setTraceId(MDC.get("traceId"));
         return r;

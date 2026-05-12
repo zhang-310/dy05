@@ -6,6 +6,7 @@ import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.wecom.service.impl.WecomServiceImpl;
 import cn.gaifan.douyinOperations.module.wecom.vo.*;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.MDC;
@@ -152,11 +153,19 @@ public class WecomController {
 
     @PostMapping("/push")
     @Operation(summary = "手动推送消息")
+    @RateLimiter(name = "wecomPush", fallbackMethod = "pushFallback")
     public RESTResult<Void> push(HttpServletRequest request, @Valid @RequestBody WcSendMessageVO vo) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         wecomService.sendMessage(vo, userId);
         RESTResult<Void> r = RESTResult.updateSuccess(null);
+        r.setTraceId(MDC.get("traceId"));
+        return r;
+    }
+
+    // P1-3: 速率限制 fallback 方法
+    public RESTResult<Void> pushFallback(HttpServletRequest request, WcSendMessageVO vo, Exception e) {
+        RESTResult<Void> r = RESTResult.error(ErrorCode.RATE_LIMIT, "发送频率过高，请稍后再试");
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

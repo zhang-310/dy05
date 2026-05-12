@@ -11,9 +11,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.annotation.Resource;
 import cn.gaifan.douyinOperations.module.payment.service.DouyinPaymentService;
+import cn.gaifan.douyinOperations.module.payment.entity.PaymentCallbackLog;
+import cn.gaifan.douyinOperations.module.payment.repository.PaymentCallbackLogRepository;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * 支付控制器
@@ -25,6 +29,9 @@ import java.math.BigDecimal;
 public class PaymentController {
 
     private final DouyinPaymentService paymentService;
+
+    @Resource
+    private PaymentCallbackLogRepository callbackLogRepository;
 
     /**
      * 创建订单并生成支付链接
@@ -103,6 +110,7 @@ public class PaymentController {
      * POST /api/v1/payment/callback
      *
      * 注意：这是回调端点，抖音支付服务器会主动调用此接口
+     * P1-7: 增强回调重试机制和日志记录
      */
     @PostMapping("/callback")
     @SuppressWarnings("unused")
@@ -110,22 +118,41 @@ public class PaymentController {
             @RequestBody DouyinPaymentService.PaymentCallbackRequest callback,
             HttpServletRequest request) {
 
-        log.info("🔔 收到支付回调：orderId={}, status={}", callback.getOrderId(), callback.getStatus());
+        String callbackId = callback.getOrderId() + "_" + System.currentTimeMillis();
+        log.info("🔔 收到支付回调：callbackId={}, orderId={}, status={}",
+                callbackId, callback.getOrderId(), callback.getStatus());
 
         try {
             // P0-3: IP 白名单验证（防止非法回调和 DDoS 攻击）
             String clientIp = getClientIp(request);
             if (!isIpInWhitelist(clientIp)) {
-                log.error("❌ 非法回调 IP: ", clientIp);
+                log.error("❌ 非法回调 IP: {}", clientIp);
                 return ResponseEntity.status(403).body(new Object() {
                     public int code = -1;
                     public String msg = "Forbidden";
                 });
             }
 
+            // P1-7: 记录回调日志
+            PaymentCallbackLog callbackLog = PaymentCallbackLog.builder()
+                    .callbackId(callbackId)
+                    .orderId(callback.getOrderId())
+                    .status(callback.getStatus())
+                    .requestBody(serializeCallback(callback))
+                    .clientIp(clientIp)
+                    .processStatus("PROCESSING")
+                    .receivedAt(LocalDateTime.now())
+                    .build();
+            callbackLogRepository.save(callbackLog);
+
             // 验证签名（已在 DouyinPaymentService.handlePaymentCallback 中实现）
             // 处理回调
             paymentService.handlePaymentCallback(callback);
+
+            // P1-7: 更新回调日志状态
+            callbackLog.setProcessStatus("SUCCESS");
+            callbackLog.setProcessedAt(LocalDateTime.now());
+            callbackLogRepository.save(callbackLog);
 
             // 返回成功响应（抖音支付需要确认收到）
             return ResponseEntity.ok(new Object() {
@@ -134,13 +161,51 @@ public class PaymentController {
             });
 
         } catch (Exception e) {
-            log.error("✗ 回调处理失败", e);
+            log.error("✗ 回调处理失败: callbackId={}", callbackId, e);
+
+            // P1-7: 更新回调日志状态
+            try {
+                PaymentCallbackLog callbackLog = callbackLogRepository.findByCallbackId(callbackId)
+                        .orElse(null);
+                if (callbackLog != null) {
+                    callbackLog.setProcessStatus("FAILED");
+                    callbackLog.setErrorMessage(e.getMessage());
+                    callbackLog.setProcessedAt(LocalDateTime.now());
+                    callbackLogRepository.save(callbackLog);
+                }
+
+                // P1-7: 检查重试次数（最近 1 小时内）
+                int retryCount = callbackLogRepository.countRecentCallbacks(
+                        callback.getOrderId(), LocalDateTime.now().minusHours(1));
+                if (retryCount >= 5) {
+                    log.error("⚠️ 支付回调失败超过 5 次: orderId={}", callback.getOrderId());
+                    // TODO: 发送告警通知
+                    return ResponseEntity.ok(new Object() {
+                        public int code = 0;
+                        public String msg = "max retry exceeded";
+                    });
+                }
+            } catch (Exception logError) {
+                log.error("✗ 更新回调日志失败", logError);
+            }
 
             // 返回失败响应，抖音支付会重试
             return ResponseEntity.status(500).body(new Object() {
                 public int code = -1;
                 public String msg = "处理失败，请重试";
             });
+        }
+    }
+
+    /**
+     * P1-7: 序列化回调对象为 JSON
+     */
+    private String serializeCallback(DouyinPaymentService.PaymentCallbackRequest callback) {
+        try {
+            return String.format("{\"orderId\":\"%s\",\"status\":\"%s\",\"transactionId\":\"%s\",\"amount\":%s}",
+                    callback.getOrderId(), callback.getStatus(), callback.getTransactionId(), callback.getAmount());
+        } catch (Exception e) {
+            return "{}";
         }
     }
 

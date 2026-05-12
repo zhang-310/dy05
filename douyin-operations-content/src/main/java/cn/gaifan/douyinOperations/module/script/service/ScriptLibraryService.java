@@ -7,9 +7,9 @@ import java.util.List;
 
 public interface ScriptLibraryService {
     PageResultVO<ScriptVO> search(ScriptSearchVO vo);
-    ScriptVO getById(Long id);
+    ScriptVO getById(Long id, Long userId);
     long save(ScriptSaveVO vo);
-    void delete(Long id);
+    void delete(Long id, Long userId);
     void incrementUseCount(Long id);
 
     /**
