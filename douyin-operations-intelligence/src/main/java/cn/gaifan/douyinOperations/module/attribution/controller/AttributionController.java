@@ -46,12 +46,10 @@ public class AttributionController {
     @PostMapping("/session")
     @Operation(summary = "获取场次归因数据 / Get Session Attribution")
     public RESTResult<List<Map<String, Object>>> getBySession(HttpServletRequest request,
-            @RequestBody(required = false) java.util.Map<String, Long> body) {
+            @Valid @RequestBody cn.gaifan.douyinOperations.module.attribution.vo.AttributionQueryVO vo) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        Long sessionId = body != null ? body.get("sessionId") : null;
-        if (sessionId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 sessionId");
-        List<Map<String, Object>> data = attributionService.getBySessionId(sessionId, userId);
+        List<Map<String, Object>> data = attributionService.getBySessionId(vo.getSessionId(), userId);
         RESTResult<List<Map<String, Object>>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -60,12 +58,10 @@ public class AttributionController {
     @PostMapping("/summary")
     @Operation(summary = "获取归因汇总 / Get Attribution Summary")
     public RESTResult<Map<String, Object>> getSummary(HttpServletRequest request,
-            @RequestBody(required = false) java.util.Map<String, Long> body) {
+            @Valid @RequestBody cn.gaifan.douyinOperations.module.attribution.vo.AttributionQueryVO vo) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        Long sessionId = body != null ? body.get("sessionId") : null;
-        if (sessionId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 sessionId");
-        Map<String, Object> data = attributionService.getSummary(sessionId, userId);
+        Map<String, Object> data = attributionService.getSummary(vo.getSessionId(), userId);
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
@@ -74,12 +70,10 @@ public class AttributionController {
     @PostMapping("/get")
     @Operation(summary = "获取归因详情 / Get Attribution Detail")
     public RESTResult<Map<String, Object>> getById(HttpServletRequest request,
-            @RequestBody(required = false) java.util.Map<String, Long> body) {
+            @Valid @RequestBody cn.gaifan.douyinOperations.module.attribution.vo.AttributionDetailQueryVO vo) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        Long id = body != null ? body.get("id") : null;
-        if (id == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "缺少 id");
-        Map<String, Object> data = attributionService.getById(id, userId);
+        Map<String, Object> data = attributionService.getById(vo.getId(), userId);
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
