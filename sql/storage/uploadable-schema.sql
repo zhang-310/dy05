@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS sys_upload_chunk (
 -- 索引策略
 CREATE INDEX IF NOT EXISTS idx_chunk_status ON sys_upload_chunk (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chunk_md5 ON sys_upload_chunk (chunk_md5);
+CREATE INDEX IF NOT EXISTS idx_chunk_task_status ON sys_upload_chunk (task_id, status);  -- P1-4: 优化分块查询性能
 
 COMMENT ON TABLE  sys_upload_chunk              IS '分块上传详情表';
 COMMENT ON COLUMN sys_upload_chunk.chunk_index  IS '分块序号（0-indexed），与 task 组成唯一标识';
