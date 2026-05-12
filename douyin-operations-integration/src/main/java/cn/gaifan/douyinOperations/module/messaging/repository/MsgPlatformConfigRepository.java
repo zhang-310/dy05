@@ -9,9 +9,10 @@ import java.util.Optional;
 
 public interface MsgPlatformConfigRepository extends JpaRepository<MsgPlatformConfig, Long>, JpaSpecificationExecutor<MsgPlatformConfig> {
 
-    Optional<MsgPlatformConfig> findByIdAndDeleted(Long id, Integer deleted);
+    // P2-003: 移除 AndDeleted 后缀，@SQLRestriction 自动过滤 deleted=0
+    Optional<MsgPlatformConfig> findById(Long id);
 
-    List<MsgPlatformConfig> findByPlatformAndStatusAndDeleted(String platform, Integer status, Integer deleted);
+    List<MsgPlatformConfig> findByPlatformAndStatus(String platform, Integer status);
 
-    Optional<MsgPlatformConfig> findByPlatformAndCallbackTokenAndDeleted(String platform, String callbackToken, Integer deleted);
+    Optional<MsgPlatformConfig> findByPlatformAndCallbackToken(String platform, String callbackToken);
 }

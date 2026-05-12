@@ -52,7 +52,7 @@ public class MessagingPlatformServiceImpl implements MessagingPlatformService {
 
     @Override
     public MsgPlatformConfigVO getById(Long id, Long userId) {
-        MsgPlatformConfig entity = repository.findByIdAndDeleted(id, 0)
+        MsgPlatformConfig entity = repository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "配置不存在"));
         // P1-1: IDOR 防护 - 校验所有权
         if (!entity.getOwnerId().equals(userId)) {
@@ -66,7 +66,7 @@ public class MessagingPlatformServiceImpl implements MessagingPlatformService {
     public long save(MsgPlatformConfigSaveVO vo, Long userId) {
         MsgPlatformConfig entity;
         if (vo.getId() != null && vo.getId() > 0) {
-            entity = repository.findByIdAndDeleted(vo.getId(), 0)
+            entity = repository.findById(vo.getId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "配置不存在"));
             // P1-1: IDOR 防护 - 校验所有权
             if (!entity.getOwnerId().equals(userId)) {
@@ -90,7 +90,7 @@ public class MessagingPlatformServiceImpl implements MessagingPlatformService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id, Long userId) {
-        MsgPlatformConfig entity = repository.findByIdAndDeleted(id, 0)
+        MsgPlatformConfig entity = repository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "配置不存在"));
         // P1-1: IDOR 防护 - 校验所有权
         if (!entity.getOwnerId().equals(userId)) {
@@ -109,7 +109,7 @@ public class MessagingPlatformServiceImpl implements MessagingPlatformService {
     @Override
     public MsgPlatformConfig getConfigEntityByPlatformAndToken(String platform, String callbackToken) {
         if (platform == null || callbackToken == null || callbackToken.isBlank()) return null;
-        return repository.findByPlatformAndCallbackTokenAndDeleted(platform, callbackToken, 0).orElse(null);
+        return repository.findByPlatformAndCallbackToken(platform, callbackToken).orElse(null);
     }
 
     private MsgPlatformConfigVO toVO(MsgPlatformConfig e) {
