@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "app.storage.bos-cleanup.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.storage.bos-cleanup.enabled", havingValue = "true", matchIfMissing = false)  // P3-5: 默认禁用
 public class BosCleanupScheduler {
 
     @Resource

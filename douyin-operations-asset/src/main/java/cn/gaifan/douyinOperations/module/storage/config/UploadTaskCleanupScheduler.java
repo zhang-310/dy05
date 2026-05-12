@@ -16,7 +16,7 @@ import jakarta.annotation.Resource;
 @Slf4j
 @Configuration
 @EnableScheduling
-@ConditionalOnProperty(name = "storage.upload.cleanup.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "storage.upload.cleanup.enabled", havingValue = "true", matchIfMissing = false)  // P3-5: 默认禁用
 public class UploadTaskCleanupScheduler {
 
     @Resource
