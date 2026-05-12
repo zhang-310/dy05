@@ -199,13 +199,17 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         }
         List<cn.gaifan.douyinOperations.module.live.entity.LiveProduct> products =
                 liveProductRepository.findBySessionId(sessionId);
+
+        // P1-12: 批量保存，避免 N+1 写入
+        List<LiveScript> scripts = new ArrayList<>();
         int seq = 1;
+
         LiveScript opening = new LiveScript();
         opening.setSessionId(sessionId);
         opening.setScriptType("opening");
         opening.setScriptContent("[待填写]");
         opening.setSequenceNo(seq++);
-        liveScriptRepository.save(opening);
+        scripts.add(opening);
 
         for (int i = 0; i < products.size(); i++) {
             LiveScript productSlot = new LiveScript();
@@ -214,14 +218,15 @@ public class LiveScriptServiceImpl implements LiveScriptService {
             productSlot.setProductId(products.get(i).getProductId());
             productSlot.setScriptContent("[待填写]");
             productSlot.setSequenceNo(seq++);
-            liveScriptRepository.save(productSlot);
+            scripts.add(productSlot);
+
             if (i < products.size() - 1) {
                 LiveScript transitionSlot = new LiveScript();
                 transitionSlot.setSessionId(sessionId);
                 transitionSlot.setScriptType("transition");
                 transitionSlot.setScriptContent("[待填写]");
                 transitionSlot.setSequenceNo(seq++);
-                liveScriptRepository.save(transitionSlot);
+                scripts.add(transitionSlot);
             }
         }
 
@@ -230,7 +235,9 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         closing.setScriptType("closing");
         closing.setScriptContent("[待填写]");
         closing.setSequenceNo(seq);
-        liveScriptRepository.save(closing);
+        scripts.add(closing);
+
+        liveScriptRepository.saveAll(scripts);
     }
 
     private LiveScriptVO toLiveScriptVO(LiveScript script) {
