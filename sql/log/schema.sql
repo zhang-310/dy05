@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS sys_operation_log (
     duration_ms     INTEGER,                                            -- 耗时（毫秒）
     status          INTEGER          DEFAULT 1,                         -- 结果 0失败 1成功
     error_msg       TEXT,                                               -- 异常信息（如有）
+    deleted         INTEGER         NOT NULL DEFAULT 0,                 -- 逻辑删除 0正常 1已删除
     create_time     TIMESTAMP                DEFAULT CURRENT_TIMESTAMP  -- 操作时间
 );
 
@@ -45,12 +46,12 @@ COMMENT ON COLUMN sys_operation_log.user_agent       IS '浏览器 UA';
 COMMENT ON COLUMN sys_operation_log.duration_ms      IS '耗时（毫秒）';
 COMMENT ON COLUMN sys_operation_log.status           IS '结果 0失败 1成功';
 COMMENT ON COLUMN sys_operation_log.error_msg        IS '异常信息（如有）';
+COMMENT ON COLUMN sys_operation_log.deleted          IS '逻辑删除：0=正常 1=已删除';
 COMMENT ON COLUMN sys_operation_log.create_time      IS '操作时间';
 
 -- ============================================================
 -- 2. sys_system_log - 系统日志表
 -- Entity: cn.gaifan.douyinOperations.module.log.entity.SystemLog
--- 注意：无 deleted 字段，系统日志不支持逻辑删除
 -- ============================================================
 CREATE TABLE IF NOT EXISTS sys_system_log (
     id          BIGSERIAL       PRIMARY KEY,
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS sys_system_log (
     summary     VARCHAR(256),                                       -- 事件摘要
     detail      TEXT,                                               -- 详细信息
     status      INTEGER         NOT NULL DEFAULT 1,                 -- 状态：0=失败 1=成功
+    deleted     INTEGER         NOT NULL DEFAULT 0,                 -- 逻辑删除 0正常 1已删除
     create_time TIMESTAMP                DEFAULT CURRENT_TIMESTAMP  -- 事件时间
 );
 
@@ -71,3 +73,5 @@ COMMENT ON COLUMN sys_system_log.event_type  IS '事件类型：startup / shutdo
 COMMENT ON COLUMN sys_system_log.summary     IS '事件摘要';
 COMMENT ON COLUMN sys_system_log.detail      IS '详细信息';
 COMMENT ON COLUMN sys_system_log.status      IS '状态：0=失败 1=成功';
+COMMENT ON COLUMN sys_system_log.deleted     IS '逻辑删除：0=正常 1=已删除';
+COMMENT ON COLUMN sys_system_log.create_time IS '事件时间';

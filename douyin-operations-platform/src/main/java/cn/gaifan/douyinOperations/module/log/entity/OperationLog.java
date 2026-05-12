@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 @Data
 @Entity
 @Table(name = "sys_operation_log")
+@org.hibernate.annotations.SQLRestriction("deleted = 0")
 public class OperationLog {
 
     @Id
@@ -53,6 +54,10 @@ public class OperationLog {
 
     @Column(name = "error_msg", length = 512)
     private String errorMsg;
+
+    /** 逻辑删除 0正常 1已删除 */
+    @Column(name = "deleted", nullable = false)
+    private Integer deleted = 0;
 
     /** 请求体摘要（调试用，限制 2000 字符），由 sql/migrations/upgrade-analysis-2026.sql 增加 */
     @Column(name = "request_body", length = 2000)

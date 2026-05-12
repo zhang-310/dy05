@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 @Data
 @Entity
 @Table(name = "sys_system_log")
+@org.hibernate.annotations.SQLRestriction("deleted = 0")
 public class SystemLog {
 
     @Id
@@ -32,6 +33,10 @@ public class SystemLog {
     /** 结果 0失败 1成功 */
     @Column(name = "status", nullable = false)
     private Integer status = 1;
+
+    /** 逻辑删除 0正常 1已删除 */
+    @Column(name = "deleted", nullable = false)
+    private Integer deleted = 0;
 
     @Column(name = "create_time")
     private Timestamp createTime;
