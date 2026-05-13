@@ -1,0 +1,235 @@
+name: 自动迭代循环
+
+on:
+  schedule:
+    # 每 30 分钟运行一次（第 17 和 47 分钟，避免 :00 和 :30 的高峰）
+    - cron: '17,47 * * * *'
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  JAVA_VERSION: '17'
+  NODE_VERSION: '18'
+  REPORTS_DIR: 'reports'
+
+jobs:
+  auto-iteration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25  # 留 5 分钟缓冲
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史，用于 git 操作
+
+      - name: 设置 JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'front/package-lock.json'
+
+      - name: 安装 Python 依赖
+        run: |
+          pip install PyGithub
+
+      - name: 创建报告目录
+        run: |
+          mkdir -p ${{ env.REPORTS_DIR }}/{quality,dependencies,coverage}
+          echo "📁 报告目录已创建"
+
+      # ==================== 阶段 1: 质量检查 ====================
+      - name: 运行质量检查
+        id: quality
+        continue-on-error: true
+        run: |
+          echo "🔍 开始质量检查..."
+          bash scripts/run-quality-checks.sh
+
+          if [ -f "${{ env.REPORTS_DIR }}/quality/latest.json" ]; then
+            STATUS=$(jq -r '.summary.status' ${{ env.REPORTS_DIR }}/quality/latest.json)
+            ISSUES=$(jq -r '.summary.totalIssues' ${{ env.REPORTS_DIR }}/quality/latest.json)
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+            echo "issues=$ISSUES" >> $GITHUB_OUTPUT
+            echo "✅ 质量检查完成: $STATUS ($ISSUES 个问题)"
+          else
+            echo "⚠️  质量报告未生成"
+            echo "status=UNKNOWN" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 创建质量问题 Issues
+        if: steps.quality.outputs.status == 'FAIL'
+        run: |
+          echo "📋 创建 GitHub Issues..."
+          python scripts/create-issues-from-report.py \
+            ${{ env.REPORTS_DIR }}/quality/latest.json \
+            ${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ==================== 阶段 2: 依赖升级 ====================
+      - name: 检查依赖更新
+        id: deps
+        continue-on-error: true
+        run: |
+          echo "📦 检查依赖更新..."
+          bash scripts/check-dependencies.sh
+
+          MAVEN_UPDATES=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*backend-updates*.txt" -type f | wc -l)
+          NPM_UPDATES=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*frontend-updates*.json" -type f | wc -l)
+
+          echo "maven_updates=$MAVEN_UPDATES" >> $GITHUB_OUTPUT
+          echo "npm_updates=$NPM_UPDATES" >> $GITHUB_OUTPUT
+          echo "✅ 依赖检查完成: Maven $MAVEN_UPDATES, npm $NPM_UPDATES"
+
+      - name: 创建依赖升级 PR
+        if: steps.deps.outputs.maven_updates > 0 || steps.deps.outputs.npm_updates > 0
+        run: |
+          echo "🔧 创建依赖升级 PR..."
+
+          MAVEN_REPORT=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*backend-updates*.txt" -type f | head -1)
+          NPM_REPORT=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*frontend-updates*.json" -type f | head -1)
+
+          if [ -n "$MAVEN_REPORT" ] && [ -n "$NPM_REPORT" ]; then
+            python scripts/create-dependency-upgrade-pr.py \
+              "$MAVEN_REPORT" \
+              "$NPM_REPORT" \
+              ${{ github.repository }}
+          else
+            echo "⚠️  报告文件不完整，跳过 PR 创建"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ==================== 阶段 3: 安全审计 ====================
+      - name: 运行安全审计
+        id: security
+        continue-on-error: true
+        run: |
+          echo "🔒 运行安全审计..."
+          bash scripts/run-security-audit.sh
+
+          BACKEND_VULNS=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*backend-security*.json" -type f | wc -l)
+          FRONTEND_VULNS=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*frontend-security*.json" -type f | wc -l)
+
+          echo "backend_vulns=$BACKEND_VULNS" >> $GITHUB_OUTPUT
+          echo "frontend_vulns=$FRONTEND_VULNS" >> $GITHUB_OUTPUT
+          echo "✅ 安全审计完成"
+
+      - name: 自动升级安全补丁
+        if: steps.security.outputs.backend_vulns > 0 || steps.security.outputs.frontend_vulns > 0
+        run: |
+          echo "🛡️  自动升级安全补丁..."
+
+          BACKEND_REPORT=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*backend-security*.json" -type f | head -1)
+          FRONTEND_REPORT=$(find ${{ env.REPORTS_DIR }}/dependencies -name "*frontend-security*.json" -type f | head -1)
+
+          if [ -n "$BACKEND_REPORT" ] && [ -n "$FRONTEND_REPORT" ]; then
+            python scripts/auto-upgrade-security-patches.py \
+              "$BACKEND_REPORT" \
+              "$FRONTEND_REPORT" \
+              --auto-commit
+
+            # 如果有更改，推送到新分支并创建 PR
+            if [ -n "$(git status --porcelain)" ]; then
+              BRANCH="security/auto-patch-$(date +%Y%m%d-%H%M)"
+              git checkout -b "$BRANCH"
+              git push -u origin "$BRANCH"
+
+              gh pr create \
+                --title "🛡️ 自动安全补丁升级" \
+                --body "自动升级高危安全漏洞依赖" \
+                --label "security,automated"
+            fi
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ==================== 阶段 4: 覆盖率检查 ====================
+      - name: 运行覆盖率检查
+        id: coverage
+        continue-on-error: true
+        run: |
+          echo "📊 运行覆盖率检查..."
+          bash scripts/run-coverage-checks.sh
+
+          if [ -f "${{ env.REPORTS_DIR }}/coverage/latest.json" ]; then
+            OVERALL=$(jq -r '.overall.lineCoverage' ${{ env.REPORTS_DIR }}/coverage/latest.json)
+            STATUS=$(jq -r '.status' ${{ env.REPORTS_DIR }}/coverage/latest.json)
+            echo "coverage=$OVERALL" >> $GITHUB_OUTPUT
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+            echo "✅ 覆盖率检查完成: $OVERALL% ($STATUS)"
+          fi
+
+      # ==================== 阶段 5: 生成汇总报告 ====================
+      - name: 生成汇总报告
+        if: always()
+        run: |
+          echo "📝 生成汇总报告..."
+
+          cat > ${{ env.REPORTS_DIR }}/iteration-summary.md << EOF
+          # 自动迭代循环报告
+
+          **时间**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **触发**: ${{ github.event_name }}
+
+          ## 执行结果
+
+          ### 质量检查
+          - 状态: ${{ steps.quality.outputs.status || 'SKIPPED' }}
+          - 问题数: ${{ steps.quality.outputs.issues || 'N/A' }}
+
+          ### 依赖升级
+          - Maven 更新: ${{ steps.deps.outputs.maven_updates || '0' }}
+          - npm 更新: ${{ steps.deps.outputs.npm_updates || '0' }}
+
+          ### 安全审计
+          - 后端漏洞: ${{ steps.security.outputs.backend_vulns || '0' }}
+          - 前端漏洞: ${{ steps.security.outputs.frontend_vulns || '0' }}
+
+          ### 覆盖率
+          - 整体覆盖率: ${{ steps.coverage.outputs.coverage || 'N/A' }}%
+          - 状态: ${{ steps.coverage.outputs.status || 'N/A' }}
+
+          ---
+
+          🤖 由自动化系统生成
+          EOF
+
+          cat ${{ env.REPORTS_DIR }}/iteration-summary.md
+
+      - name: 上传报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iteration-reports-${{ github.run_number }}
+          path: ${{ env.REPORTS_DIR }}
+          retention-days: 30
+
+      # ==================== 通知 ====================
+      - name: 发送通知（失败时）
+        if: failure()
+        run: |
+          echo "❌ 自动迭代循环执行失败"
+          echo "请检查 GitHub Actions 日志"
+          # 这里可以集成企业微信、钉钉等通知
+
+      - name: 发送通知（成功时）
+        if: success()
+        run: |
+          echo "✅ 自动迭代循环执行成功"
+
+          # 统计本次迭代的改进
+          QUALITY_STATUS="${{ steps.quality.outputs.status }}"
+          COVERAGE="${{ steps.coverage.outputs.coverage }}"
+
+          if [ "$QUALITY_STATUS" = "PASS" ] && [ -n "$COVERAGE" ]; then
+            echo "🎉 代码质量: $QUALITY_STATUS, 覆盖率: $COVERAGE%"
+          fi
