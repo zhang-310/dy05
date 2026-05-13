@@ -1,0 +1,62 @@
+name: Daily Health Check
+
+on:
+  schedule:
+    - cron: '0 19 * * *'  # 每日 03:00 UTC+8 (19:00 UTC)
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: front/package-lock.json
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r scripts/requirements.txt
+
+      - name: Run Code Quality Audit
+        run: |
+          chmod +x scripts/auto-audit-code-quality.sh
+          ./scripts/auto-audit-code-quality.sh
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Run Security Scan
+        run: |
+          chmod +x scripts/auto-security-scan.sh
+          ./scripts/auto-security-scan.sh
+        env:
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+
+      - name: Upload Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-reports-${{ github.run_number }}
+          path: reports/
+          retention-days: 30
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          chmod +x scripts/notify-wecom.sh
+          ./scripts/notify-wecom.sh "❌ 健康检查失败 - Run #${{ github.run_number }}"
+        env:
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}

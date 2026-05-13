@@ -1,0 +1,36 @@
+# Python 依赖清单
+# 用于自动化脚本的辅助工具
+
+# GitHub API 交互
+PyGithub==2.1.1
+
+# JSON 处理
+jq==1.6.0
+
+# HTTP 请求
+requests==2.31.0
+
+# 命令行参数解析
+click==8.1.7
+
+# 日期时间处理
+python-dateutil==2.8.2
+
+# YAML 配置文件
+PyYAML==6.0.1
+
+# Markdown 生成
+markdown==3.5.1
+
+# 代码质量分析
+pylint==3.0.3
+flake8==7.0.0
+
+# 测试覆盖率解析
+coverage==7.4.0
+
+# XML 解析（用于 Maven 报告）
+lxml==5.1.0
+
+# 环境变量管理
+python-dotenv==1.0.0
