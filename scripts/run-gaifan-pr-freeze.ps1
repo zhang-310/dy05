@@ -17,7 +17,7 @@ $prs = @(
         Branch = "feat/freeze-ai-foundation"
         Paths = @(
             "douyin-operations-ai/",
-            "douyin-operations-intelligence/pom.xml",
+            "douyin-operations-intelligence/",
             "douyin-operations-contract/",
             "douyin-operations-common/",
             "douyin-operations-app/pom.xml",
@@ -27,6 +27,8 @@ $prs = @(
             "douyin-operations-app/src/main/resources/db/migration/V22",
             "douyin-operations-app/src/main/resources/application-prod.yml",
             "douyin-operations-app/src/main/resources/application-gaifan-staging.yml",
+            "douyin-operations-app/src/main/resources/application-gaifan-dev.yml",
+            "douyin-operations-app/src/main/resources/application-gaifan-e2e.yml",
             "scripts/seed-gaifan-kb-demo.sql",
             "scripts/seed-gaifan-jwt-tenant.sql",
             "scripts/seed-gaifan-payment-verify.sql",
@@ -67,7 +69,7 @@ $prs = @(
     @{
         Name = "PR-4"
         Branch = "feat/freeze-front-commercial"
-        Paths = @("front/src/")
+        Paths = @("front/src/", "front/package.json", "front/package-lock.json", "front/vitest.config.ts", "front/e2e/")
         Gate = {
             Push-Location front
             npm run type-check --silent
@@ -84,6 +86,9 @@ $prs = @(
             "scripts/run-six-products-ci.ps1",
             "scripts/sign-gaifan-prod-smoke.ps1",
             "scripts/run-gaifan-pr-freeze.ps1",
+            "scripts/run-gaifan-stack-complete.ps1",
+            "scripts/start-gaifan-prod-stack.ps1",
+            ".github/workflows/six-products-nightly.yml",
             "reports/automation/",
             "docs/deployment/",
             "docs/analysis/six-products-post-m4-checklist.md"
@@ -98,6 +103,26 @@ $prs = @(
             if ($LASTEXITCODE -ne 0) { throw "PR-5 gate failed" }
         }
         Message = "chore(gaifan): verify scripts + staging evidence + release docs"
+    },
+    @{
+        Name = "PR-6"
+        Branch = "feat/freeze-infra-glue"
+        Paths = @(
+            "pom.xml", ".env.example", ".gitignore",
+            ".github/workflows/",
+            "docker/", "docker-compose.microservices.yml",
+            "build-service.cmd", "build-service.sh", "deploy.cmd", "deploy-all.cmd",
+            "douyin-operations-app/src/main/",
+            "douyin-operations-asset/", "douyin-operations-content/",
+            "douyin-operations-integration/", "douyin-operations-mcp/"
+        )
+        Gate = {
+            mvn -pl douyin-operations-app -am compile -q
+            if ($LASTEXITCODE -ne 0) { throw "PR-6 compile failed" }
+            docker compose -f docker-compose.microservices.yml config | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "PR-6 compose config failed" }
+        }
+        Message = "feat(gaifan): infra glue + dy05 microservices prod stack"
     }
 )
 
