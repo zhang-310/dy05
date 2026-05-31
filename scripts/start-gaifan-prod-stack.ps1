@@ -2,6 +2,7 @@
 param(
     [switch]$SkipBuild,
     [switch]$SkipFlyway,
+    [switch]$Monolith,
     [string]$PgContainer = "dy-postgres"
 )
 
@@ -16,9 +17,29 @@ if (-not $SkipFlyway) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+if ($Monolith) {
+    Write-Host "[RUN] monolith prod on :8088 (dy05 independent, gaifan-staging profile)"
+    $env:APP_CREDIT_ENFORCE = "true"
+    $env:KB_STORE = "pgvector"
+    $env:DOUYIN_MERCHANT_SECRET = "gaifan-staging-verify-secret"
+    $env:FLYWAY_ENABLED = "false"
+    mvn -f pom.xml -pl douyin-operations-app -am install "-DskipTests" "-Dmaven.test.skip=true" -q
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Start-Process pwsh -ArgumentList @(
+        '-NoProfile', '-Command',
+        "cd '$root'; `$env:APP_CREDIT_ENFORCE='true'; `$env:KB_STORE='pgvector'; `$env:DOUYIN_MERCHANT_SECRET='gaifan-staging-verify-secret'; mvn -f pom.xml -pl douyin-operations-app org.springframework.boot:spring-boot-maven-plugin:run '-Dspring-boot.run.profiles=dev,gaifan-staging' '-Dspring-boot.run.jvmArguments=-Dserver.port=8088'"
+    ) -WindowStyle Hidden
+    Start-Sleep -Seconds 45
+    try {
+        $h = Invoke-WebRequest -Uri "http://localhost:8088/actuator/health" -UseBasicParsing -TimeoutSec 10
+        Write-Host "[OK] monolith prod health $($h.StatusCode)"
+    } catch { Write-Host "[FAIL] monolith prod not ready"; exit 1 }
+    exit 0
+}
+
 if (-not $SkipBuild) {
     Write-Host "[BUILD] backend..."
-    mvn -pl douyin-operations-app -am install -DskipTests -q
+    mvn -pl douyin-operations-app -am install "-DskipTests" "-Dmaven.test.skip=true" -q
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     Write-Host "[BUILD] frontend..."

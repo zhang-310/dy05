@@ -25,6 +25,8 @@
         <module>douyin-operations-asset</module>
         <!-- 智能化模块，主要负责 AI、代理等智能相关功能 -->
         <module>douyin-operations-intelligence</module>
+        <module>douyin-operations-ai</module>
+        <module>douyin-operations-mcp</module>
         <!-- 内容模块，负责脚本、文案、流程等内容生产与管理 -->
         <module>douyin-operations-content</module>
         <!-- 抖音账号域模块，聚焦抖音账号管理与相关能力 -->
@@ -35,6 +37,9 @@
         <module>douyin-operations-live</module>
         <!-- 短视频板块，实现短视频相关功能 -->
         <module>douyin-operations-shortvideo</module>
+        <module>douyin-operations-digital-human</module>
+        <module>douyin-operations-drama</module>
+        <module>douyin-operations-photo-avatar</module>
         <!-- 应用入口模块，作为可执行主程序，整合各子模块，内含 Flyway 迁移与跨域 glue 逻辑 -->
         <module>douyin-operations-app</module>
     </modules>
