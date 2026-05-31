@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-05-31T23:30:54Z",
+  "features": {
+    "douyin-ops.oauth": {
+      "script": "verify-product-douyin-ops-oauth.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:32:01Z"
+    },
+    "drama-ai.script": {
+      "script": "verify-product-drama-script.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:33:03Z"
+    },
+    "ai.mcp-tool": {
+      "script": "verify-product-mcp-credit.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:33:14Z"
+    },
+    "shortvideo-maker.workflow": {
+      "script": "verify-product-shortvideo-workflow.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:33:02Z"
+    },
+    "knowledge-base.document": {
+      "script": "verify-product-knowledge-base-document.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:30:58Z"
+    },
+    "shortvideo-maker.script": {
+      "script": "verify-product-shortvideo-script.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:33:01Z"
+    },
+    "douyin-ops.video-analysis": {
+      "script": "verify-product-douyin-ops-video-analysis.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:31:53Z"
+    },
+    "video-insight.benchmark": {
+      "script": "verify-product-video-insight-benchmark.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:32:12Z"
+    },
+    "douyin-ops.payment-pg": {
+      "status": "passed"
+    },
+    "integration-e2e-4rules": {
+      "script": "verify-product-integration-e2e.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:33:19Z"
+    },
+    "douyin-ops.payment-callback": {
+      "script": "verify-product-douyin-ops-payment-callback.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:32:05Z"
+    },
+    "knowledge-base.rag": {
+      "script": "verify-product-knowledge-base.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:30:56Z"
+    },
+    "douyin-ops.payment-http": {
+      "script": "verify-product-douyin-ops-payment-http.ps1",
+      "status": "passed",
+      "completedAt": "2026-05-31T23:32:03Z"
+    }
+  },
+  "completedAt": "2026-05-31T23:33:39Z",
+  "baseUrl": "http://localhost:18082",
+  "status": "passed"
+}

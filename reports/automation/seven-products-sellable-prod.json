@@ -1,0 +1,64 @@
+{
+  "jwtE2e": true,
+  "products": {
+    "video-insight": {
+      "status": "passed",
+      "checks": {
+        "jwt": true,
+        "http": 200
+      },
+      "completedAt": "2026-05-31T23:30:54Z"
+    },
+    "douyin-ops": {
+      "status": "passed",
+      "checks": {
+        "jwt": true,
+        "http": 200
+      },
+      "completedAt": "2026-05-31T23:30:54Z"
+    },
+    "shortvideo-maker": {
+      "status": "passed",
+      "checks": {
+        "jwt": true,
+        "http": 200
+      },
+      "completedAt": "2026-05-31T23:30:54Z"
+    },
+    "knowledge-base": {
+      "completedAt": "2026-05-31T23:30:56Z",
+      "checks": {
+        "jwt": true,
+        "ledger": "10",
+        "mode": "rag_search",
+        "http": 200
+      },
+      "status": "passed"
+    },
+    "photo-avatar-video": {
+      "status": "passed",
+      "checks": {
+        "jwt": true,
+        "http": 200
+      },
+      "completedAt": "2026-05-31T23:30:54Z"
+    },
+    "drama-ai": {
+      "status": "passed",
+      "checks": {
+        "jwt": true,
+        "http": 200
+      },
+      "completedAt": "2026-05-31T23:30:54Z"
+    },
+    "digital-human": {
+      "status": "passed",
+      "checks": {
+        "jwt": true,
+        "http": 200
+      },
+      "completedAt": "2026-05-31T23:30:54Z"
+    }
+  },
+  "generatedAt": "2026-05-31T23:30:56Z"
+}

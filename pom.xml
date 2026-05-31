@@ -25,7 +25,9 @@
         <module>douyin-operations-asset</module>
         <!-- 智能化模块，主要负责 AI、代理等智能相关功能 -->
         <module>douyin-operations-intelligence</module>
+        <!-- AI模块，实现AI相关功能 -->
         <module>douyin-operations-ai</module>
+        <!-- MCP模块，实现MCP相关功能 -->
         <module>douyin-operations-mcp</module>
         <!-- 内容模块，负责脚本、文案、流程等内容生产与管理 -->
         <module>douyin-operations-content</module>
@@ -37,8 +39,11 @@
         <module>douyin-operations-live</module>
         <!-- 短视频板块，实现短视频相关功能 -->
         <module>douyin-operations-shortvideo</module>
+        <!-- 数字人模块，实现数字人相关功能 -->
         <module>douyin-operations-digital-human</module>
+        <!-- 剧情模块，实现剧情相关功能 -->
         <module>douyin-operations-drama</module>
+        <!-- 照片头像模块，实现照片头像相关功能 -->
         <module>douyin-operations-photo-avatar</module>
         <!-- 应用入口模块，作为可执行主程序，整合各子模块，内含 Flyway 迁移与跨域 glue 逻辑 -->
         <module>douyin-operations-app</module>
