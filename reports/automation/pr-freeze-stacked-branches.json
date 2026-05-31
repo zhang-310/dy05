@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-05-31T23:20:00Z",
+  "pushed": false,
+  "stack": [
+    {
+      "pr": "PR-1",
+      "branch": "feat/freeze-ai-foundation",
+      "base": "main",
+      "commit": "972c37c",
+      "compareUrl": "https://github.com/zhang-310/dy05/compare/main...feat/freeze-ai-foundation"
+    },
+    {
+      "pr": "PR-2",
+      "branch": "feat/freeze-platform-commercial",
+      "base": "feat/freeze-ai-foundation",
+      "commit": "48a63ff",
+      "compareUrl": "https://github.com/zhang-310/dy05/compare/feat/freeze-ai-foundation...feat/freeze-platform-commercial"
+    },
+    {
+      "pr": "PR-3",
+      "branch": "feat/freeze-six-products-backend",
+      "base": "feat/freeze-platform-commercial",
+      "commit": "1ee6e76",
+      "compareUrl": "https://github.com/zhang-310/dy05/compare/feat/freeze-platform-commercial...feat/freeze-six-products-backend"
+    },
+    {
+      "pr": "PR-4",
+      "branch": "feat/freeze-front-commercial",
+      "base": "feat/freeze-six-products-backend",
+      "commit": "ea66a06",
+      "compareUrl": "https://github.com/zhang-310/dy05/compare/feat/freeze-six-products-backend...feat/freeze-front-commercial"
+    },
+    {
+      "pr": "PR-5",
+      "branch": "feat/freeze-scripts-evidence",
+      "base": "feat/freeze-front-commercial",
+      "commit": "e2342ae",
+      "compareUrl": "https://github.com/zhang-310/dy05/compare/feat/freeze-front-commercial...feat/freeze-scripts-evidence"
+    },
+    {
+      "pr": "PR-6",
+      "branch": "feat/freeze-infra-glue",
+      "base": "feat/freeze-scripts-evidence",
+      "commit": "f2b4ff8",
+      "compareUrl": "https://github.com/zhang-310/dy05/compare/feat/freeze-scripts-evidence...feat/freeze-infra-glue"
+    }
+  ]
+}
