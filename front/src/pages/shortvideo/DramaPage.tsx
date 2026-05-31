@@ -17,6 +17,7 @@ import { shortvideoApi, type SvDrama } from '@/api/shortvideo'
 import { getErrorMessage } from '@/utils/errorHandler'
 import { normalizeRows } from '@/utils/response-normalize'
 import { checkGaifanEntitlement } from '@/api/gaifan-catalog'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 import { commercialDenialMessage, isCommercialDenial, CREDITS_GOVERNANCE_PATH } from '@/utils/commercialError'
 import request from '@/utils/request'
 import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
@@ -72,6 +73,7 @@ const DRAMA_UNSUPPORTED_ENDPOINTS = [
 
 export default function DramaPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const [search, setSearch] = useState({ page: 0, rows: 20, genre: '' })
   const [formOpen, setFormOpen] = useState(false)
@@ -375,7 +377,10 @@ export default function DramaPage() {
               placeholder="主题 / 风格提示..."
               sx={{ flex: 1 }} />
             <Button variant="outlined" startIcon={<AutoFixHighIcon />}
-              onClick={() => genMut.mutate()} disabled={!genQuery.trim() || !genDramaId.trim() || genMut.isPending} data-testid="drama-generate-script-button" data-source-endpoint={DRAMA_ENDPOINTS.generateScript}>
+              onClick={async () => {
+                if (!(await gate('drama-ai', 'drama-ai.script'))) return
+                genMut.mutate()
+              }} disabled={!genQuery.trim() || !genDramaId.trim() || genMut.isPending} data-testid="drama-generate-script-button" data-source-endpoint={DRAMA_ENDPOINTS.generateScript}>
               {genMut.isPending ? '生成中...' : '生成剧本'}
             </Button>
           </Stack>

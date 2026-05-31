@@ -9,6 +9,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { PageHeader, StandardDataGrid } from '@/components/base'
 import { shortvideoApi, shotsToImg2VideoKeyframes } from '@/api/shortvideo'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import { getErrorMessage } from '@/utils/errorHandler'
 import type { GridColDef } from '@mui/x-data-grid'
@@ -67,6 +68,7 @@ const PRODUCTION_UNSUPPORTED_ENDPOINTS = [
 
 export default function MaterialProductionPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -343,8 +345,9 @@ export default function MaterialProductionPage() {
             color="primary"
             startIcon={keyframeMutation.isPending ? <CircularProgress size={18} /> : <ImageIcon />}
             disabled={!canGenerateKeyframes}
-            onClick={() => {
+            onClick={async () => {
               setOperationError('')
+              if (!(await gate('shortvideo-maker', 'shortvideo-maker.script.generate'))) return
               keyframeMutation.mutate()
             }}
             data-testid="material-production-generate-keyframes-button"
@@ -357,8 +360,9 @@ export default function MaterialProductionPage() {
             color="primary"
             startIcon={submitMutation.isPending ? <CircularProgress size={18} color="inherit" /> : <MovieFilterIcon />}
             disabled={!canSubmit}
-            onClick={() => {
+            onClick={async () => {
               setOperationError('')
+              if (!(await gate('shortvideo-maker', 'shortvideo-maker.script.generate'))) return
               submitMutation.mutate()
             }}
             data-testid="material-production-submit-video-button"

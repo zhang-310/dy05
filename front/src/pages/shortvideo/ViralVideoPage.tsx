@@ -22,6 +22,7 @@ import { useSearchParams } from 'react-router-dom'
 import { shortvideoApi, type ViralVideo } from '@/api/shortvideo'
 import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 import { PageHeader } from '@/components/base'
 import { getErrorMessage } from '@/utils/errorHandler'
 
@@ -447,6 +448,7 @@ const VIRAL_SUPPORTED_ACTIONS = [
 
 export default function ViralVideoPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [keyword, setKeyword] = useState('')
@@ -541,6 +543,11 @@ export default function ViralVideoPage() {
       toast(`拆解分析失败：${message}`, 'error')
     },
   })
+
+  const handleAnalyze = async (id: number) => {
+    if (!(await gate('video-insight', 'video-insight.breakdown'))) return
+    analyzeMut.mutate(id)
+  }
 
   const handleSearch = () => { setSearchKw(keyword); setPage(0) }
 
@@ -812,7 +819,7 @@ export default function ViralVideoPage() {
                   </Tooltip>
                   <Button
                     size="small"
-                    onClick={() => analyzeMut.mutate(v.id)}
+                    onClick={() => handleAnalyze(v.id)}
                     disabled={analyzeMut.isPending}
                     data-testid="viral-video-analyze-button"
                     data-source-endpoint={VIRAL_ENDPOINTS.analyze}
@@ -1158,7 +1165,7 @@ export default function ViralVideoPage() {
               >
                 刷新详情
               </Button>
-              <Button variant="contained" size="small" onClick={() => analyzeMut.mutate(showDetail.id)} disabled={analyzeMut.isPending}>拆解分析</Button>
+              <Button variant="contained" size="small" onClick={() => handleAnalyze(showDetail.id)} disabled={analyzeMut.isPending}>拆解分析</Button>
               <Button variant="outlined" size="small" onClick={() => favMut.mutate(showDetail.id)} disabled={favMut.isPending}>收藏</Button>
             </Stack>
           </Stack>

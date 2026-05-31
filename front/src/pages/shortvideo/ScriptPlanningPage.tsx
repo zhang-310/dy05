@@ -29,6 +29,7 @@ import { ConfirmDialog, PageHeader, StandardDataGrid } from '@/components/base'
 import { shortvideoApi, type SvProject, type SvProjectSave } from '@/api/shortvideo'
 import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 import { getErrorMessage } from '@/utils/errorHandler'
 import type { GridColDef } from '@mui/x-data-grid'
 import type { SvScript } from '@/types/shortvideo'
@@ -112,6 +113,7 @@ function mergeProjectSave(project: SvProject, patch: Partial<SvProjectSave>): Sv
 
 export default function ScriptPlanningPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -214,6 +216,7 @@ export default function ScriptPlanningPage() {
       toast('请输入爆款视频 ID', 'warning')
       return
     }
+    if (!(await gate('shortvideo-maker', 'shortvideo-maker.script.generate'))) return
     setLoading(true)
     setOperationError('')
     try {
@@ -292,6 +295,7 @@ export default function ScriptPlanningPage() {
       toast('脚本内容为空，无法生成分镜', 'warning')
       return
     }
+    if (!(await gate('shortvideo-maker', 'shortvideo-maker.script.generate'))) return
     setShotLoading(true)
     setOperationError('')
     try {

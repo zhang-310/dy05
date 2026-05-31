@@ -12,6 +12,7 @@ import {
 } from '@mui/icons-material'
 import { PageHeader } from '@/components/base'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 import { shortvideoApi } from '@/api/shortvideo'
 import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import type { CreativePlanItem, QuickGenerateResult } from '@/types/shortvideo'
@@ -59,6 +60,7 @@ export default function QuickGeneratePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const sourceKeyword = searchParams.get('keyword')?.trim() ?? ''
   const sourceHotTopicId = searchParams.get('hotTopicId')?.trim() ?? ''
   const [theme, setTheme] = useState(() => sourceKeyword)
@@ -72,6 +74,7 @@ export default function QuickGeneratePage() {
 
   const handleGenerate = async () => {
     if (!theme) { toast('请输入主题', 'warning'); return }
+    if (!(await gate('shortvideo-maker', 'shortvideo-maker.script.generate'))) return
     setGenerating(true)
     setProgressOpen(true)
     setResult(null)

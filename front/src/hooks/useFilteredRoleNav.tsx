@@ -25,6 +25,19 @@ const PATH_PRODUCT_CODE: Record<string, string> = {
   '/talent/shortvideo': 'shortvideo-maker',
   '/talent/shortvideo/drama': 'drama-ai',
   '/talent/shortvideo/photo-avatar': 'photo-avatar-video',
+  '/admin/gaifan/mcp': 'video-insight',
+  [shortvideoRoutes.quickGenerate]: 'shortvideo-maker',
+  [shortvideoRoutes.scriptPlanning]: 'shortvideo-maker',
+  [shortvideoRoutes.materialProduction]: 'shortvideo-maker',
+  [shortvideoRoutes.materialPrepare]: 'shortvideo-maker',
+  [shortvideoRoutes.shotList]: 'shortvideo-maker',
+  [shortvideoRoutes.editing]: 'shortvideo-maker',
+  [shortvideoRoutes.publish]: 'shortvideo-maker',
+  [shortvideoRoutes.collect]: 'video-insight',
+  [shortvideoRoutes.viralVideos]: 'video-insight',
+  [shortvideoRoutes.personaFusion]: 'shortvideo-maker',
+  [shortvideoRoutes.workbench]: 'shortvideo-maker',
+  [shortvideoRoutes.daily]: 'shortvideo-maker',
 }
 
 const PRODUCT_ICONS: Record<string, ReactNode> = {

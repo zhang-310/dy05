@@ -6,6 +6,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import MovieIcon from '@mui/icons-material/Movie'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { shortvideoApi, autoCompose } from '@/api/shortvideo'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 import { checkGaifanEntitlement } from '@/api/gaifan-catalog'
 import { DataGridEmptyOverlay, PageHeader, StandardDataGrid } from '@/components/base'
 import { useToast } from '@/contexts/ToastContext'
@@ -70,6 +71,7 @@ const VIDEO_EDITING_SUPPORTED_ACTIONS = [
 
 export default function VideoEditingPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
@@ -496,7 +498,10 @@ export default function VideoEditingPage() {
           <Button
             variant="contained"
             startIcon={<AutoAwesomeIcon />}
-            onClick={() => composeMutation.mutate()}
+            onClick={async () => {
+              if (!(await gate('shortvideo-maker', 'shortvideo-maker.export'))) return
+              composeMutation.mutate()
+            }}
             disabled={composeMutation.isPending || !composeForm.projectId}>
             开始合成
           </Button>

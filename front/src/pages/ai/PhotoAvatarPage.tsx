@@ -49,6 +49,7 @@ import {
 } from '@/api/photo-avatar'
 import { PageHeader, KpiCard } from '@/components/base'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 import { commercialDenialMessage, isCommercialDenial, CREDITS_GOVERNANCE_PATH } from '@/utils/commercialError'
 import { Link } from 'react-router-dom'
 
@@ -85,6 +86,7 @@ const EMPTY_FORM: CreateFormData = {
 
 export default function PhotoAvatarPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
 
   // Search/filter state
@@ -163,7 +165,7 @@ export default function PhotoAvatarPage() {
     onError: (e: Error) => toast(e.message || '重试失败', 'error'),
   })
 
-  const handleCreate = useCallback(() => {
+  const handleCreate = useCallback(async () => {
     if (!form.photoUrl.trim()) {
       toast('请输入照片 URL', 'warning')
       return
@@ -172,13 +174,14 @@ export default function PhotoAvatarPage() {
       toast('请先勾选肖像权授权确认', 'warning')
       return
     }
+    if (!(await gate('photo-avatar-video', 'photo-avatar-video.generate'))) return
     createMutation.mutate({
       photoUrl: form.photoUrl.trim(),
       outfitStyle: form.outfitStyle,
       background: form.background,
       portraitConsentConfirmed: true,
     })
-  }, [form, createMutation, toast])
+  }, [form, createMutation, toast, gate])
 
   const overview = overviewQuery.data
   const tasks = tasksQuery.data?.list ?? []

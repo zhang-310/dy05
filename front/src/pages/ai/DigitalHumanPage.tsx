@@ -17,9 +17,11 @@ import { aiApi } from '@/api/ai'
 import type { DigitalHumanGenerateResult } from '@/api/digital-human'
 import { PageHeader } from '@/components/base'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 
 export default function DigitalHumanPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const [scriptText, setScriptText] = useState('')
   const [voiceId, setVoiceId] = useState('zh-CN-XiaoxiaoNeural')
@@ -143,7 +145,10 @@ export default function DigitalHumanPage() {
             <Box>
               <Button
                 variant="contained"
-                onClick={() => generateMutation.mutate()}
+                onClick={async () => {
+                  if (!(await gate('digital-human', 'digital-human.generate'))) return
+                  generateMutation.mutate()
+                }}
                 disabled={!scriptText.trim() || !isAvailable || generateMutation.isPending}
                 startIcon={generateMutation.isPending ? <CircularProgress size={18} /> : undefined}
               >
