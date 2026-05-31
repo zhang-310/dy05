@@ -1,0 +1,23 @@
+# Gaifan 本地商业化联调：跳过 Flyway 全量迁移与 Hibernate validate（历史 schema 漂移时）
+server:
+  port: ${SERVER_PORT:18081}
+
+spring:
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+app:
+  credit:
+    enforce: ${APP_CREDIT_ENFORCE:false}
+  gaifan:
+    allow-header-identity: true
+  ai:
+    default-provider: ${AI_DEFAULT_PROVIDER:mock}
+    retail-markup: 1.5
+    evolve:
+      enabled: false
+    kb:
+      store: ${KB_STORE:milvus}
