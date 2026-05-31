@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.system.config;
 import cn.gaifan.douyinOperations.module.system.repository.SysApiCallLogRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -27,8 +28,15 @@ public class ApiCallLogCleanupScheduler {
     @Resource
     private SysApiCallLogRepository apiCallLogRepository;
 
+    @Value("${app.system.api-log-cleanup.enabled:true}")
+    private boolean schedulerEnabled;
+
     @Scheduled(cron = "${app.system.api-log-cleanup.cron:0 0 2 * * ?}")
     public void cleanup() {
+        if (!schedulerEnabled) {
+            log.debug("API 调用日志清理定时任务已禁用，跳过");
+            return;
+        }
         LocalDateTime cutoff = LocalDateTime.now().minusDays(RETENTION_DAYS);
         Timestamp cutoffTs = Timestamp.valueOf(cutoff);
         int totalDeleted = 0;

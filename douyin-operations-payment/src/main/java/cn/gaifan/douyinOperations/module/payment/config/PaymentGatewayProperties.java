@@ -20,5 +20,7 @@ public class PaymentGatewayProperties {
     @Data
     public static class Douyin {
         private boolean enabled = false;
+        /** 支付回调来源 IP 白名单，逗号分隔；空表示不做 IP 限制。 */
+        private String callbackIpWhitelist = "";
     }
 }

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.log.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -8,10 +10,12 @@ import java.sql.Timestamp;
 /**
  * 用户操作日志表，与 sql/log/schema.sql 中 sys_operation_log 对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sys_operation_log")
 @org.hibernate.annotations.SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class OperationLog {
 
     @Id

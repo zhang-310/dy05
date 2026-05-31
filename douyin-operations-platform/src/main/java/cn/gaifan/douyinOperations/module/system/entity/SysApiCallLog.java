@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.system.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * API 调用日志表，与 sql/system/schema.sql 中 sys_api_call_log 一一对应
  * 注意：无 deleted 字段，日志通过定时任务物理清理
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sys_api_call_log")
+@NoArgsConstructor
 public class SysApiCallLog {
 
     @Id

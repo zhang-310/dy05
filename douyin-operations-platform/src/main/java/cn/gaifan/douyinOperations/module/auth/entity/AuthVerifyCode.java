@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.auth.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 验证码记录表（短信/邮箱验证码）
  * 与 sql/auth/schema.sql 中 auth_verify_code 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "auth_verify_code")
+@NoArgsConstructor
 public class AuthVerifyCode {
 
     @Id

@@ -41,6 +41,9 @@ public class PaymentOrder {
     @Column(name = "owner_id", nullable = false)
     private Long ownerId;                // 租户 ID（数据隔离）
 
+    @Column(name = "org_id")
+    private Long orgId;                  // 组织 ID（租户冗余键）
+
     @Column(nullable = false)
     private Long productId;              // 商品 ID
 

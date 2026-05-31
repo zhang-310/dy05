@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.auth.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
  * 角色表（管理员、普通用户；扩展后可自定义角色）
  * 与 sql/auth/schema.sql 中 auth_role 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "auth_role")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class AuthRole {
 
     @Id

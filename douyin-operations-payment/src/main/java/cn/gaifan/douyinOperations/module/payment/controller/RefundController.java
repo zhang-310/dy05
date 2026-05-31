@@ -30,8 +30,8 @@ public class RefundController {
      * 创建退款申请
      */
     @PostMapping("/create")
-    public RESTResult<?> createRefund(@Valid @RequestBody RefundSaveVO vo) {
-        long refundId = refundService.createRefund(vo);
+    public RESTResult<?> createRefund(@Valid @RequestBody RefundSaveVO vo, HttpServletRequest httpRequest) {
+        long refundId = refundService.createRefund(vo, requireUserId(httpRequest));
         return RESTResult.success(refundId);
     }
 
@@ -39,18 +39,18 @@ public class RefundController {
      * 获取退款详情
      */
     @PostMapping("/get")
-    public RESTResult<?> getRefund(@RequestBody Map<String, Long> request) {
+    public RESTResult<?> getRefund(@RequestBody Map<String, Long> request, HttpServletRequest httpRequest) {
         Long refundId = request.get("refundId");
-        return RESTResult.success(refundService.getRefund(refundId));
+        return RESTResult.success(refundService.getRefund(refundId, requireUserId(httpRequest)));
     }
 
     /**
      * 查询订单的所有退款
      */
     @PostMapping("/listByOrder")
-    public RESTResult<?> listByOrder(@RequestBody Map<String, Long> request) {
+    public RESTResult<?> listByOrder(@RequestBody Map<String, Long> request, HttpServletRequest httpRequest) {
         Long orderId = request.get("orderId");
-        return RESTResult.success(refundService.getRefundsByOrderId(orderId));
+        return RESTResult.success(refundService.getRefundsByOrderId(orderId, requireUserId(httpRequest)));
     }
 
     /**
@@ -59,16 +59,8 @@ public class RefundController {
     @PostMapping("/approve")
     public RESTResult<?> approveRefund(@RequestBody Map<String, Long> request, HttpServletRequest httpRequest) {
         Long refundId = request.get("refundId");
-        Long userId = AuthTokenFilter.getUserId(httpRequest);
-
-        if (userId == null) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
-        }
-
-        // P0-5: 验证管理员权限（简化实现：检查用户ID是否为管理员）
-        // 实际应该查询 auth_user 表的 role 字段或使用 Spring Security 的 @PreAuthorize
-        // 这里暂时硬编码管理员 userId = 1（需根据实际业务调整）
-        if (!isAdmin(userId)) {
+        requireUserId(httpRequest);
+        if (!isAdmin(httpRequest)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员可批准退款");
         }
 
@@ -83,14 +75,8 @@ public class RefundController {
     public RESTResult<?> rejectRefund(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
         Long refundId = Long.parseLong(request.get("refundId"));
         String reason = request.get("reason");
-        Long userId = AuthTokenFilter.getUserId(httpRequest);
-
-        if (userId == null) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
-        }
-
-        // P0-5: 验证管理员权限
-        if (!isAdmin(userId)) {
+        requireUserId(httpRequest);
+        if (!isAdmin(httpRequest)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员可拒绝退款");
         }
 
@@ -104,14 +90,8 @@ public class RefundController {
     @PostMapping("/complete")
     public RESTResult<?> completeRefund(@RequestBody Map<String, Long> request, HttpServletRequest httpRequest) {
         Long refundId = request.get("refundId");
-        Long userId = AuthTokenFilter.getUserId(httpRequest);
-
-        if (userId == null) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
-        }
-
-        // P0-5: 验证管理员权限
-        if (!isAdmin(userId)) {
+        requireUserId(httpRequest);
+        if (!isAdmin(httpRequest)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员可完成退款");
         }
 
@@ -120,12 +100,17 @@ public class RefundController {
     }
 
     /**
-     * P0-5: 检查是否为管理员（简化实现）
-     * TODO: 实际应该查询 auth_user 表的 role 字段或使用 Spring Security 的 @PreAuthorize
+     * P0-5: 检查是否为管理员
      */
-    private boolean isAdmin(Long userId) {
-        // 简化实现：userId = 1 为管理员
-        // 实际应该注入 AuthUserService 查询用户角色
-        return userId != null && userId == 1L;
+    private boolean isAdmin(HttpServletRequest request) {
+        return "admin".equalsIgnoreCase(AuthTokenFilter.getRoleCode(request));
+    }
+
+    private Long requireUserId(HttpServletRequest request) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        }
+        return userId;
     }
 }

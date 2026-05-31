@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.auth.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
  * 第三方账号绑定表（微信、QQ、抖音、火山）
  * 与 sql/auth/schema.sql 中 auth_third_party_bind 一一对应 
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "auth_third_party_bind")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class AuthThirdPartyBind {
 
     @Id

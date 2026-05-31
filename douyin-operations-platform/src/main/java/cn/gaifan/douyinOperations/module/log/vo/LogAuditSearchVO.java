@@ -12,5 +12,11 @@ import lombok.EqualsAndHashCode;
 public class LogAuditSearchVO extends BasicQueryDto {
     private String keyword;
     private String auditType;
+    private String username;
+    private String action;
+    private String entity;
+    private Integer status;
+    private String startTime;
+    private String endTime;
     private Long userId;
 }

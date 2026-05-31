@@ -4,6 +4,7 @@ import cn.gaifan.douyinOperations.module.auth.entity.AuthLoginLog;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 import java.sql.Timestamp;
 import java.util.List;
@@ -11,7 +12,7 @@ import java.util.List;
 /**
  * 登录记录表 Repository
  */
-public interface AuthLoginLogRepository extends JpaRepository<AuthLoginLog, Long> {
+public interface AuthLoginLogRepository extends JpaRepository<AuthLoginLog, Long>, JpaSpecificationExecutor<AuthLoginLog> {
 
     Page<AuthLoginLog> findByUserIdOrderByLoginTimeDesc(Long userId, Pageable pageable);
 

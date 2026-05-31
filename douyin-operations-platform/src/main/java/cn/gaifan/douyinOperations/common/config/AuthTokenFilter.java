@@ -1,10 +1,12 @@
 package cn.gaifan.douyinOperations.common.config;
 
+import cn.gaifan.douyinOperations.common.config.RequestIdentityHolder;
 import cn.gaifan.douyinOperations.common.constant.ApiAuthWhitelist;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.contract.auth.AuthPermissionService;
 import cn.gaifan.douyinOperations.contract.auth.AuthTokenStore;
+import cn.gaifan.douyinOperations.contract.identity.IdentityContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.MDC;
 import org.springframework.core.annotation.Order;
@@ -50,6 +52,20 @@ public class AuthTokenFilter implements Filter {
             chain.doFilter(request, response);
             return;
         }
+        IdentityContext existing = RequestIdentityHolder.current();
+        if (existing.authenticated() && "COMMERCIAL_HEADER".equals(existing.source())) {
+            Long headerUserId = resolveHeaderUserId(req, existing);
+            if (headerUserId != null) {
+                req.setAttribute(ATTR_USER_ID, headerUserId);
+                req.setAttribute(ATTR_ROLE_CODE, "gaifan-demo");
+            }
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                RequestIdentityHolder.clear();
+            }
+            return;
+        }
         if (isWhitelist(path)) {
             chain.doFilter(request, response);
             return;
@@ -78,7 +94,52 @@ public class AuthTokenFilter implements Filter {
             writeError(resp, ErrorCode.FORBIDDEN, "无权限访问");
             return;
         }
-        chain.doFilter(request, response);
+        // 设置 ThreadLocal 身份上下文（供 RequestIdentityHolder.current() 使用）
+        IdentityContext ctx = IdentityContext.authenticated(
+                orgId != null ? "org-" + orgId : "user-" + userId,
+                userId, roleCode, orgId,
+                detectChannel(req), MDC.get("traceId"), MDC.get("requestId")
+        );
+        RequestIdentityHolder.set(ctx);
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            RequestIdentityHolder.clear();
+        }
+    }
+
+    /**
+     * Gaifan 联调：X-User-Id 为数字时用 Long；否则 demo-user 等映射为 1L。
+     */
+    static Long resolveHeaderUserId(HttpServletRequest req, IdentityContext ctx) {
+        String raw = req.getHeader("X-User-Id");
+        if (raw == null || raw.isBlank()) {
+            raw = ctx != null ? ctx.gfUserId() : null;
+        }
+        if (raw == null || raw.isBlank()) {
+            return 1L;
+        }
+        raw = raw.trim();
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException ignored) {
+            if (raw.startsWith("user-")) {
+                try {
+                    return Long.parseLong(raw.substring(5));
+                } catch (NumberFormatException ignored2) {
+                    return 1L;
+                }
+            }
+            return 1L;
+        }
+    }
+
+    private static String detectChannel(HttpServletRequest req) {
+        String uri = req.getRequestURI();
+        if (uri.contains("/openapi")) return "OPENAPI";
+        if (uri.contains("/mcp")) return "MCP";
+        if (uri.contains("/app")) return "APP";
+        return "WEB";
     }
 
     private boolean isWhitelist(String path) {

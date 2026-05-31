@@ -17,6 +17,11 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -147,6 +152,48 @@ public class SystemController {
             return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问");
 
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(systemService.getSystemInfo());
+        r.setTraceId(MDC.get("traceId"));
+        return r;
+    }
+
+    @PostMapping("/diagnostic/report")
+    @Operation(summary = "生成系统诊断报告快照")
+    public RESTResult<Map<String, Object>> diagnosticReport(HttpServletRequest request) {
+        if (AuthTokenFilter.getUserId(request) == null)
+            return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        if (!isAdmin(request))
+            return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问");
+
+        Map<String, Object> report = new LinkedHashMap<>();
+        List<String> failures = new ArrayList<>();
+        report.put("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        report.put("source", "/system/diagnostic/report");
+
+        try {
+            report.put("health", systemService.checkHealth());
+        } catch (Exception e) {
+            failures.add("health: " + e.getMessage());
+            report.put("health", Map.of("status", "UNKNOWN"));
+        }
+
+        try {
+            report.put("info", systemService.getSystemInfo());
+        } catch (Exception e) {
+            failures.add("info: " + e.getMessage());
+            report.put("info", Map.of());
+        }
+
+        try {
+            report.put("apiStats", systemService.getApiLogStats(null, null, null));
+        } catch (Exception e) {
+            failures.add("apiStats: " + e.getMessage());
+            report.put("apiStats", Map.of());
+        }
+
+        report.put("degraded", !failures.isEmpty());
+        report.put("failures", failures);
+
+        RESTResult<Map<String, Object>> r = RESTResult.getSuccess(report);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

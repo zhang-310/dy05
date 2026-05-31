@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.auth.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 机构成员表，与 sql/auth/organization.sql 中 auth_org_member 对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "auth_org_member")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class AuthOrgMember {
 
     @Id

@@ -198,7 +198,7 @@ public class AuthUserController {
             @ApiResponse(responseCode = "401", description = "未登录 / Not logged in"),
             @ApiResponse(responseCode = "500", description = "服务器错误 / Server Error")
     })
-    public RESTResult<List<LoginLogVO>> loginLogs(HttpServletRequest request, @io.swagger.v3.oas.annotations.parameters.RequestBody(
+    public RESTResult<PageResultVO<LoginLogVO>> loginLogs(HttpServletRequest request, @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "查询条件 / Query criteria",
             required = false
     ) @RequestBody(required = false) LoginLogQueryVO vo) {
@@ -206,16 +206,16 @@ public class AuthUserController {
         if (currentUserId == null) {
             return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         }
-        Long queryUserId;
+        LoginLogQueryVO query = vo != null ? vo : new LoginLogQueryVO();
         if (isAdmin(request)) {
-            queryUserId = (vo != null && vo.getUserId() != null && vo.getUserId() > 0) ? vo.getUserId() : null;
+            if (query.getUserId() != null && query.getUserId() <= 0) {
+                query.setUserId(null);
+            }
         } else {
-            queryUserId = currentUserId;
+            query.setUserId(currentUserId);
         }
-        int page = vo != null ? vo.getPage() : 0;
-        int size = vo != null ? vo.getSize() : 20;
-        List<LoginLogVO> data = authUserService.getLoginLogs(queryUserId, page, size);
-        RESTResult<List<LoginLogVO>> r = RESTResult.getSuccess(data);
+        PageResultVO<LoginLogVO> data = authUserService.getLoginLogs(query);
+        RESTResult<PageResultVO<LoginLogVO>> r = RESTResult.getSuccess(data);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.system.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 全站分类节点（A-2 taxonomy）；与 {@code sys_taxonomy_node} 对应。
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sys_taxonomy_node")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SysTaxonomyNode {
 
     @Id

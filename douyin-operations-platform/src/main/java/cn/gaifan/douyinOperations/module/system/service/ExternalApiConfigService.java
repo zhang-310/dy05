@@ -23,6 +23,11 @@ public interface ExternalApiConfigService {
     ExternalApiConfig getByProviderCode(String code);
 
     /**
+     * 根据供应商编码获取原始配置（内部任务使用，不做密钥脱敏）
+     */
+    ExternalApiConfig getRawByProviderCode(String code);
+
+    /**
      * 新增或更新配置
      */
     ExternalApiConfig save(ExternalApiConfigSaveVO saveVO);

@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -76,54 +77,21 @@ public class CacheStrategyService {
     }
 
     /**
-     * 缓存预热机制
-     * 应用启动时加载热数据到 Redis
+     * 缓存预热机制。
+     * 该服务不再写入演示推荐/热搜/分类数据；业务热数据应由各领域服务注册真实数据源后预热。
      */
     public void warmUpCache() {
-        log.info("🔥 开始缓存预热...");
+        log.info("开始缓存预热检查...");
         long startTime = System.currentTimeMillis();
 
         try {
-            // 预热推荐列表（模拟）
-            String recommendKey = CacheConfig.RECOMMEND_PREFIX + "top-10";
-            List<Map<String, Object>> topRecommends = generateTopRecommends();
-            setCacheWithTTL(recommendKey, topRecommends,
-                    CacheConfig.RECOMMEND_TTL_MIN, TimeUnit.MINUTES);
-
-            // 预热热搜关键词（模拟）
-            String trendingKey = "trending:queries";
-            List<String> trendingQueries = Arrays.asList("热卖商品", "新品发布", "限时优惠");
-            setCacheWithTTL(trendingKey, trendingQueries,
-                    CacheConfig.HOT_DATA_TTL_HOUR, TimeUnit.HOURS);
-
-            // 预热热分类（模拟）
-            String categoryKey = "categories:hot";
-            Map<String, Integer> hotCategories = new HashMap<>();
-            hotCategories.put("服装", 1000);
-            hotCategories.put("电子产品", 800);
-            setCacheWithTTL(categoryKey, hotCategories,
-                    CacheConfig.HOT_DATA_TTL_HOUR, TimeUnit.HOURS);
-
+            String pong = redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<String>) connection ->
+                    connection.ping());
             long duration = System.currentTimeMillis() - startTime;
-            log.info("✓ 缓存预热完成，耗时 {}ms", duration);
+            log.info("缓存预热检查完成，redisPing={}, registeredWarmups=0, 耗时 {}ms", pong, duration);
         } catch (Exception e) {
-            log.error("✗ 缓存预热失败", e);
+            log.warn("缓存预热检查失败：Redis 不可用或配置缺失，跳过业务预热", e);
         }
-    }
-
-    /**
-     * 生成顶部推荐（模拟数据）
-     */
-    private List<Map<String, Object>> generateTopRecommends() {
-        List<Map<String, Object>> recommends = new ArrayList<>();
-        for (int i = 1; i <= 10; i++) {
-            Map<String, Object> item = new HashMap<>();
-            item.put("id", i);
-            item.put("title", "推荐 #" + i);
-            item.put("score", 95 - i);
-            recommends.add(item);
-        }
-        return recommends;
     }
 
     /**
@@ -135,17 +103,14 @@ public class CacheStrategyService {
             long cacheSize = getRedisMemoryUsage();
             long maxSizeBytes = CacheConfig.MAX_CACHE_SIZE_MB * 1024 * 1024;
 
-            if (cacheSize > maxSizeBytes) {
-                log.warn("⚠️ 缓存大小超限：{}MB > {}MB，执行 LRU 清理",
-                        cacheSize / (1024 * 1024), CacheConfig.MAX_CACHE_SIZE_MB);
+            if (cacheSize <= 0) {
+                log.warn("缓存大小不可用，跳过 LRU 清理");
+                return;
+            }
 
-                // 删除最旧的键（FIFO）
-                Set<?> allKeys = redisTemplate.keys("*");
-                if (allKeys != null && !allKeys.isEmpty()) {
-                    Object keyToDelete = allKeys.iterator().next();
-                    redisTemplate.delete(keyToDelete);
-                    log.info("✓ 已删除过期键：{}", keyToDelete);
-                }
+            if (cacheSize > maxSizeBytes) {
+                log.warn("缓存大小超限：{}MB > {}MB。请配置 Redis maxmemory-policy 执行服务端淘汰，当前不删除任意业务键",
+                        cacheSize / (1024 * 1024), CacheConfig.MAX_CACHE_SIZE_MB);
             }
         } catch (Exception e) {
             log.error("✗ 缓存 LRU 清理失败", e);
@@ -158,8 +123,11 @@ public class CacheStrategyService {
     private long getRedisMemoryUsage() {
         try {
             Long size = redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Long>) connection -> {
-                // 实际实现可解析 connection.info("memory") 等
-                return 100 * 1024 * 1024L; // 模拟 100MB
+                Properties info = connection.serverCommands().info("memory");
+                if (info == null) {
+                    return 0L;
+                }
+                return parseLong(info.getProperty("used_memory"), 0L);
             });
             return size != null ? size : 0;
         } catch (Exception e) {
@@ -205,6 +173,13 @@ public class CacheStrategyService {
      * 解决：使用分布式锁或缓存预加载
      */
     public Object getCacheWithBreakthroughProtection(String key, int retryTimes) {
+        return getCacheWithBreakthroughProtection(key, retryTimes, () -> null);
+    }
+
+    /**
+     * 缓存击穿防护：由调用方提供真实回源逻辑，避免基础设施层伪造业务数据。
+     */
+    public Object getCacheWithBreakthroughProtection(String key, int retryTimes, Supplier<Object> loader) {
         String lockKey = CacheConfig.LOCK_PREFIX + key;
 
         try {
@@ -215,21 +190,16 @@ public class CacheStrategyService {
             }
 
             // 尝试获取分布式锁
-            boolean lockAcquired = redisTemplate.opsForValue()
+            Boolean lockAcquired = redisTemplate.opsForValue()
                     .setIfAbsent(lockKey, "1", 10, TimeUnit.SECONDS);
 
-            if (lockAcquired) {
+            if (Boolean.TRUE.equals(lockAcquired)) {
                 try {
-                    // 获得锁，执行 DB 查询（这里省略 DB 操作）
-                    // 模拟 DB 查询耗时
-                    Thread.sleep(100);
-
-                    Object dbResult = "DB_RESULT_" + System.currentTimeMillis();
-
-                    // 查询结果写回缓存
-                    setCacheWithTTL(key, dbResult,
-                            CacheConfig.RECOMMEND_TTL_MIN, TimeUnit.MINUTES);
-
+                    Object dbResult = loader != null ? loader.get() : null;
+                    if (dbResult != null) {
+                        setCacheWithTTL(key, dbResult,
+                                CacheConfig.RECOMMEND_TTL_MIN, TimeUnit.MINUTES);
+                    }
                     return dbResult;
                 } finally {
                     // 释放锁
@@ -238,10 +208,10 @@ public class CacheStrategyService {
             } else {
                 // 没有获得锁，等待一下后重试
                 if (retryTimes > 0) {
-                    Thread.sleep(100);
-                    return getCacheWithBreakthroughProtection(key, retryTimes - 1);
+                    Thread.sleep(50);
+                    return getCacheWithBreakthroughProtection(key, retryTimes - 1, loader);
                 } else {
-                    log.warn("⚠️ 缓存击穿防护：重试次数已用尽");
+                    log.warn("缓存击穿防护：重试次数已用尽");
                     return null;
                 }
             }
@@ -279,23 +249,60 @@ public class CacheStrategyService {
         Map<String, Object> metrics = new LinkedHashMap<>();
 
         try {
-            // 获取所有缓存键
-            Set<?> allKeys = redisTemplate.keys("*");
-            long totalKeys = allKeys != null ? allKeys.size() : 0;
-
-            // 计算命中率（模拟）
-            double hitRate = 75.5; // 实际需要通过拦截器统计
+            long totalKeys = getRedisDbSize();
+            Properties stats = getRedisInfo("stats");
+            long hits = parseLong(stats != null ? stats.getProperty("keyspace_hits") : null, -1L);
+            long misses = parseLong(stats != null ? stats.getProperty("keyspace_misses") : null, -1L);
+            Long totalRequests = hits >= 0 && misses >= 0 ? hits + misses : null;
+            Double hitRate = totalRequests != null && totalRequests > 0
+                    ? hits * 100.0 / totalRequests
+                    : null;
+            long memoryUsage = getRedisMemoryUsage();
 
             metrics.put("totalKeys", totalKeys);
-            metrics.put("hitRate", hitRate + "%");
-            metrics.put("memoryUsageMB", getRedisMemoryUsage() / (1024.0 * 1024));
+            metrics.put("hitRate", hitRate != null ? String.format(Locale.ROOT, "%.2f%%", hitRate) : null);
+            metrics.put("hitRateAvailable", hitRate != null);
+            metrics.put("keyspaceHits", hits >= 0 ? hits : null);
+            metrics.put("keyspaceMisses", misses >= 0 ? misses : null);
+            metrics.put("memoryUsageMB", memoryUsage / (1024.0 * 1024));
             metrics.put("maxMemoryLimitMB", CacheConfig.MAX_CACHE_SIZE_MB);
-            metrics.put("status", hitRate > 70 ? "良好" : "需要优化");
+            metrics.put("degraded", hitRate == null || memoryUsage <= 0);
+            metrics.put("status", hitRate == null ? "指标不可用" : hitRate > 70 ? "良好" : "需要优化");
 
         } catch (Exception e) {
             log.error("✗ 缓存监控统计失败", e);
+            metrics.put("degraded", true);
+            metrics.put("status", "指标不可用");
+            metrics.put("message", e.getMessage());
         }
 
         return metrics;
+    }
+
+    private Properties getRedisInfo(String section) {
+        return redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Properties>) connection ->
+                connection.serverCommands().info(section));
+    }
+
+    private long getRedisDbSize() {
+        try {
+            Long size = redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Long>) connection ->
+                    connection.serverCommands().dbSize());
+            return size != null ? size : 0L;
+        } catch (Exception e) {
+            log.warn("无法获取 Redis key 数量", e);
+            return 0L;
+        }
+    }
+
+    private static long parseLong(String value, long fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 }

@@ -1,5 +1,6 @@
 package cn.gaifan.douyinOperations.module.payment.service.impl;
 
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
 import cn.gaifan.douyinOperations.module.payment.entity.Subscription;
 import cn.gaifan.douyinOperations.module.payment.repository.SubscriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +24,9 @@ class SubscriptionServiceImplTest {
     @Mock
     private SubscriptionRepository subscriptionRepository;
 
+    @Mock
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     @InjectMocks
     private SubscriptionServiceImpl subscriptionService;
 
@@ -34,6 +38,7 @@ class SubscriptionServiceImplTest {
         mockSubscription.setId(1L);
         mockSubscription.setUserId(1L);
         mockSubscription.setOwnerId(1L);
+        mockSubscription.setOrgId(1L);
         mockSubscription.setPlan("free");
         mockSubscription.setStatus("active");
         mockSubscription.setMaxLiveSessions(5);
@@ -46,7 +51,8 @@ class SubscriptionServiceImplTest {
 
     @Test
     void getActiveSubscription_Success() {
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.of(mockSubscription));
 
         Subscription result = subscriptionService.getActiveSubscription(1L);
@@ -58,6 +64,9 @@ class SubscriptionServiceImplTest {
 
     @Test
     void getActiveSubscription_NotFound_ReturnsNull() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
+                .thenReturn(Optional.empty());
         when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.empty());
 
@@ -69,7 +78,8 @@ class SubscriptionServiceImplTest {
     @Test
     void getActiveSubscription_Expired_ReturnsNull() {
         mockSubscription.setExpiresAt(new Timestamp(System.currentTimeMillis() - 1000));
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.of(mockSubscription));
 
         Subscription result = subscriptionService.getActiveSubscription(1L);
@@ -79,6 +89,9 @@ class SubscriptionServiceImplTest {
 
     @Test
     void createOrUpgrade_NewSubscription_Success() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
+                .thenReturn(Optional.empty());
         when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.empty());
         when(subscriptionRepository.save(any(Subscription.class))).thenReturn(mockSubscription);
@@ -88,6 +101,7 @@ class SubscriptionServiceImplTest {
         verify(subscriptionRepository).save(argThat(sub ->
             sub.getUserId().equals(1L) &&
             sub.getOwnerId().equals(1L) &&
+            sub.getOrgId().equals(1L) &&
             sub.getPlan().equals("pro") &&
             sub.getStatus().equals("active") &&
             sub.getMaxLiveSessions() == 50 &&
@@ -99,7 +113,8 @@ class SubscriptionServiceImplTest {
 
     @Test
     void createOrUpgrade_UpgradeExisting_Success() {
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.of(mockSubscription));
         when(subscriptionRepository.save(any(Subscription.class))).thenReturn(mockSubscription);
 
@@ -117,7 +132,8 @@ class SubscriptionServiceImplTest {
 
     @Test
     void checkQuota_FreePlan_ReturnsCorrectLimits() {
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.of(mockSubscription));
 
         Map<String, Object> result = subscriptionService.checkQuota(1L, "liveSessions");
@@ -132,7 +148,8 @@ class SubscriptionServiceImplTest {
     void checkQuota_ProPlan_UnlimitedAiGenerations() {
         mockSubscription.setPlan("pro");
         mockSubscription.setMaxAiGenerations(-1);
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.of(mockSubscription));
 
         Map<String, Object> result = subscriptionService.checkQuota(1L, "aiGenerations");
@@ -144,6 +161,9 @@ class SubscriptionServiceImplTest {
 
     @Test
     void checkQuota_NoSubscription_DefaultsToFree() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
+                .thenReturn(Optional.empty());
         when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.empty());
 
@@ -160,7 +180,8 @@ class SubscriptionServiceImplTest {
         mockSubscription.setMaxSvProjects(-1);
         mockSubscription.setMaxAiGenerations(-1);
         mockSubscription.setMaxStorageMb(-1);
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(1L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(1L, 0, "active"))
                 .thenReturn(Optional.of(mockSubscription));
 
         Map<String, Object> result = subscriptionService.checkQuota(1L, "storageMb");

@@ -39,7 +39,7 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
         URI uri = request.getURI();
         String module = resolveModule(uri);
         String apiName = resolveApiName(uri);
-        String requestUrl = uri.toString();
+        String requestUrl = sanitizeUrl(uri.toString());
         String requestMethod = request.getMethod() != null ? request.getMethod().name() : "GET";
 
         // P1-10: 使用统一的 ApiCallLogService 脱敏
@@ -109,6 +109,13 @@ public class ApiCallLogInterceptor implements ClientHttpRequestInterceptor {
             return p.length() > 64 ? p.substring(0, 64) : p;
         }
         return uri.getHost() != null ? uri.getHost() : "unknown";
+    }
+
+    private String sanitizeUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return url;
+        }
+        return url.replaceAll("(?i)([?&](?:key|token|access_token|secret|api_key)=)[^&]*", "$1***");
     }
 
     /**

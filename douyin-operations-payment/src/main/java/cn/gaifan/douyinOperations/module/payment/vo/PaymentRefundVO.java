@@ -11,10 +11,14 @@ import java.time.LocalDateTime;
 @Data
 public class PaymentRefundVO {
     private Long id;
+    private Long orderId;
+    private String orderNo;
     private String refundNo;
     private String transactionNo;
     private BigDecimal amount;
     private String status;
     private String reason;
     private LocalDateTime createTime;
+    private LocalDateTime approvedAt;
+    private LocalDateTime completedAt;
 }

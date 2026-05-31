@@ -2,11 +2,14 @@ package cn.gaifan.douyinOperations.module.payment.service;
 
 import cn.gaifan.douyinOperations.module.payment.entity.OrderStatus;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentOrder;
+import cn.gaifan.douyinOperations.module.payment.entity.PaymentTransactionLog;
 import cn.gaifan.douyinOperations.module.payment.entity.TransactionStatus;
 import cn.gaifan.douyinOperations.module.payment.entity.TransactionType;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentOrderRepository;
+import cn.gaifan.douyinOperations.module.payment.repository.PaymentTransactionLogRepository;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,12 +31,22 @@ public class PaymentTimeoutService {
     @Resource
     private DouyinPaymentService paymentService;
 
+    @Resource
+    private PaymentTransactionLogRepository transactionLogRepository;
+
+    @Value("${app.payment.timeout.scheduler.enabled:true}")
+    private boolean schedulerEnabled;
+
     /**
      * 每 5 分钟执行一次，取消超时订单
      */
-    @Scheduled(cron = "0 */5 * * * ?")
+    @Scheduled(cron = "${app.payment.timeout.scheduler.cron:0 */5 * * * ?}")
     @Transactional(rollbackFor = Exception.class)
     public void cancelExpiredOrders() {
+        if (!schedulerEnabled) {
+            log.debug("支付超时自动取消定时任务已禁用，跳过");
+            return;
+        }
         log.info("开始取消超时订单...");
 
         // 支付超时时间为 30 分钟
@@ -68,7 +81,15 @@ public class PaymentTimeoutService {
      */
     private void recordTransaction(Long orderId, TransactionType type,
                                    java.math.BigDecimal amount, TransactionStatus status, String txId) {
-        log.debug("记录交易：orderId={}, type={}, status={}", orderId, type, status);
-        // TODO: 实际应该调用 TransactionService 记录到数据库
+        PaymentTransactionLog transactionLog = PaymentTransactionLog.builder()
+                .orderId(orderId)
+                .type(type)
+                .amount(amount)
+                .status(status)
+                .externalTransactionId(txId)
+                .remarks("支付超时自动取消")
+                .createdAt(LocalDateTime.now())
+                .build();
+        transactionLogRepository.save(transactionLog);
     }
 }

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.auth.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
  * 系统资源表（菜单、API、按钮三类，用于后台授权）
  * 与 sql/auth/schema.sql 中 auth_resource 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "auth_resource")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class AuthResource {
 
     @Id

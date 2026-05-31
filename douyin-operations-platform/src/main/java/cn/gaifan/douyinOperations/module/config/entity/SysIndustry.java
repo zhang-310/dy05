@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.config.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 行业分类表，与 sql/config/schema.sql 中 sys_industry 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sys_industry")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SysIndustry {
 
     @Id

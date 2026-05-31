@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.payment.service.impl;
 
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.payment.entity.OrderStatus;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentOrder;
@@ -35,6 +36,9 @@ class OrderServiceImplTest {
     @Mock
     private PaymentOrderRepository orderRepository;
 
+    @Mock
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     @InjectMocks
     private OrderServiceImpl orderService;
 
@@ -56,6 +60,7 @@ class OrderServiceImplTest {
                 .orderNo("ORD20260512001")
                 .userId(1L)
                 .ownerId(1L)
+                .orgId(1L)
                 .productId(1L)
                 .quantity(1)
                 .amount(new BigDecimal("100.00"))
@@ -68,13 +73,17 @@ class OrderServiceImplTest {
 
     @Test
     void createOrder_Success() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(orderRepository.findByOrderNo(anyString())).thenReturn(Optional.empty());
         when(orderRepository.save(any(PaymentOrder.class))).thenReturn(mockOrder);
 
         long orderId = orderService.createOrder(validOrderVO, 1L);
 
         assertThat(orderId).isEqualTo(1L);
-        verify(orderRepository).save(any(PaymentOrder.class));
+        verify(orderRepository).save(argThat(order ->
+                order.getOwnerId().equals(1L) &&
+                order.getOrgId().equals(1L)
+        ));
     }
 
     @Test
@@ -158,6 +167,7 @@ class OrderServiceImplTest {
 
     @Test
     void getOrder_Success() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
 
         OrderVO result = orderService.getOrder(1L, 1L);
@@ -192,6 +202,7 @@ class OrderServiceImplTest {
         searchVO.setRows(10);
 
         Page<PaymentOrder> mockPage = new PageImpl<>(List.of(mockOrder));
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(mockPage);
 
         PageResultVO<OrderVO> result = orderService.searchByUser(searchVO, 1L);
@@ -224,6 +235,26 @@ class OrderServiceImplTest {
         assertThatThrownBy(() -> orderService.shipOrder(1L, "SF123456"))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ORDER_STATUS_INVALID);
+    }
+
+    @Test
+    void confirmPayment_WrongUser_ThrowsException() {
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
+
+        assertThatThrownBy(() -> orderService.confirmPayment(1L, "TXN123", "alipay", 999L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    void shipOrder_WrongOwner_ThrowsException() {
+        mockOrder.setStatus(OrderStatus.PAID);
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(99L);
+
+        assertThatThrownBy(() -> orderService.shipOrder(1L, "SF123456", 1L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FORBIDDEN);
     }
 
     @Test

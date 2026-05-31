@@ -29,7 +29,7 @@ import java.util.UUID;
 
 /**
  * 第三方 OAuth：授权 URL 构建、code 换 token、拉取用户信息、登录/绑定
- * 各平台 OAuth 参数与响应格式不同，此处做通用封装；未配置 appId 时走模拟数据便于联调
+ * 各平台 OAuth 参数与响应格式不同，此处做通用封装；未配置 appId 时明确失败。
  */
 @Service
 public class AuthOAuthServiceImpl implements AuthOAuthService {
@@ -192,13 +192,13 @@ public class AuthOAuthServiceImpl implements AuthOAuthService {
     }
 
     /**
-     * 用 code 换 token 并拉取用户信息；未配置 appId 时返回模拟数据
+     * 用 code 换 token 并拉取用户信息；未配置 appId 时明确失败，不创建模拟用户。
      */
     private OAuthUserInfo fetchOAuthUserInfo(String provider, String code) {
         OAuthProviderProperties.ProviderConfig config = getConfig(provider);
         if (config == null) return null;
         if (!StringUtils.hasText(config.getAppId())) {
-            return new OAuthUserInfo("demo_openid_" + provider, "demo_union_" + provider, "第三方用户", null);
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "第三方登录未配置 appId: " + provider);
         }
         String baseUrl = StringUtils.hasText(oauthProperties.getCallbackBaseUrl())
                 ? oauthProperties.getCallbackBaseUrl().replaceAll("/$", "") : "http://localhost:8091";

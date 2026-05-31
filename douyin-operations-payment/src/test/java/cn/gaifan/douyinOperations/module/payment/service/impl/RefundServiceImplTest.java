@@ -2,13 +2,19 @@ package cn.gaifan.douyinOperations.module.payment.service.impl;
 
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentOrder;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentRefund;
 import cn.gaifan.douyinOperations.module.payment.entity.RefundStatus;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentOrderRepository;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentRefundRepository;
+import cn.gaifan.douyinOperations.module.payment.vo.PaymentRefundSearchVO;
+import cn.gaifan.douyinOperations.module.payment.vo.PaymentRefundVO;
 import cn.gaifan.douyinOperations.module.payment.vo.RefundSaveVO;
 import cn.gaifan.douyinOperations.module.payment.vo.RefundVO;
+import cn.gaifan.douyinOperations.common.vo.PageResultVO;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.jpa.domain.Specification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,6 +40,9 @@ class RefundServiceImplTest {
     @Mock
     private PaymentOrderRepository orderRepository;
 
+    @Mock
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     @InjectMocks
     private RefundServiceImpl refundService;
 
@@ -52,6 +61,8 @@ class RefundServiceImplTest {
                 .quantity(1)
                 .amount(new BigDecimal("100.00"))
                 .actualAmount(new BigDecimal("90.00"))
+                .status(cn.gaifan.douyinOperations.module.payment.entity.OrderStatus.PAID)
+                .transactionId("TXN20260512001")
                 .build();
 
         mockRefund = PaymentRefund.builder()
@@ -72,11 +83,11 @@ class RefundServiceImplTest {
 
     @Test
     void createRefund_Success() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
-        when(refundRepository.findByOrderId(1L)).thenReturn(List.of());
         when(refundRepository.save(any(PaymentRefund.class))).thenReturn(mockRefund);
 
-        long refundId = refundService.createRefund(validRefundVO);
+        long refundId = refundService.createRefund(validRefundVO, 1L);
 
         assertThat(refundId).isEqualTo(1L);
         verify(refundRepository).save(argThat(refund ->
@@ -89,9 +100,10 @@ class RefundServiceImplTest {
 
     @Test
     void createRefund_OrderNotFound_ThrowsException() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(orderRepository.findById(1L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> refundService.createRefund(validRefundVO))
+        assertThatThrownBy(() -> refundService.createRefund(validRefundVO, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ORDER_NOT_FOUND);
     }
@@ -99,10 +111,10 @@ class RefundServiceImplTest {
     @Test
     void createRefund_AmountExceedsRefundable_ThrowsException() {
         validRefundVO.setAmount(new BigDecimal("100.00"));
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
-        when(refundRepository.findByOrderId(1L)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> refundService.createRefund(validRefundVO))
+        assertThatThrownBy(() -> refundService.createRefund(validRefundVO, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.REFUND_AMOUNT_EXCEED);
     }
@@ -168,9 +180,10 @@ class RefundServiceImplTest {
 
     @Test
     void getRefund_Success() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(refundRepository.findById(1L)).thenReturn(Optional.of(mockRefund));
 
-        RefundVO result = refundService.getRefund(1L);
+        RefundVO result = refundService.getRefund(1L, 1L);
 
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
@@ -180,35 +193,52 @@ class RefundServiceImplTest {
     @Test
     void getRefund_WrongOwner_ThrowsException() {
         mockRefund.setOwnerId(999L);
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(refundRepository.findById(1L)).thenReturn(Optional.of(mockRefund));
 
-        assertThatThrownBy(() -> refundService.getRefund(1L))
+        assertThatThrownBy(() -> refundService.getRefund(1L, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FORBIDDEN);
     }
 
     @Test
     void getRefundsByOrderId_Success() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
         when(refundRepository.findByOrderId(1L)).thenReturn(List.of(mockRefund));
 
-        List<RefundVO> result = refundService.getRefundsByOrderId(1L);
+        List<RefundVO> result = refundService.getRefundsByOrderId(1L, 1L);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo(1L);
     }
 
     @Test
-    void calculateRefundedAmount_Success() {
-        PaymentRefund completedRefund = PaymentRefund.builder()
-                .id(2L)
-                .orderId(1L)
-                .ownerId(1L)
-                .amount(new BigDecimal("30.00"))
-                .status(RefundStatus.COMPLETED)
-                .build();
+    void searchRefunds_ShouldReturnTenantRefundPage() {
+        PaymentRefundSearchVO searchVO = new PaymentRefundSearchVO();
+        searchVO.setPage(0);
+        searchVO.setRows(10);
+        searchVO.setSortName("createTime");
 
-        when(refundRepository.findByOrderId(1L)).thenReturn(List.of(mockRefund, completedRefund));
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(1L);
+        when(refundRepository.findAll(any(Specification.class), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(mockRefund)));
+        when(orderRepository.findAllById(List.of(1L))).thenReturn(List.of(mockOrder));
+
+        PageResultVO<PaymentRefundVO> result = refundService.searchRefunds(searchVO, 1L);
+
+        assertThat(result.getTotal()).isEqualTo(1);
+        assertThat(result.getList()).hasSize(1);
+        assertThat(result.getList().get(0).getRefundNo()).isEqualTo("R1");
+        assertThat(result.getList().get(0).getOrderNo()).isEqualTo("ORD20260512001");
+        assertThat(result.getList().get(0).getTransactionNo()).isEqualTo("TXN20260512001");
+        assertThat(result.getList().get(0).getStatus()).isEqualTo("PENDING");
+        verify(refundRepository).findAll(any(Specification.class), any(org.springframework.data.domain.Pageable.class));
+    }
+
+    @Test
+    void calculateRefundedAmount_Success() {
+        when(refundRepository.sumRefundedAmountByOrderId(1L)).thenReturn(new BigDecimal("30.00"));
 
         BigDecimal result = refundService.calculateRefundedAmount(1L);
 
@@ -218,7 +248,6 @@ class RefundServiceImplTest {
     @Test
     void canRefund_ValidAmount_ReturnsTrue() {
         when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
-        when(refundRepository.findByOrderId(1L)).thenReturn(List.of());
 
         boolean result = refundService.canRefund(1L, new BigDecimal("50.00"));
 
@@ -228,7 +257,6 @@ class RefundServiceImplTest {
     @Test
     void canRefund_ExceedsRefundable_ReturnsFalse() {
         when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
-        when(refundRepository.findByOrderId(1L)).thenReturn(List.of());
 
         boolean result = refundService.canRefund(1L, new BigDecimal("100.00"));
 
@@ -236,12 +264,9 @@ class RefundServiceImplTest {
     }
 
     @Test
-    void canRefund_NegativeAmount_ReturnsFalse() {
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(mockOrder));
-        when(refundRepository.findByOrderId(1L)).thenReturn(List.of());
-
-        boolean result = refundService.canRefund(1L, new BigDecimal("-10.00"));
-
-        assertThat(result).isFalse();
+    void canRefund_NegativeAmount_ThrowsException() {
+        assertThatThrownBy(() -> refundService.canRefund(1L, new BigDecimal("-10.00")))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_FAIL);
     }
 }
