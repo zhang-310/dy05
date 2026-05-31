@@ -623,7 +623,7 @@ public class LiveScriptGenerationController {
         Long sessionId = body.get("sessionId") != null ? ((Number) body.get("sessionId")).longValue() : null;
         if (sessionId == null) return withTraceId(RESTResult.error(ErrorCode.VALIDATION_FAIL, "sessionId 不能为空"));
 
-        List<LiveProduct> products = liveProductRepository.findBySessionId(sessionId);
+        List<LiveProduct> products = liveProductRepository.findBySessionIdOrderByPositionAscIdAsc(sessionId);
         if (products.isEmpty()) return withTraceId(RESTResult.error(ErrorCode.DATA_NOT_FOUND, "该场次无商品"));
 
         Map<String, Integer> typeOrder = Map.of("hot", 1, "control", 2, "profit", 3, "loss", 4, "flat", 5);

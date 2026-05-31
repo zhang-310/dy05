@@ -1,16 +1,20 @@
 package cn.gaifan.douyinOperations.module.benchmark.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 /**
  * 分析任务实体
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "benchmark_task")
+@NoArgsConstructor
 public class BenchmarkTask {
 
     @Id

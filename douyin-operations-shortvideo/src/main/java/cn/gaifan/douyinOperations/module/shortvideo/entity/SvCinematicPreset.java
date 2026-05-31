@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.math.BigDecimal;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * 运镜 Prompt 知识库 (Phase 5)
  * 表: sv_cinematic_preset
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_cinematic_preset")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvCinematicPreset {
 
     @Id

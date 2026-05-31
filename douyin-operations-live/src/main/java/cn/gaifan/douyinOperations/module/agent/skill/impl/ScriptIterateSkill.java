@@ -7,6 +7,8 @@ import cn.gaifan.douyinOperations.module.agent.skill.Skill;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScript;
 import cn.gaifan.douyinOperations.module.live.repository.LiveScriptRepository;
 import cn.gaifan.douyinOperations.module.live.service.LiveAiService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ScriptIterateSkill implements Skill {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptIterateSkill.class);
     private static final String[] TRIGGERS = {"iterate", "script_iterate", "话术迭代", "迭代话术"};
 
     @jakarta.annotation.Resource
@@ -97,7 +100,9 @@ public class ScriptIterateSkill implements Skill {
             try {
                 scriptId = Long.parseLong(rest.substring(0, firstSpace));
                 instruction = rest.substring(firstSpace + 1).trim();
-            } catch (NumberFormatException ignored) {}
+            } catch (NumberFormatException e) {
+                log.debug("话术ID解析失败，使用原始指令: {}", e.getMessage());
+            }
         }
         return new Skill.SkillContext(userId, agentId, conversationId, rawInput,
                 scriptId != null ? java.util.Map.of("scriptId", scriptId, "instruction", instruction) : java.util.Map.of("instruction", instruction));

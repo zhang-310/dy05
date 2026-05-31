@@ -15,5 +15,7 @@ public class LiveScriptSearchVO extends BasicQueryDto {
 
     private Long sessionId;
     private List<Long> sessionIds;  // DataScope 注入：可见场次 ID 列表
+    private String scriptType;
+    private String keyword;
     private Integer executed;
 }

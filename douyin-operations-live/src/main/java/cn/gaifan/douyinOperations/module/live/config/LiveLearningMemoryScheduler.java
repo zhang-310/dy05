@@ -4,6 +4,7 @@ import cn.gaifan.douyinOperations.module.live.repository.LiveLearningMemoryRepos
 import cn.gaifan.douyinOperations.module.live.service.CrossSessionLearningService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,12 +29,19 @@ public class LiveLearningMemoryScheduler {
     @Autowired(required = false)
     private LiveLearningMemoryRepository memoryRepository;
 
+    @Value("${app.live.learning-memory.scheduler.enabled:true}")
+    private boolean schedulerEnabled;
+
     /**
      * 每日 02:00: 对所有未归档记忆执行置信度衰减 (*0.9)
      */
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "${app.live.learning-memory.scheduler.decay-cron:0 0 2 * * ?}")
     @Transactional
     public void decayAllMemories() {
+        if (!schedulerEnabled) {
+            log.debug("[LearningMemory] 调度已禁用，跳过置信度衰减");
+            return;
+        }
         if (memoryRepository == null) return;
         try {
             // 找到所有未归档、置信度高于阈值的记忆，逐条衰减
@@ -54,8 +62,12 @@ public class LiveLearningMemoryScheduler {
     /**
      * 每日 02:30: 归档置信度 < 0.3 的失效记忆
      */
-    @Scheduled(cron = "0 30 2 * * ?")
+    @Scheduled(cron = "${app.live.learning-memory.scheduler.archive-cron:0 30 2 * * ?}")
     public void archiveIneffectiveMemories() {
+        if (!schedulerEnabled) {
+            log.debug("[LearningMemory] 调度已禁用，跳过失效记忆归档");
+            return;
+        }
         if (crossSessionLearningService == null) return;
         try {
             crossSessionLearningService.decayIneffectiveMemories();

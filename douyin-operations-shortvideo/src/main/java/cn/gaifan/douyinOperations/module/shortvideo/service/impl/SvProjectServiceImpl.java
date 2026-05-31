@@ -92,29 +92,34 @@ public class SvProjectServiceImpl implements SvProjectService {
         if (StringUtils.hasText(vo.getScheduleDate())) {
             try {
                 e.setScheduleDate(java.sql.Date.valueOf(vo.getScheduleDate()));
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // 日期格式错误，跳过设置
+            }
         }
         if (StringUtils.hasText(vo.getShootStatus())) e.setShootStatus(vo.getShootStatus());
         if (StringUtils.hasText(vo.getStatus())) e.setStatus(vo.getStatus());
         else if (e.getId() == null) e.setStatus("draft");
-        e.setAccountId(vo.getAccountId());
-        e.setScriptId(vo.getScriptId());
-        e.setShotListId(vo.getShotListId());
-        e.setFinalVideoUrl(vo.getFinalVideoUrl());
-        e.setThumbnailUrl(vo.getThumbnailUrl());
+        if (vo.getAccountId() != null) e.setAccountId(vo.getAccountId());
+        if (vo.getScriptId() != null) e.setScriptId(vo.getScriptId());
+        if (vo.getShotListId() != null) e.setShotListId(vo.getShotListId());
+        if (vo.getFinalVideoUrl() != null) e.setFinalVideoUrl(vo.getFinalVideoUrl());
+        if (vo.getThumbnailUrl() != null) e.setThumbnailUrl(vo.getThumbnailUrl());
         if (vo.getCharacterReferenceUrl() != null) e.setCharacterReferenceUrl(vo.getCharacterReferenceUrl());
         if (vo.getSceneReferenceUrl() != null) e.setSceneReferenceUrl(vo.getSceneReferenceUrl());
-        e.setDuration(vo.getDuration());
-        e.setPublishTitle(vo.getPublishTitle());
-        e.setPublishPlatforms(vo.getPublishPlatforms());
+        if (vo.getDuration() != null) e.setDuration(vo.getDuration());
+        if (vo.getRelatedProductIds() != null) e.setRelatedProductIds(vo.getRelatedProductIds());
+        if (vo.getPublishTitle() != null) e.setPublishTitle(vo.getPublishTitle());
+        if (vo.getPublishPlatforms() != null) e.setPublishPlatforms(vo.getPublishPlatforms());
         if (StringUtils.hasText(vo.getPublishTime())) {
             try {
                 e.setPublishTime(java.sql.Timestamp.valueOf(vo.getPublishTime().replace("T", " ").substring(0, 19)));
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // 时间格式错误，跳过设置
+            }
         }
-        e.setReviewStatus(vo.getReviewStatus());
-        e.setReviewerId(vo.getReviewerId());
-        e.setReviewComment(vo.getReviewComment());
+        if (vo.getReviewStatus() != null) e.setReviewStatus(vo.getReviewStatus());
+        if (vo.getReviewerId() != null) e.setReviewerId(vo.getReviewerId());
+        if (vo.getReviewComment() != null) e.setReviewComment(vo.getReviewComment());
         e = projectRepository.save(e);
         return e.getId();
     }
@@ -146,6 +151,7 @@ public class SvProjectServiceImpl implements SvProjectService {
         vo.setCharacterReferenceUrl(e.getCharacterReferenceUrl());
         vo.setSceneReferenceUrl(e.getSceneReferenceUrl());
         vo.setDuration(e.getDuration());
+        vo.setRelatedProductIds(e.getRelatedProductIds());
         vo.setPublishTitle(e.getPublishTitle());
         vo.setPublishPlatforms(e.getPublishPlatforms());
         vo.setPublishTime(e.getPublishTime());

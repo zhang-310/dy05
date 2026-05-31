@@ -60,6 +60,12 @@ public class LiveScriptPromptServiceImpl implements LiveScriptPromptService {
     @Override
     public RagContextResult buildRagContext(Long userId, DyProduct product, String scriptType,
                                             String style, int promptLength, String requirement) {
+        return buildRagContext(userId, product, scriptType, style, promptLength, requirement, null);
+    }
+
+    @Override
+    public RagContextResult buildRagContext(Long userId, DyProduct product, String scriptType,
+                                            String style, int promptLength, String requirement, String materialType) {
         if (!ragEnabled || userId == null) return null;
         LiveKnowledgeBaseAccessResolver.ResolvedKnowledgeBase resolvedKb =
                 knowledgeBaseAccessResolver.resolveHuashu(userId);
@@ -82,7 +88,9 @@ public class LiveScriptPromptServiceImpl implements LiveScriptPromptService {
                 try {
                     List<String> rewritten = queryRewriteService.rewrite(userId, q);
                     if (rewritten != null) extra.addAll(rewritten);
-                } catch (Exception ignored) { }
+                } catch (Exception ignored) {
+                    // 查询改写失败，使用原查询
+                }
             }
             queries = new ArrayList<>(queries);
             queries.addAll(extra);
@@ -92,30 +100,50 @@ public class LiveScriptPromptServiceImpl implements LiveScriptPromptService {
 
         Set<Long> seenChunkIds = ConcurrentHashMap.newKeySet();
         List<KnowledgeBaseService.SearchResult> allResults = Collections.synchronizedList(new ArrayList<>());
-        String baseSourceFilter = "(metadata[\"source_type\"] == \"live_script\") || (metadata[\"source_type\"] == \"manual\") || (metadata[\"source_type\"] == \"evolved_script\")";
-        Map<String, Object> huashuEsFilters = new java.util.HashMap<>(Map.of("source_type", List.of("live_script", "manual", "evolved_script")));
-        if (scriptType != null && !scriptType.isBlank() && !"custom".equals(scriptType) && !"chat".equals(scriptType)) {
-            huashuEsFilters.put("script_type", List.of(scriptType));
+        String scriptSourceFilter = "(metadata[\"source_type\"] == \"live_script\") || (metadata[\"source_type\"] == \"manual\") || (metadata[\"source_type\"] == \"evolved_script\")";
+        Map<String, Object> scriptEsFilters = new java.util.HashMap<>(Map.of("source_type", List.of("live_script", "manual", "evolved_script")));
+        boolean filterByScriptType = scriptType != null && !scriptType.isBlank() && !"custom".equals(scriptType) && !"chat".equals(scriptType);
+        if (filterByScriptType) {
+            scriptEsFilters.put("script_type", List.of(scriptType));
         }
-        final String huashuMilvusFilter = (scriptType != null && !scriptType.isBlank() && !"custom".equals(scriptType) && !"chat".equals(scriptType))
-                ? baseSourceFilter + " && (metadata[\"script_type\"] == \"" + scriptType + "\")"
-                : baseSourceFilter;
-        List<CompletableFuture<Void>> futures = queries.stream()
-                .map(q -> CompletableFuture.runAsync(() -> {
-                    List<KnowledgeBaseService.SearchResult> list = knowledgeBaseService.hybridSearch(kbId, q, ragTopK + 5, ragUserId, huashuMilvusFilter, huashuEsFilters, true);
+        final String scriptMilvusFilter = filterByScriptType
+                ? scriptSourceFilter + " && (metadata[\"script_type\"] == \"" + scriptType + "\")"
+                : scriptSourceFilter;
+
+        List<String> materialQueries = buildMaterialQueries(materialType, product, scriptType, style, requirement);
+        String tianapiMilvusFilter = "metadata[\"source_type\"] == \"tianapi\"";
+        Map<String, Object> tianapiEsFilters = new java.util.HashMap<>(Map.of("source_type", List.of("tianapi")));
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (String q : queries) {
+            futures.add(CompletableFuture.runAsync(() -> {
+                    List<KnowledgeBaseService.SearchResult> list = knowledgeBaseService.hybridSearch(kbId, q, ragTopK + 5, ragUserId, scriptMilvusFilter, scriptEsFilters, true);
                     if (list != null) {
                         for (KnowledgeBaseService.SearchResult r : list) {
                             Long cid = r.chunkId() != null ? r.chunkId() : r.docId();
                             if (cid != null && seenChunkIds.add(cid)) allResults.add(r);
                         }
                     }
-                }))
-                .toList();
+                }));
+        }
+        for (String q : materialQueries) {
+            futures.add(CompletableFuture.runAsync(() -> {
+                List<KnowledgeBaseService.SearchResult> list = knowledgeBaseService.hybridSearch(kbId, q, Math.max(4, ragTopK), ragUserId, tianapiMilvusFilter, tianapiEsFilters, true);
+                if (list != null) {
+                    for (KnowledgeBaseService.SearchResult r : list) {
+                        Long cid = r.chunkId() != null ? r.chunkId() : r.docId();
+                        if (cid != null && seenChunkIds.add(cid)) allResults.add(r);
+                    }
+                }
+            }));
+        }
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(ragParallelTimeoutSec, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.warn("RAG 并行检索部分超时，已收集 {} 条", allResults.size());
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {
+            // 并行检索异常，使用已收集的结果
+        }
 
         List<KnowledgeBaseService.SearchResult> filtered = allResults.stream()
                 .filter(r -> r.score() >= ragMinScore)
@@ -125,7 +153,7 @@ public class LiveScriptPromptServiceImpl implements LiveScriptPromptService {
         if (filtered.isEmpty()) return null;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("<reference_scripts>\n<note>仅参考风格和技巧，禁止照搬内容</note>\n");
+        sb.append("<reference_scripts>\n<note>仅参考风格、节奏、表达技巧和可融合的素材，禁止照搬整段内容；TianAPI 素材可改写成直播口播。</note>\n");
         int totalLen = 0;
         List<KnowledgeBaseService.SearchResult> includedRefs = new ArrayList<>();
         for (int i = 0; i < filtered.size(); i++) {
@@ -238,6 +266,45 @@ public class LiveScriptPromptServiceImpl implements LiveScriptPromptService {
             if (style != null && !style.isBlank()) queries.add(style + " " + typeTerm + " 案例");
         }
         return queries.stream().filter(q -> !q.isEmpty()).distinct().toList();
+    }
+
+    private List<String> buildMaterialQueries(String materialType, DyProduct product, String scriptType, String style, String requirement) {
+        List<String> queries = new ArrayList<>();
+        String productTerm = product != null && product.getProductName() != null ? product.getProductName() + " " : "";
+        String reqTerm = requirement != null && !requirement.isBlank() ? requirement + " " : "";
+        if (materialType != null && !materialType.isBlank()) {
+            switch (materialType) {
+                case "jingle", "rhyme_jingle", "shunkouliu" -> {
+                    queries.add(productTerm + reqTerm + "顺口溜 押韵 直播 口播 带货");
+                    queries.add("顺口溜 押韵 金句 朗朗上口");
+                }
+                case "proverb", "xiehouyu" -> {
+                    queries.add(productTerm + reqTerm + "歇后语 俗语 接地气 互动");
+                    queries.add("歇后语 俗语 幽默 直播间");
+                }
+                case "quote" -> {
+                    queries.add(productTerm + reqTerm + "名言 金句 女性 情绪价值 直播");
+                    queries.add("名言警句 名人名言 金句 价值感");
+                }
+                case "joke" -> {
+                    queries.add(productTerm + reqTerm + "段子 笑话 神回复 直播 互动");
+                    queries.add("小段子 神回复 幽默 接梗");
+                }
+                case "chicken_soup" -> {
+                    queries.add(productTerm + reqTerm + "鸡汤 金句 情绪价值 女性 共鸣");
+                    queries.add("励志 早安心语 晚安心语 精美句子");
+                }
+                case "interactive_game" -> queries.add(productTerm + reqTerm + "互动 口令 评论区 游戏 接龙");
+                default -> queries.add(productTerm + reqTerm + materialType + " 直播 话术 素材");
+            }
+        }
+        if ("product".equals(scriptType) || "opening".equals(scriptType) || "chat".equals(scriptType)) {
+            queries.add(productTerm + reqTerm + "顺口溜 金句 直播带货");
+        }
+        if (style != null && style.contains("rhyme")) {
+            queries.add(productTerm + "押韵 顺口溜 口播");
+        }
+        return queries.stream().map(String::trim).filter(q -> !q.isEmpty()).distinct().limit(5).toList();
     }
 
     private static String mapScriptTypeToQuery(String scriptType) {

@@ -108,6 +108,13 @@ public class LiveScriptStreamServiceImpl implements LiveScriptStreamService {
                 String productType = (lp != null && lp.getProductType() != null && !lp.getProductType().isBlank())
                         ? lp.getProductType() : productService.inferProductType(slot.getProductId());
                 vo.setProductType(productType);
+                Integer durationSec = vo.getDurationLimitSec();
+                if (durationSec == null || durationSec <= 0) {
+                    Integer defaultDuration = promptBuilder.resolveDefaultDurationSecForProductType(productType);
+                    if (defaultDuration != null && defaultDuration > 0) {
+                        vo.setDurationLimitSec(defaultDuration);
+                    }
+                }
             }
 
             int slotIdx = ctx.slotIndex();
@@ -139,11 +146,12 @@ public class LiveScriptStreamServiceImpl implements LiveScriptStreamService {
             final Long sessionId = session.getId();
             final Long uid = session.getUserId();
             final String stype = scriptType;
+            final Integer durationForPersist = vo.getDurationLimitSec();
             String promptFingerprint = Sha256Hex.fingerprintSystemAndUser(systemPrompt, userPrompt);
             TransactionTemplate tx = new TransactionTemplate(transactionManager);
             final ScriptStyleAssignVO abForPersist = abAssign;
             modelChatStreamService.streamChatToOutputStream(resolvedModelId, messages, out, content ->
-                    tx.executeWithoutResult(status -> persistStreamSlotSuccess(sid, sessionId, uid, content, promptFingerprint, stype, abForPersist)));
+                    tx.executeWithoutResult(status -> persistStreamSlotSuccess(sid, sessionId, uid, content, promptFingerprint, stype, abForPersist, durationForPersist)));
         } catch (Exception e) {
             String msg = e.getMessage();
             if (msg != null && (msg.contains("Broken pipe") || msg.contains("Connection reset"))) {
@@ -154,7 +162,9 @@ public class LiveScriptStreamServiceImpl implements LiveScriptStreamService {
             try {
                 out.write(("event: error\ndata: " + new ObjectMapper().writeValueAsString(Map.of("error", msg != null ? msg : "未知错误")) + "\n\n").getBytes(StandardCharsets.UTF_8));
                 out.flush();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // SSE错误消息发送失败，客户端已断开
+            }
         }
     }
 
@@ -203,7 +213,7 @@ public class LiveScriptStreamServiceImpl implements LiveScriptStreamService {
 
     /** 流式成功结束后：正文 + prompt 指纹落库（与同步 generateWithLlm 一致算法） */
     private void persistStreamSlotSuccess(Long scriptId, Long sessionId, Long userId, String content,
-            String promptFingerprint, String scriptTypeLabel, ScriptStyleAssignVO abAssign) {
+            String promptFingerprint, String scriptTypeLabel, ScriptStyleAssignVO abAssign, Integer durationLimitSec) {
         LiveScript fresh = scriptRepository.findById(scriptId).orElse(null);
         if (fresh == null) {
             return;
@@ -216,6 +226,9 @@ public class LiveScriptStreamServiceImpl implements LiveScriptStreamService {
         fresh.setGenerationPromptHash(promptFingerprint);
         fresh.setAiGenerated(1);
         fresh.setGenerationStatus("success");
+        if (durationLimitSec != null && durationLimitSec > 0) {
+            fresh.setDurationLimitSec(durationLimitSec);
+        }
         if (abAssign != null) {
             fresh.setAbExperimentId(abAssign.getExperimentId());
             fresh.setAbVariantId(abAssign.getVariantId());

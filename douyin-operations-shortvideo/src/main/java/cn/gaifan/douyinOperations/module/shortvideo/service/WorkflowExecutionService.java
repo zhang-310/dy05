@@ -5,7 +5,10 @@ import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
 import cn.gaifan.douyinOperations.module.ai.entity.AiTaskModelConfig;
 import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.repository.AiTaskModelConfigRepository;
+import cn.gaifan.douyinOperations.module.ai.service.AiMusicProvider;
+import cn.gaifan.douyinOperations.module.ai.service.AiMusicService;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
+import cn.gaifan.douyinOperations.module.ai.service.SfxGenerationService;
 import cn.gaifan.douyinOperations.module.ai.service.VideoEditService;
 import cn.gaifan.douyinOperations.module.shortvideo.util.ShortVideoPathHelper;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvWorkflowTask;
@@ -14,6 +17,7 @@ import cn.gaifan.douyinOperations.module.shortvideo.vo.SvProjectSaveVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.SvProjectVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.SvScriptSaveVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.SvScriptVO;
+import cn.gaifan.douyinOperations.module.shortvideo.vo.SvShotListVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.SvShotVO;
 import cn.gaifan.douyinOperations.module.storage.service.BosStorageService;
 import com.alibaba.fastjson2.JSON;
@@ -26,6 +30,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -45,8 +50,8 @@ import java.util.concurrent.Executor;
  * 将前端节点操作转化为后端异步任务:
  * 1. 接收前端的"从某节点开始执行"请求
  * 2. 异步执行: 脚本→分镜→关键帧→视频→后期→合成
- * 3. projectId > 0 时实际调用 script/shotList 服务
- * 4. 其他步骤或 projectId=0 时占位完成
+ * 3. projectId > 0 时实际调用 script/shotList/media 服务
+ * 4. 无效 projectId 或未配置供应商时明确失败，不返回占位完成
  */
 @Service
 public class WorkflowExecutionService {
@@ -118,12 +123,31 @@ public class WorkflowExecutionService {
     @Resource
     private SvWorkflowTaskRepository workflowTaskRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AiMusicService aiMusicService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private SfxGenerationService sfxGenerationService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private DigitalHumanSynthesisService digitalHumanSynthesisService;
+
+    @Resource
+    private WorkflowCommercialGuard workflowCommercialGuard;
+
     private void saveTaskStatus(String taskId, String status, String currentStep, int progress,
                                 Long projectId, Long ownerId) {
-        Map<String, Object> data = new HashMap<>();
+        Map<String, Object> data = loadTaskStatus(taskId);
+        if (data == null) {
+            data = new HashMap<>();
+        } else {
+            data = new HashMap<>(data);
+        }
         data.put("status", status);
         data.put("currentStep", currentStep != null ? currentStep : "script");
         data.put("progress", progress);
+        data.put("taskId", taskId);
+        data.put("projectId", projectId);
         memoryFallback.put(taskId, data);
         if (stringRedisTemplate != null) {
             try {
@@ -206,9 +230,39 @@ public class WorkflowExecutionService {
 
         saveTaskStatus(taskId, "processing", startStep, 10, projectId, userId);
         log.info("工作流任务已提交: taskId={}, startStep={}, projectId={}", taskId, startStep, projectId);
+        if (workflowCommercialGuard != null) {
+            workflowCommercialGuard.reserveForTask(taskId, projectId, userId);
+        }
 
         workflowTaskExecutor.execute(() -> runStep(taskId, projectId, startStep, params, userId));
 
+        return taskId;
+    }
+
+    /**
+     * 数字人口播带货一键成片：串联脚本、分镜、数字人口播、产品 B-roll、配音、合成。
+     */
+    public String executeDigitalHumanCommercePipeline(Long projectId, Map<String, Object> params, Long userId) {
+        String taskId = "wf_dh_commerce_" + System.currentTimeMillis() + "_" + projectId;
+        Map<String, Object> normalized = params != null ? new HashMap<>(params) : new HashMap<>();
+        normalized.putIfAbsent("style", "数字人口播带货 产品细节展示");
+        normalized.putIfAbsent("type", "digital_human_commerce");
+        normalized.putIfAbsent("duration", 45);
+        normalized.putIfAbsent("shotCount", 8);
+        normalized.putIfAbsent("quality", "premium-fhd");
+        normalized.putIfAbsent("aspectRatio", "9:16");
+        saveTaskStatus(taskId, "processing", "pipeline:init", 5, projectId, userId);
+        Map<String, Object> status = loadTaskStatus(taskId);
+        if (status != null) {
+            status.put("pipeline", "digital_human_commerce");
+            status.put("steps", commercePipelineSteps());
+            memoryFallback.put(taskId, status);
+            persistTaskStatus(taskId, status);
+        }
+        if (workflowCommercialGuard != null) {
+            workflowCommercialGuard.reserveForTask(taskId, projectId, userId);
+        }
+        workflowTaskExecutor.execute(() -> runDigitalHumanCommercePipeline(taskId, projectId, normalized, userId));
         return taskId;
     }
 
@@ -255,16 +309,32 @@ public class WorkflowExecutionService {
                     runPublishStep(taskId, projectId, params, userId);
                     return;
                 }
+                if ("digitalHumanCommerce".equals(startStep)) {
+                    runDigitalHumanCommercePipeline(taskId, projectId, params, userId);
+                    return;
+                }
             }
-            // 占位：projectId=0 时
-            Thread.sleep(2000);
-            saveTaskStatus(taskId, "completed", "completed", 100, projectId, userId);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            saveTaskStatus(taskId, "failed", startStep, 0, projectId, userId);
+            throw new IllegalArgumentException("工作流必须绑定有效 projectId，当前步骤不会占位完成");
         } catch (Exception e) {
             log.warn("工作流步骤执行失败: taskId={}, step={}, error={}", taskId, startStep, e.getMessage());
             saveTaskStatus(taskId, "failed", startStep, 0, projectId, userId);
+            if (workflowCommercialGuard != null) {
+                workflowCommercialGuard.releaseTask(taskId, projectId, e.getMessage());
+            }
+        }
+        finalizeWorkflowCommercial(taskId, projectId);
+    }
+
+    private void finalizeWorkflowCommercial(String taskId, Long projectId) {
+        if (workflowCommercialGuard == null) {
+            return;
+        }
+        Map<String, Object> st = loadTaskStatus(taskId);
+        String status = st != null && st.get("status") instanceof String s ? s : "";
+        if ("completed".equals(status)) {
+            workflowCommercialGuard.commitTask(taskId, projectId);
+        } else if ("failed".equals(status)) {
+            workflowCommercialGuard.releaseTask(taskId, projectId, "workflow step failed");
         }
     }
 
@@ -476,22 +546,344 @@ public class WorkflowExecutionService {
         }
     }
 
-    /** BGM 生成步骤：占位，compose 时可用 AiMusicService 生成 */
+    /** BGM 生成步骤：调用已配置的 AiMusicService */
     private void runMusicGenStep(String taskId, Long projectId, Map<String, Object> params, Long userId) {
-        log.info("工作流 musicGen 步骤: 占位通过 projectId={}", projectId);
-        saveTaskStatus(taskId, "completed", "musicGen", 72, projectId, userId);
+        try {
+            if (aiMusicService == null) {
+                throw new IllegalStateException("BGM 服务未注册");
+            }
+            String style = params.get("style") instanceof String s ? s : "cinematic background music";
+            int duration = params.get("duration") instanceof Number n ? n.intValue() : 30;
+            AiMusicProvider.MusicGenerationResult result = aiMusicService.generateBgm(style, duration, true);
+            saveTaskStatus(taskId, "completed", "musicGen", 72, projectId, userId);
+            Map<String, Object> status = loadTaskStatus(taskId);
+            if (status != null) {
+                status.put("bgmUrl", result.musicUrl());
+                status.put("provider", result.provider());
+                memoryFallback.put(taskId, status);
+            }
+            log.info("工作流 musicGen 步骤完成: projectId={}, provider={}", projectId, result.provider());
+        } catch (Exception e) {
+            log.warn("工作流 musicGen 步骤失败: {}", e.getMessage());
+            saveTaskStatus(taskId, "failed", "musicGen", 0, projectId, userId);
+        }
     }
 
-    /** 音效生成步骤：占位，compose 时可用 SfxGenerationService */
+    private void runDigitalHumanCommercePipeline(String taskId, Long projectId, Map<String, Object> params, Long userId) {
+        try {
+            if (projectId == null || projectId <= 0) {
+                throw new IllegalArgumentException("数字人带货成片必须绑定有效 projectId");
+            }
+            saveTaskStatus(taskId, "processing", "script", 10, projectId, userId);
+            ensureCommerceScript(taskId, projectId, params, userId);
+            saveTaskStatus(taskId, "processing", "shotList", 24, projectId, userId);
+            ensureCommerceShotList(taskId, projectId, params, userId);
+            saveTaskStatus(taskId, "processing", "digitalHuman", 36, projectId, userId);
+            String digitalHumanUrl = synthesizeDigitalHumanSegment(taskId, projectId, params, userId);
+            saveTaskStatus(taskId, "processing", "productBroll:keyframe", 50, projectId, userId);
+            generateProductBrollKeyframes(taskId, projectId, params, userId);
+            saveTaskStatus(taskId, "processing", "productBroll:video", 66, projectId, userId);
+            generateProductBrollVideos(taskId, projectId, params, userId);
+            saveTaskStatus(taskId, "processing", "voice", 76, projectId, userId);
+            generateVoiceClips(taskId, projectId, params, userId);
+            saveTaskStatus(taskId, "processing", "compose", 88, projectId, userId);
+            String finalVideoUrl = composeDigitalHumanCommerce(taskId, projectId, params, userId, digitalHumanUrl);
+            saveTaskStatus(taskId, "completed", "completed", 100, projectId, userId);
+            Map<String, Object> status = loadTaskStatus(taskId);
+            if (status != null) {
+                status.put("finalVideoUrl", finalVideoUrl);
+                status.put("message", "数字人口播带货成片已完成");
+                memoryFallback.put(taskId, status);
+                persistTaskStatus(taskId, status);
+            }
+            if (workflowCommercialGuard != null) {
+                workflowCommercialGuard.commitTask(taskId, projectId);
+            }
+        } catch (Exception e) {
+            log.error("数字人口播带货一键成片失败: taskId={}, projectId={}", taskId, projectId, e);
+            if (workflowCommercialGuard != null) {
+                workflowCommercialGuard.releaseTask(taskId, projectId, e.getMessage());
+            }
+            saveTaskStatus(taskId, "failed", "digitalHumanCommerce", 0, projectId, userId);
+            Map<String, Object> status = loadTaskStatus(taskId);
+            if (status != null) {
+                status.put("errorMessage", e.getMessage());
+                memoryFallback.put(taskId, status);
+                persistTaskStatus(taskId, status);
+            }
+        }
+    }
+
+    private void ensureCommerceScript(String taskId, Long projectId, Map<String, Object> params, Long userId) {
+        SvProjectVO project = requireProject(projectId, userId);
+        if (project.getScriptId() != null && project.getScriptId() > 0) {
+            putTaskValue(taskId, "scriptId", project.getScriptId());
+            return;
+        }
+        String theme = params.get("theme") instanceof String s && StringUtils.hasText(s) ? s : project.getTitle();
+        String style = params.get("style") instanceof String s ? s : "数字人口播带货 产品细节展示";
+        int duration = readInt(params.get("duration"), project.getDuration() != null ? project.getDuration() : 45);
+        String productInfo = params.get("productInfo") instanceof String s ? s : buildCommerceProductInfo(project);
+        String scriptContent = scriptService.generate("digital_human_commerce", theme, null, productInfo, style, duration, userId);
+
+        SvScriptSaveVO scriptVo = new SvScriptSaveVO();
+        scriptVo.setTitle(project.getTitle());
+        scriptVo.setContent(scriptContent);
+        scriptVo.setScriptType("digital_human_commerce");
+        scriptVo.setGenerationType("ai");
+        scriptVo.setTheme(theme);
+        scriptVo.setStyle(style);
+        scriptVo.setDuration(duration);
+        scriptVo.setWordCount(scriptContent.replaceAll("\\s+", "").length());
+        Long scriptId = scriptService.save(scriptVo, userId);
+
+        SvProjectSaveVO update = baseProjectSave(project);
+        update.setScriptId(scriptId);
+        update.setDuration(duration);
+        update.setStatus("processing");
+        projectService.save(update, userId);
+        putTaskValue(taskId, "scriptId", scriptId);
+    }
+
+    private void ensureCommerceShotList(String taskId, Long projectId, Map<String, Object> params, Long userId) {
+        SvProjectVO project = requireProject(projectId, userId);
+        if (project.getShotListId() != null && project.getShotListId() > 0) {
+            putTaskValue(taskId, "shotListId", project.getShotListId());
+            return;
+        }
+        if (project.getScriptId() == null || project.getScriptId() <= 0) {
+            throw new IllegalStateException("项目无脚本，无法生成分镜");
+        }
+        SvScriptVO script = scriptService.get(project.getScriptId(), userId);
+        String style = params.get("style") instanceof String s ? s : "数字人口播带货 产品细节展示";
+        int shotCount = readInt(params.get("shotCount"), 8);
+        var result = shotListService.generateWithResult(project.getScriptId(), script.getContent(), shotCount, style, userId);
+        Long shotListId = result.shotListId();
+        if (shotListId == null || shotListId <= 0) {
+            throw new IllegalStateException("分镜生成未返回 shotListId");
+        }
+        SvProjectSaveVO update = baseProjectSave(project);
+        update.setShotListId(shotListId);
+        update.setStatus("processing");
+        projectService.save(update, userId);
+        putTaskValue(taskId, "shotListId", shotListId);
+    }
+
+    private String synthesizeDigitalHumanSegment(String taskId, Long projectId, Map<String, Object> params, Long userId) {
+        if (digitalHumanSynthesisService == null || !digitalHumanSynthesisService.isConfigured()) {
+            putTaskValue(taskId, "digitalHumanSkipped", true);
+            putTaskValue(taskId, "digitalHumanSkipReason", "数字人服务未配置，将仅使用产品 B-roll 和配音合成");
+            return null;
+        }
+        Map<String, Object> request = new HashMap<>(params);
+        request.putIfAbsent("scriptText", resolveDigitalHumanScriptText(projectId, userId));
+        String videoUrl = digitalHumanSynthesisService.synthesize(request, userId, projectId);
+        if (!StringUtils.hasText(videoUrl)) {
+            throw new IllegalStateException("数字人服务未返回任务或视频地址");
+        }
+        putTaskValue(taskId, "digitalHumanVideoUrl", videoUrl);
+        return videoUrl;
+    }
+
+    private void generateProductBrollKeyframes(String taskId, Long projectId, Map<String, Object> params, Long userId) {
+        SvProjectVO project = requireProject(projectId, userId);
+        SvShotListVO shotList = requireShotList(project, userId);
+        String style = params.get("style") instanceof String s ? s : "数字人口播带货 产品细节展示";
+        List<ShortVideoMaterialService.KeyframeInput> inputs = new ArrayList<>();
+        for (SvShotVO shot : shotList.getShots()) {
+            if (isAvatarOnlyShot(shot)) {
+                continue;
+            }
+            inputs.add(new ShortVideoMaterialService.KeyframeInput(
+                    shot.getId(),
+                    shot.getShotNumber(),
+                    enrichProductBrollPrompt(shot),
+                    style,
+                    project.getCharacterReferenceUrl(),
+                    project.getSceneReferenceUrl()
+            ));
+        }
+        if (inputs.isEmpty()) {
+            throw new IllegalStateException("没有可生成产品 B-roll 的分镜");
+        }
+        List<ShortVideoMaterialService.KeyframeResult> results =
+                materialService.generateKeyframes(projectId, project.getShotListId(), inputs, userId);
+        putTaskValue(taskId, "productBrollKeyframeCount", results.size());
+    }
+
+    private void generateProductBrollVideos(String taskId, Long projectId, Map<String, Object> params, Long userId) {
+        SvProjectVO project = requireProject(projectId, userId);
+        SvShotListVO shotList = requireShotList(project, userId);
+        int duration = readInt(params.get("clipDuration"), 5);
+        String quality = params.get("quality") instanceof String s ? s : "premium-fhd";
+        String aspectRatio = params.get("aspectRatio") instanceof String s ? s : "9:16";
+        String motion = params.get("motion") instanceof String s ? s : "slow-push-in";
+        List<ShortVideoMaterialService.Img2VideoInput> inputs = new ArrayList<>();
+        for (SvShotVO shot : shotList.getShots()) {
+            if (isAvatarOnlyShot(shot) || !StringUtils.hasText(shot.getKeyframeUrl())) {
+                continue;
+            }
+            inputs.add(new ShortVideoMaterialService.Img2VideoInput(
+                    shot.getId(),
+                    shot.getShotNumber(),
+                    shot.getKeyframeUrl(),
+                    shot.getEndFrameUrl(),
+                    duration,
+                    motion,
+                    shot.getSceneDescription(),
+                    quality,
+                    aspectRatio,
+                    StringUtils.hasText(shot.getCameraType()) ? shot.getCameraType() : "push-in",
+                    shot.getMood(),
+                    shot.getAction()
+            ));
+        }
+        if (inputs.isEmpty()) {
+            throw new IllegalStateException("没有带关键帧的产品 B-roll 分镜，请先确认关键帧生成结果");
+        }
+        List<ShortVideoMaterialService.VideoResult> results =
+                materialService.img2videoBatch(projectId, project.getShotListId(), inputs, userId);
+        putTaskValue(taskId, "productBrollVideoCount", results.size());
+    }
+
+    private void generateVoiceClips(String taskId, Long projectId, Map<String, Object> params, Long userId) {
+        SvProjectVO project = requireProject(projectId, userId);
+        SvShotListVO shotList = requireShotList(project, userId);
+        String voice = params.get("voice") instanceof String s ? s : "default";
+        double speed = params.get("speed") instanceof Number n ? n.doubleValue() : 1.0;
+        List<ShortVideoMaterialService.VoiceInput> inputs = new ArrayList<>();
+        for (SvShotVO shot : shotList.getShots()) {
+            if (StringUtils.hasText(shot.getDialogue())) {
+                inputs.add(new ShortVideoMaterialService.VoiceInput(
+                        shot.getId(),
+                        shot.getShotNumber(),
+                        shot.getDialogue(),
+                        voice,
+                        speed
+                ));
+            }
+        }
+        if (inputs.isEmpty()) {
+            putTaskValue(taskId, "voiceSkipped", true);
+            return;
+        }
+        List<ShortVideoMaterialService.VoiceResult> results =
+                materialService.generateVoiceBatch(projectId, project.getShotListId(), inputs, userId);
+        putTaskValue(taskId, "voiceClipCount", results.size());
+    }
+
+    private String composeDigitalHumanCommerce(String taskId, Long projectId, Map<String, Object> params,
+                                               Long userId, String digitalHumanUrl) {
+        SvProjectVO project = requireProject(projectId, userId);
+        SvShotListVO shotList = requireShotList(project, userId);
+        List<String> videoUrls = new ArrayList<>();
+        if (StringUtils.hasText(digitalHumanUrl) && !isPendingProviderUrl(digitalHumanUrl)) {
+            videoUrls.add(digitalHumanUrl);
+        } else if (StringUtils.hasText(digitalHumanUrl)) {
+            putTaskValue(taskId, "digitalHumanPendingUrl", digitalHumanUrl);
+        }
+        List<String> voiceClipUrls = new ArrayList<>();
+        for (SvShotVO shot : shotList.getShots()) {
+            if (StringUtils.hasText(shot.getVideoUrl())) {
+                videoUrls.add(shot.getVideoUrl());
+            }
+            if (StringUtils.hasText(shot.getAudioUrl())) {
+                voiceClipUrls.add(shot.getAudioUrl());
+            }
+        }
+        if (videoUrls.isEmpty()) {
+            throw new IllegalStateException("没有可合成的视频素材：数字人未返回可访问 URL，产品 B-roll 也为空");
+        }
+        String bgmUrl = params.get("bgmUrl") instanceof String s ? s : null;
+        String scriptText = resolveProjectScriptText(projectId, userId);
+        VideoEditService.AutoComposeRequest request = new VideoEditService.AutoComposeRequest(
+                videoUrls,
+                null,
+                scriptText,
+                StringUtils.hasText(bgmUrl) ? bgmUrl : null,
+                "digital_human_commerce",
+                voiceClipUrls.isEmpty() ? null : voiceClipUrls,
+                null,
+                null
+        );
+        VideoEditService.VideoResult result = videoEditService.autoCompose(request, userId);
+        String finalVideoUrl = result != null ? result.videoUrl() : null;
+        finalVideoUrl = uploadFinalVideoIfLocal(finalVideoUrl, projectId, userId);
+        if (!StringUtils.hasText(finalVideoUrl)) {
+            throw new IllegalStateException("合成服务未返回成片地址");
+        }
+        int durationSec = result != null && result.duration() != null ? (int) (result.duration() / 1000) : 0;
+        SvProjectSaveVO save = baseProjectSave(project);
+        save.setFinalVideoUrl(finalVideoUrl);
+        save.setDuration(durationSec > 0 ? durationSec : project.getDuration());
+        save.setStatus("completed");
+        projectService.save(save, userId);
+        putTaskValue(taskId, "composeVideoCount", videoUrls.size());
+        putTaskValue(taskId, "finalVideoUrl", finalVideoUrl);
+        return finalVideoUrl;
+    }
+
+    /** 音效生成步骤：调用已配置的 SfxGenerationService */
     private void runSfxGenStep(String taskId, Long projectId, Map<String, Object> params, Long userId) {
-        log.info("工作流 sfxGen 步骤: 占位通过 projectId={}", projectId);
-        saveTaskStatus(taskId, "completed", "sfxGen", 72, projectId, userId);
+        try {
+            if (sfxGenerationService == null) {
+                throw new IllegalStateException("SFX 服务未注册");
+            }
+            String sceneDesc = params.get("sceneDesc") instanceof String s ? s : resolveProjectScriptText(projectId, userId);
+            double duration = params.get("durationSec") instanceof Number n ? n.doubleValue() : 5.0;
+            List<SfxGenerationService.SfxResult> results = sfxGenerationService.generateSfxFromScene(sceneDesc, duration, userId);
+            if (results.isEmpty()) {
+                throw new IllegalStateException("未从场景描述中生成可用音效");
+            }
+            List<String> urls = results.stream().map(SfxGenerationService.SfxResult::audioUrl)
+                    .filter(StringUtils::hasText).toList();
+            saveTaskStatus(taskId, "completed", "sfxGen", 72, projectId, userId);
+            Map<String, Object> status = loadTaskStatus(taskId);
+            if (status != null) {
+                status.put("sfxUrls", urls);
+                memoryFallback.put(taskId, status);
+            }
+            log.info("工作流 sfxGen 步骤完成: projectId={}, count={}", projectId, urls.size());
+        } catch (Exception e) {
+            log.warn("工作流 sfxGen 步骤失败: {}", e.getMessage());
+            saveTaskStatus(taskId, "failed", "sfxGen", 0, projectId, userId);
+        }
     }
 
-    /** 数字人口播步骤：占位，口播类型项目可用 HeyGenProvider */
+    /** 数字人口播步骤：调用 DigitalHumanSynthesisService；未配置则明确失败 */
     private void runDigitalHumanStep(String taskId, Long projectId, Map<String, Object> params, Long userId) {
-        log.info("工作流 digitalHuman 步骤: 占位通过 projectId={}", projectId);
-        saveTaskStatus(taskId, "completed", "digitalHuman", 72, projectId, userId);
+        try {
+            if (digitalHumanSynthesisService == null || !digitalHumanSynthesisService.isConfigured()) {
+                throw new IllegalStateException("数字人服务未配置");
+            }
+            Map<String, Object> request = new HashMap<>(params);
+            request.putIfAbsent("scriptText", resolveProjectScriptText(projectId, userId));
+            String videoUrl = digitalHumanSynthesisService.synthesize(request, userId, projectId);
+            if (!StringUtils.hasText(videoUrl)) {
+                throw new IllegalStateException("数字人服务未返回任务或视频地址");
+            }
+            saveTaskStatus(taskId, "completed", "digitalHuman", 72, projectId, userId);
+            Map<String, Object> status = loadTaskStatus(taskId);
+            if (status != null) {
+                status.put("digitalHumanVideoUrl", videoUrl);
+                memoryFallback.put(taskId, status);
+            }
+            log.info("工作流 digitalHuman 步骤完成: projectId={}", projectId);
+        } catch (Exception e) {
+            log.warn("工作流 digitalHuman 步骤失败: {}", e.getMessage());
+            saveTaskStatus(taskId, "failed", "digitalHuman", 0, projectId, userId);
+        }
+    }
+
+    private String resolveProjectScriptText(Long projectId, Long userId) {
+        SvProjectVO project = projectService.get(projectId, userId, java.util.List.of(userId));
+        if (project != null && project.getScriptId() != null && project.getScriptId() > 0) {
+            SvScriptVO scriptVo = scriptService.get(project.getScriptId(), userId);
+            if (scriptVo != null && StringUtils.hasText(scriptVo.getContent())) {
+                return scriptVo.getContent();
+            }
+        }
+        return "";
     }
 
     /**
@@ -549,7 +941,7 @@ public class WorkflowExecutionService {
                     scriptText,
                     StringUtils.hasText(bgmUrl) ? bgmUrl : null,
                     "default",
-                    voiceClipUrls.isEmpty() ? null : voiceClipUrls,
+                    voiceClipUrls != null && !voiceClipUrls.isEmpty() ? voiceClipUrls : null,
                     sfxUrls,
                     null
             );
@@ -585,6 +977,7 @@ public class WorkflowExecutionService {
             }
             log.info("工作流 compose 步骤完成: projectId={}, finalVideoUrl={}", projectId, finalVideoUrl);
             saveTaskStatus(taskId, "completed", "compose", 90, projectId, userId);
+            putTaskValue(taskId, "finalVideoUrl", finalVideoUrl);
         } catch (Exception e) {
             log.error("工作流 compose 步骤失败", e);
             saveTaskStatus(taskId, "failed", "compose", 0, projectId, userId);
@@ -631,15 +1024,15 @@ public class WorkflowExecutionService {
     public Map<String, Object> getStatus(String taskId) {
         Map<String, Object> data = loadTaskStatus(taskId);
         if (data != null) {
-            String status = String.valueOf(data.getOrDefault("status", "unknown"));
-            String currentStep = String.valueOf(data.getOrDefault("currentStep", "script"));
+            Map<String, Object> result = new LinkedHashMap<>(data);
+            String status = String.valueOf(result.getOrDefault("status", "unknown"));
+            String currentStep = String.valueOf(result.getOrDefault("currentStep", "script"));
             Object p = data.get("progress");
             int progress = p instanceof Number n ? n.intValue() : ("completed".equals(status) ? 100 : "failed".equals(status) ? 0 : 50);
-            return Map.of(
-                    "status", status,
-                    "currentStep", currentStep,
-                    "progress", progress
-            );
+            result.put("status", status);
+            result.put("currentStep", currentStep);
+            result.put("progress", progress);
+            return result;
         }
         return Map.of("status", "unknown", "currentStep", "script", "progress", 0);
     }
@@ -699,5 +1092,170 @@ public class WorkflowExecutionService {
             if (!result.isEmpty()) return result;
         }
         return modelRepository.findByStatusAndDeleted(1, 0).stream().limit(3).toList();
+    }
+
+    private SvProjectVO requireProject(Long projectId, Long userId) {
+        SvProjectVO project = projectService.get(projectId, userId, java.util.List.of(userId));
+        if (project == null) {
+            throw new IllegalStateException("项目不存在或无权限访问");
+        }
+        return project;
+    }
+
+    private SvShotListVO requireShotList(SvProjectVO project, Long userId) {
+        Long shotListId = project.getShotListId();
+        if (shotListId == null || shotListId <= 0) {
+            throw new IllegalStateException("项目未关联分镜，无法生产素材");
+        }
+        SvShotListVO shotList = shotListService.get(shotListId, userId);
+        if (shotList == null || shotList.getShots() == null || shotList.getShots().isEmpty()) {
+            throw new IllegalStateException("分镜列表为空");
+        }
+        return shotList;
+    }
+
+    private SvProjectSaveVO baseProjectSave(SvProjectVO project) {
+        SvProjectSaveVO save = new SvProjectSaveVO();
+        save.setId(project.getId());
+        save.setTitle(project.getTitle());
+        save.setProjectType(StringUtils.hasText(project.getProjectType()) ? project.getProjectType() : "daily");
+        save.setAccountId(project.getAccountId());
+        save.setPersonaId(project.getPersonaId());
+        save.setScheduleDate(project.getScheduleDate() == null ? null : project.getScheduleDate().toString());
+        save.setShootStatus(project.getShootStatus());
+        save.setStatus(project.getStatus());
+        save.setScriptId(project.getScriptId());
+        save.setShotListId(project.getShotListId());
+        save.setFinalVideoUrl(project.getFinalVideoUrl());
+        save.setThumbnailUrl(project.getThumbnailUrl());
+        save.setCharacterReferenceUrl(project.getCharacterReferenceUrl());
+        save.setSceneReferenceUrl(project.getSceneReferenceUrl());
+        save.setDuration(project.getDuration());
+        save.setRelatedProductIds(project.getRelatedProductIds());
+        save.setPublishTitle(project.getPublishTitle());
+        save.setPublishPlatforms(project.getPublishPlatforms());
+        save.setPublishTime(project.getPublishTime() == null ? null : project.getPublishTime().toString());
+        save.setReviewStatus(project.getReviewStatus());
+        return save;
+    }
+
+    private String buildCommerceProductInfo(SvProjectVO project) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("数字人口播带货，要求口播 + 产品细节展示 + 使用演示 + 合规 CTA。");
+        if (project.getRelatedProductIds() != null && !project.getRelatedProductIds().isEmpty()) {
+            sb.append("关联商品ID：").append(project.getRelatedProductIds()).append("。");
+        }
+        return sb.toString();
+    }
+
+    private String resolveDigitalHumanScriptText(Long projectId, Long userId) {
+        String scriptText = resolveProjectScriptText(projectId, userId);
+        if (!StringUtils.hasText(scriptText)) {
+            return "";
+        }
+        String[] lines = scriptText.split("\\R");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (!StringUtils.hasText(trimmed)) {
+                continue;
+            }
+            if (trimmed.contains("数字人") || trimmed.contains("口播") || trimmed.contains("dialogue")
+                    || trimmed.contains("台词") || trimmed.contains("钩子") || trimmed.contains("总结")) {
+                sb.append(trimmed.replaceAll("^[\\-\\d\\.、\\s]+", "")).append('\n');
+            }
+        }
+        String result = sb.toString().trim();
+        return StringUtils.hasText(result) ? result : scriptText;
+    }
+
+    private boolean isAvatarOnlyShot(SvShotVO shot) {
+        String text = ((shot.getSceneDescription() == null ? "" : shot.getSceneDescription()) + " "
+                + (shot.getAction() == null ? "" : shot.getAction()) + " "
+                + (shot.getCameraType() == null ? "" : shot.getCameraType()) + " "
+                + (shot.getDialogue() == null ? "" : shot.getDialogue())).toLowerCase();
+        return text.contains("avatar_talking_head")
+                || (text.contains("数字人") && !text.contains("产品") && !text.contains("商品") && !text.contains("细节"));
+    }
+
+    private String enrichProductBrollPrompt(SvShotVO shot) {
+        String scene = StringUtils.hasText(shot.getSceneDescription()) ? shot.getSceneDescription() : "产品细节展示";
+        return scene + "。竖屏 9:16，电商带货产品 B-roll，清晰展示产品包装、材质、质地、使用动作或对比证据，避免纯数字人头像画面。";
+    }
+
+    private boolean isPendingProviderUrl(String url) {
+        return url != null && (url.startsWith("heygen:pending:") || url.startsWith("did:pending:"));
+    }
+
+    private int readInt(Object value, int fallback) {
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        if (value instanceof String s && StringUtils.hasText(s)) {
+            try {
+                return Integer.parseInt(s.trim());
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
+    private String uploadFinalVideoIfLocal(String finalVideoUrl, Long projectId, Long userId) {
+        if (!StringUtils.hasText(finalVideoUrl) || !bosStorageService.isConfigured() || projectId == null) {
+            return finalVideoUrl;
+        }
+        try {
+            Path p = Path.of(finalVideoUrl);
+            if (Files.exists(p)) {
+                byte[] bytes = Files.readAllBytes(p);
+                String date = LocalDate.now().format(DATE_FMT);
+                String key = ShortVideoPathHelper.finalVideoKey(userId, date, projectId);
+                var mf = new ByteArrayMultipartFile("file", "final.mp4", "video/mp4", bytes);
+                return bosStorageService.upload(key, mf);
+            }
+        } catch (Exception e) {
+            log.warn("成片上传 BOS 失败: {}", e.getMessage());
+        }
+        return finalVideoUrl;
+    }
+
+    private List<Map<String, Object>> commercePipelineSteps() {
+        return List.of(
+                Map.of("step", "script", "label", "带货脚本", "progress", 10),
+                Map.of("step", "shotList", "label", "口播+B-roll 分镜", "progress", 24),
+                Map.of("step", "digitalHuman", "label", "数字人口播片段", "progress", 36),
+                Map.of("step", "productBroll:keyframe", "label", "产品细节关键帧", "progress", 50),
+                Map.of("step", "productBroll:video", "label", "产品 B-roll 视频", "progress", 66),
+                Map.of("step", "voice", "label", "分镜配音", "progress", 76),
+                Map.of("step", "compose", "label", "自动合成成片", "progress", 88),
+                Map.of("step", "completed", "label", "完成", "progress", 100)
+        );
+    }
+
+    private void putTaskValue(String taskId, String key, Object value) {
+        Map<String, Object> status = loadTaskStatus(taskId);
+        if (status == null) {
+            status = new HashMap<>();
+        } else {
+            status = new HashMap<>(status);
+        }
+        status.put(key, value);
+        memoryFallback.put(taskId, status);
+        persistTaskStatus(taskId, status);
+    }
+
+    private void persistTaskStatus(String taskId, Map<String, Object> status) {
+        if (stringRedisTemplate != null) {
+            try {
+                stringRedisTemplate.opsForValue().set(
+                        REDIS_KEY_PREFIX + taskId,
+                        JSON.toJSONString(status),
+                        REDIS_TTL_HOURS,
+                        TimeUnit.HOURS);
+            } catch (Exception e) {
+                log.warn("Redis 保存工作流扩展状态失败: {}", e.getMessage());
+            }
+        }
     }
 }

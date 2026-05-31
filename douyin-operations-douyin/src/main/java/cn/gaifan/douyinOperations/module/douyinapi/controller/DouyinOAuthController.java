@@ -7,7 +7,11 @@ import cn.gaifan.douyinOperations.module.douyin.entity.DouyinAccount;
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinAccountRepository;
 import cn.gaifan.douyinOperations.module.douyinapi.client.DouyinApiClient;
 import cn.gaifan.douyinOperations.module.douyinapi.entity.OAuthToken;
+import cn.gaifan.douyinOperations.contract.product.FeatureCode;
+import cn.gaifan.douyinOperations.contract.product.ProductCode;
 import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialProductChargeService;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryProduct;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +21,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -50,6 +55,9 @@ public class DouyinOAuthController {
 
     @Resource
     private DouyinAccountRepository douyinAccountRepository;
+
+    @Autowired(required = false)
+    private CommercialProductChargeService commercialProductChargeService;
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
@@ -143,6 +151,16 @@ public class DouyinOAuthController {
                     tokenResponse.expiresIn(),
                     oauthScope
             );
+
+            if (commercialProductChargeService != null) {
+                commercialProductChargeService.charge(
+                        CommercialProductChargeService.CommercialProductChargeCommand.of(
+                                ProductCode.DOUYIN_OPS,
+                                FeatureCode.DOUYIN_ACCOUNT_MGMT,
+                                "抖音 OAuth 授权 userId=" + userId,
+                                DeliveryProduct.DOUYIN_OPS
+                        ));
+            }
 
             // P1-2: 日志脱敏 openId
             log.info("抖音授权成功: userId={}, openId={}", userId, maskSensitive(tokenResponse.openId()));

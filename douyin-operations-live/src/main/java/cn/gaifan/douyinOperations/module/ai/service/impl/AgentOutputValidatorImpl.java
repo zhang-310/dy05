@@ -155,7 +155,7 @@ public class AgentOutputValidatorImpl implements AgentOutputValidator {
                     violations.add("合规检查发现 " + result.size() + " 个违规项");
                 }
             } catch (Exception e) {
-                // 合规服务不可用时跳过
+                log.debug("[AgentValidator] 合规服务调用失败: {}", e.getMessage());
             }
         }
 

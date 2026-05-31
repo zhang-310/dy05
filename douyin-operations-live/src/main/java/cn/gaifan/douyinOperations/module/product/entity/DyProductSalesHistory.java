@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.product.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * 商品销售历史表
  * 与 sql/product/schema.sql 中 dy_product_sales_history 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "dy_product_sales_history")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class DyProductSalesHistory {
 
     @Id

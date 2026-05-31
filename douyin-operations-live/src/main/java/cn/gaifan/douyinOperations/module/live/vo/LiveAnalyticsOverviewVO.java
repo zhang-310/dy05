@@ -10,4 +10,7 @@ public class LiveAnalyticsOverviewVO {
     private Long totalSessions;
     private Double totalGmv;
     private Double avgViewers;
+    private String source;
+    private Boolean degraded;
+    private String fallbackReason;
 }

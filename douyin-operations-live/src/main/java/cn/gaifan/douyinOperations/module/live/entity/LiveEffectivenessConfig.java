@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -12,10 +14,12 @@ import java.sql.Timestamp;
  * Q3-5: Configurable Effectiveness Score Formula
  * 对应表 live_effectiveness_config
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_effectiveness_config")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveEffectivenessConfig {
 
     @Id

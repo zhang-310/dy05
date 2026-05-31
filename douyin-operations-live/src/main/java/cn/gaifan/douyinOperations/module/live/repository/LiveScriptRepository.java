@@ -31,6 +31,31 @@ public interface LiveScriptRepository extends JpaRepository<LiveScript, Long> {
     Page<LiveScript> findBySessionIdAndDeleted(Long sessionId, Integer deleted, Pageable pageable);
 
     /**
+     * 多条件分页查询。keyword 只匹配真实落库字段 scriptContent/requirement，
+     * 避免前端传入未落库的 scriptTitle 后产生假筛选。
+     */
+    @Query("""
+            SELECT s FROM LiveScript s
+            WHERE s.deleted = 0
+              AND (:sessionId IS NULL OR s.sessionId = :sessionId)
+              AND (:hasSessionIds = false OR s.sessionId IN :sessionIds)
+              AND (:executed IS NULL OR s.executed = :executed)
+              AND (:scriptType IS NULL OR s.scriptType = :scriptType)
+              AND (
+                    :keyword IS NULL
+                    OR LOWER(COALESCE(s.scriptContent, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                    OR LOWER(COALESCE(s.requirement, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                  )
+            """)
+    Page<LiveScript> searchByFilters(@Param("sessionId") Long sessionId,
+                                     @Param("sessionIds") List<Long> sessionIds,
+                                     @Param("hasSessionIds") boolean hasSessionIds,
+                                     @Param("scriptType") String scriptType,
+                                     @Param("keyword") String keyword,
+                                     @Param("executed") Integer executed,
+                                     Pageable pageable);
+
+    /**
      * 根据多个场次 ID 分页查询（DataScope 数据范围过滤）
      */
     Page<LiveScript> findBySessionIdInAndDeleted(List<Long> sessionIds, Integer deleted, Pageable pageable);

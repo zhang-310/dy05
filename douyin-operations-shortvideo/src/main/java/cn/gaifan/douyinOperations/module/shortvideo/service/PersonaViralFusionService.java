@@ -12,5 +12,21 @@ public interface PersonaViralFusionService {
 
     Map<String, Object> generatePersonaFusedScript(Long viralVideoId, Long personaId, String remakeType, Long userId);
 
+    default Map<String, Object> generatePersonaFusedScript(
+            Long viralVideoId,
+            Long personaId,
+            String remakeType,
+            PersonaFusionOptions options,
+            Long userId) {
+        return generatePersonaFusedScript(viralVideoId, personaId, remakeType, userId);
+    }
+
     Map<String, Object> generateHotspotFusedScript(Long hotTopicId, Long personaId, Long productId, Long userId);
+
+    record PersonaFusionOptions(
+            Long productId,
+            String topic,
+            Integer durationSeconds,
+            Integer count
+    ) {}
 }

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 发布时间分析表，与 sql/shortvideo/schema.sql 中 sv_publish_time_analysis 一一对应
  * 注意：无 deleted 字段，分析数据不支持逻辑删除
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_publish_time_analysis")
+@NoArgsConstructor
 public class SvPublishTimeAnalysis {
 
     @Id

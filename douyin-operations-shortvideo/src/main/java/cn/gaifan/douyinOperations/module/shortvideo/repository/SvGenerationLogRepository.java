@@ -3,8 +3,10 @@ package cn.gaifan.douyinOperations.module.shortvideo.repository;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvGenerationLog;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Pageable;
 
 import java.sql.Timestamp;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -17,6 +19,9 @@ public interface SvGenerationLogRepository extends JpaRepository<SvGenerationLog
     /** 按 owner 过滤：仅统计该用户项目下的生成日志 */
     @Query("SELECT g FROM SvGenerationLog g WHERE g.projectId IN (SELECT p.id FROM SvProject p WHERE p.ownerId = ?1) AND g.createTime BETWEEN ?2 AND ?3 ORDER BY g.createTime ASC")
     List<SvGenerationLog> findByOwnerIdAndCreateTimeBetweenOrderByCreateTimeAsc(Long ownerId, Timestamp start, Timestamp end);
+
+    List<SvGenerationLog> findByOwnerIdAndContentTypeInOrderByCreateTimeDesc(
+            Long ownerId, Collection<String> contentTypes, Pageable pageable);
 
     @Query("SELECT g.aiProvider, AVG(g.qualityScore) FROM SvGenerationLog g WHERE g.createTime BETWEEN ?1 AND ?2 AND g.success = true AND g.qualityScore IS NOT NULL GROUP BY g.aiProvider")
     List<Object[]> avgQualityByProvider(Timestamp start, Timestamp end);

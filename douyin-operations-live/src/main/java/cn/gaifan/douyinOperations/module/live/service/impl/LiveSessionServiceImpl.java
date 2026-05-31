@@ -23,6 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.annotation.Resource;
 import jakarta.persistence.criteria.Predicate;
 import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -155,14 +158,21 @@ public class LiveSessionServiceImpl implements LiveSessionService {
         } else {
             session = new LiveSession();
             session.setUserId(vo.getUserId());
+            applyCreateDefaults(session);
         }
         session.setAccountId(vo.getAccountId());
+        session.setPersonaId(vo.getPersonaId());
         session.setLiveTitle(vo.getLiveTitle());
         session.setLiveDescription(vo.getLiveDescription());
         session.setLiveUrl(vo.getLiveUrl());
-        if (vo.getStatus() != null) {
-            session.setStatus(vo.getStatus());
-        }
+        session.setScriptStyle(vo.getScriptStyle());
+        session.setSessionType(vo.getSessionType());
+        session.setLiveFormat(vo.getLiveFormat());
+        session.setScheduledTime(parseTimestamp(vo.getScheduledTime()));
+        session.setScheduledEndTime(parseTimestamp(vo.getScheduledEndTime()));
+        session.setStatus(vo.getStatus() != null ? vo.getStatus() : 0);
+        if (session.getCreateTime() == null) session.setCreateTime(now());
+        session.setUpdateTime(now());
         session = liveSessionRepository.save(session);
 
         // P0-10: 清除 L1 列表缓存
@@ -296,15 +306,21 @@ public class LiveSessionServiceImpl implements LiveSessionService {
         vo.setId(session.getId());
         vo.setUserId(session.getUserId());
         vo.setAccountId(session.getAccountId());
+        vo.setPersonaId(session.getPersonaId());
         vo.setLiveTitle(session.getLiveTitle());
+        vo.setSessionCover(session.getSessionCover());
+        vo.setScriptStyle(session.getScriptStyle());
         vo.setLiveDescription(session.getLiveDescription());
         vo.setScheduledTime(session.getScheduledTime());
+        vo.setScheduledEndTime(session.getScheduledEndTime());
         vo.setStartTime(session.getStartTime());
         vo.setEndTime(session.getEndTime());
         vo.setLiveUrl(session.getLiveUrl());
         vo.setViewers(session.getViewers());
         vo.setLikes(session.getLikes());
         vo.setStatus(session.getStatus());
+        vo.setSessionType(session.getSessionType());
+        vo.setLiveFormat(session.getLiveFormat());
         vo.setRecordingUrl(session.getRecordingUrl());
         vo.setRecordingDuration(session.getRecordingDuration());
         vo.setCreateTime(session.getCreateTime());
@@ -324,18 +340,70 @@ public class LiveSessionServiceImpl implements LiveSessionService {
         clone.setLiveTitle(newTitle != null && !newTitle.isBlank() ? newTitle : src.getLiveTitle() + " (副本)");
         clone.setLiveDescription(src.getLiveDescription());
         clone.setScriptStyle(src.getScriptStyle());
+        clone.setSessionType(src.getSessionType());
+        clone.setLiveFormat(src.getLiveFormat());
         clone.setStatus(0); // 草稿
-        liveSessionRepository.save(clone);
+        applyCreateDefaults(clone);
+        clone = liveSessionRepository.save(clone);
+        liveSessionListCache.invalidateAll();
+        log.debug("[LiveCache] L1 list cache invalidated after cloneSession: sourceId={}, cloneId={}", sessionId, clone.getId());
         return clone.getId();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public long exportToShortVideo(Long sessionId, Long userId) {
-        // 简单实现：创建一个短视频项目占位，返回 sessionId 作为项目 ID（后续可扩展）
         liveSessionRepository.findByIdAndDeleted(sessionId, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "场次不存在"));
-        // 返回 sessionId 作为导出标识（真实实现应创建 SvProject）
-        return sessionId;
+        throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                "直播导出短视频需要 app 层桥接 LiveSessionShortVideoExportService，当前 live 模块不返回占位项目 ID");
+    }
+
+    private static Timestamp now() {
+        return new Timestamp(System.currentTimeMillis());
+    }
+
+    private static void applyCreateDefaults(LiveSession session) {
+        Timestamp now = now();
+        session.setDeleted(0);
+        session.setViewers(session.getViewers() != null ? session.getViewers() : 0);
+        session.setLikes(session.getLikes() != null ? session.getLikes() : 0L);
+        session.setStatus(session.getStatus() != null ? session.getStatus() : 0);
+        session.setAutoSyncEnabled(session.getAutoSyncEnabled() != null ? session.getAutoSyncEnabled() : 0);
+        session.setScriptStyle(nonBlank(session.getScriptStyle(), "professional"));
+        session.setSessionType(nonBlank(session.getSessionType(), "standard"));
+        session.setLiveFormat(nonBlank(session.getLiveFormat(), "single"));
+        session.setCreateTime(session.getCreateTime() != null ? session.getCreateTime() : now);
+        session.setUpdateTime(session.getUpdateTime() != null ? session.getUpdateTime() : now);
+    }
+
+    private static String nonBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static Timestamp parseTimestamp(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String text = value.trim();
+        try {
+            return Timestamp.valueOf(LocalDateTime.parse(text));
+        } catch (DateTimeParseException ignored) {
+            // Continue with common backend/database timestamp formats.
+        }
+        try {
+            return Timestamp.from(OffsetDateTime.parse(text).toInstant());
+        } catch (DateTimeParseException ignored) {
+            // Continue with SQL timestamp format.
+        }
+        String normalized = text.replace('T', ' ');
+        if (normalized.length() == 16) {
+            normalized = normalized + ":00";
+        }
+        try {
+            return Timestamp.valueOf(normalized);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播预定时间格式无效");
+        }
     }
 }

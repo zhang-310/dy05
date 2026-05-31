@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.sql.Timestamp;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 直播竞品话术库（C-4），按 owner 隔离。
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_competitor_script")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveCompetitorScript {
 
     @Id

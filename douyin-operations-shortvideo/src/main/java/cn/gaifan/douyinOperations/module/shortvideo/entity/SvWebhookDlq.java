@@ -1,15 +1,19 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 
 /** T-5：Webhook 投递耗尽重试后的落库记录（URL 仅存哈希） */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_webhook_dlq")
+@NoArgsConstructor
 public class SvWebhookDlq {
 
     @Id

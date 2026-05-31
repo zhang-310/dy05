@@ -199,4 +199,17 @@ public class ProductScriptVersionController {
         return RESTResult.getSuccess(result);
     }
 
+    /**
+     * 为商品库主话术创建或复用优化链路所需的 ProductScriptVersion 镜像。
+     * POST /api/v1/product/script-version/ensure-optimization-version
+     */
+    @PostMapping("/ensure-optimization-version")
+    @Operation(summary = "确保优化版本镜像", description = "将 dy_product_script 主话术映射为可参与 analyze/suggestions/regenerate 的 product_script_version")
+    public RESTResult<EnsureOptimizationVersionResultVO> ensureOptimizationVersion(
+            @Valid @RequestBody EnsureOptimizationVersionVO vo,
+            @CurrentUserId Long userId) {
+        EnsureOptimizationVersionResultVO result = versionService.ensureOptimizationVersion(vo, userId);
+        return RESTResult.getSuccess(result);
+    }
+
 }

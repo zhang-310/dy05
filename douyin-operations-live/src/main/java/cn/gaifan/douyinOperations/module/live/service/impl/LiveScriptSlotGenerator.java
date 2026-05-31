@@ -5,6 +5,7 @@ import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.common.event.LiveScriptGeneratedEvent;
 import cn.gaifan.douyinOperations.module.ai.service.KnowledgeBaseService;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
+import cn.gaifan.douyinOperations.module.ai.service.AiCallLogService;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
 import cn.gaifan.douyinOperations.module.douyin.repository.DyPersonaRepository;
 import cn.gaifan.douyinOperations.module.live.entity.LiveProduct;
@@ -36,6 +37,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Locale;
 
 /**
  * 直播话术槽位生成器：封装单槽位上下文构建、VO 组装、逐槽位生成与持久化逻辑。
@@ -54,6 +56,7 @@ public class LiveScriptSlotGenerator {
     @Resource private ProductService productService;
     @Resource private DyProductScriptRepository productScriptRepository;
     @Resource private LlmClient llmClient;
+    @Resource private AiCallLogService aiCallLogService;
     @Resource private LivePromptBuilder promptBuilder;
     @Resource private ApplicationEventPublisher eventPublisher;
     @Resource private LiveAiModelHelper modelHelper;
@@ -270,6 +273,8 @@ public class LiveScriptSlotGenerator {
             String productType = (lp != null && lp.getProductType() != null && !lp.getProductType().isBlank())
                     ? lp.getProductType() : productService.inferProductType(productId);
             vo.setProductType(productType);
+            durationSec = resolveProductDuration(durationSec, productType);
+            vo.setDurationLimitSec(durationSec);
             if (lp != null && "product".equals(lp.getScriptSource()) && lp.getProductScriptId() != null) {
                 var psOpt = productScriptRepository.findById(lp.getProductScriptId());
                 if (psOpt.isPresent()) {
@@ -278,6 +283,7 @@ public class LiveScriptSlotGenerator {
                     if (content != null && !content.isBlank()) {
                         slot.setScriptContent(content);
                         slot.setAiGenerated(0);
+                        slot.setDurationLimitSec(vo.getDurationLimitSec());
                         slot.setGenerationStatus("success");
                         slot.setGenerationPromptHash(null);
                         slot.setReferencedScriptId(ps.getId());
@@ -313,12 +319,14 @@ public class LiveScriptSlotGenerator {
             }
 
             LiveScriptPostProcessor.GenerateResult gen = generateWithLlm(scriptType, session, persona, vo);
+            LiveScriptPostProcessor.assertOfficialGenerationGate(gen.officialReferences(), "直播槽位话术生成");
             String content = gen.content();
+            String referencedChunkIds = LiveScriptPostProcessor.toReferencedChunkIdsJson(gen.ragRefs(), gen.officialReferences());
             slot.setScriptContent(content);
             slot.setScriptType(scriptType);
             slot.setStyle(abAssign != null ? abAssign.getStyleCode() : style);
             slot.setRequirement(requirement);
-            slot.setDurationLimitSec(durationSec);
+            slot.setDurationLimitSec(vo.getDurationLimitSec());
             slot.setAiGenerated(1);
             slot.setGenerationPromptHash(gen.generationPromptHash());
             slot.setGenerationStatus("success");
@@ -338,6 +346,10 @@ public class LiveScriptSlotGenerator {
             if (vo.getPromptTemplateId() != null) {
                 slot.setPromptTemplateId(vo.getPromptTemplateId());
             }
+            Long callLogId = logLiveGenerationCall(session, scriptType, vo, gen, content, referencedChunkIds, slot.getId());
+            if (callLogId != null) {
+                slot.setAiCallLogId(callLogId);
+            }
             Map<String, Object> slotHints = liveScriptQualityService.applyGenerationQualityHints(slot);
             scriptRepository.save(slot);
             eventPublisher.publishEvent(new LiveScriptGeneratedEvent(this, session.getId(), slot.getId(), scriptType, session.getUserId()));
@@ -350,7 +362,8 @@ public class LiveScriptSlotGenerator {
             r.setDuplicateCheck(slotDup);
             r.setViolationCheck(liveScriptQualityService.checkViolation(content, session.getUserId(), "live"));
             r.setRagRefs(LiveScriptPostProcessor.toRagRefVOs(gen.ragRefs()));
-            r.setReferencedChunkIds(LiveScriptPostProcessor.toReferencedChunkIdsJson(gen.ragRefs()));
+            r.setOfficialReferences(LiveScriptPostProcessor.toOfficialReferenceVOs(gen.officialReferences()));
+            r.setReferencedChunkIds(referencedChunkIds);
             r.setScriptIdForAttribution(slot.getId());
             r.setSessionIdForAttribution(session.getId());
             r.setPerformanceGuides(liveScriptQualityService.extractPerformanceGuides(content));
@@ -392,6 +405,14 @@ public class LiveScriptSlotGenerator {
         }
     }
 
+    private Integer resolveProductDuration(Integer currentDurationSec, String productType) {
+        if (currentDurationSec != null && currentDurationSec > 0) {
+            return currentDurationSec;
+        }
+        Integer defaultDuration = promptBuilder.resolveDefaultDurationSecForProductType(productType);
+        return defaultDuration != null && defaultDuration > 0 ? defaultDuration : currentDurationSec;
+    }
+
     // ─── LLM 生成（内部调用） ──────────────────────────────────────
 
     LiveScriptPostProcessor.GenerateResult generateWithLlm(String scriptType, LiveSession session, DyPersona persona, LiveAiGenerateVO vo) {
@@ -400,13 +421,14 @@ public class LiveScriptSlotGenerator {
         }
         cn.gaifan.douyinOperations.module.ai.entity.AiModel model = modelHelper.findAvailableModel(vo.getModelId());
         if (model == null) {
-            log.warn("无可用 AI 模型，使用模板生成话术");
-            return new LiveScriptPostProcessor.GenerateResult(promptBuilder.buildScriptTemplate(scriptType, session, persona, vo), List.of(), null);
+            throw new BusinessException(ErrorCode.AI_MODEL_UNAVAILABLE, "无可用 AI 模型，禁止使用未引用官方规则的模板话术放行");
         }
 
         LiveScriptLlmUserPromptComposer.AugmentedUserPrompt aug = llmUserPromptComposer.augmentAfterBasePrompt(scriptType, session, persona, vo);
         String prompt = aug.userPrompt();
         List<KnowledgeBaseService.SearchResult> ragRefs = aug.ragRefs();
+        List<cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService.OfficialReference> officialReferences =
+                aug.officialReferences();
 
         String systemPrompt = promptBuilder.getSystemPrompt(null, session.getLiveFormat());
         String promptFingerprint = Sha256Hex.fingerprintSystemAndUser(systemPrompt, prompt);
@@ -417,13 +439,56 @@ public class LiveScriptSlotGenerator {
                     modelHelper.incrementQuotaUsed(model.getId(), response.tokensUsed());
                 }
                 log.info("LLM 话术生成成功: type={}, model={}, tokens={}", scriptType, model.getModelVersion(), response.tokensUsed());
-                return new LiveScriptPostProcessor.GenerateResult(response.content().trim(), ragRefs, promptFingerprint);
+                return new LiveScriptPostProcessor.GenerateResult(response.content().trim(), ragRefs, promptFingerprint, officialReferences);
             }
             log.warn("LLM 生成失败: {}, fallback 到模板", response.errorMsg());
         } catch (Exception e) {
-            log.error("LLM 调用异常, fallback 到模板", e);
+            log.error("LLM 调用异常", e);
         }
 
-        return new LiveScriptPostProcessor.GenerateResult(promptBuilder.buildScriptTemplate(scriptType, session, persona, vo), ragRefs, promptFingerprint);
+        throw new BusinessException(ErrorCode.LIVE_SCRIPT_GENERATE_FAIL, "AI 话术生成失败，禁止使用未引用官方规则的模板话术放行");
+    }
+
+    private Long logLiveGenerationCall(
+            LiveSession session,
+            String scriptType,
+            LiveAiGenerateVO vo,
+            LiveScriptPostProcessor.GenerateResult gen,
+            String content,
+            String referencedChunkIds,
+            Long scriptId) {
+        if (aiCallLogService == null || session == null || session.getUserId() == null) {
+            return null;
+        }
+        try {
+            String modelCode = vo != null && vo.getModelId() != null
+                    ? "model:" + vo.getModelId()
+                    : "task:copy_processing";
+            String summary = String.format(Locale.ROOT,
+                    "live slot=%s session=%s script=%s officialRefs=%d",
+                    scriptType,
+                    session.getId(),
+                    scriptId,
+                    gen != null && gen.officialReferences() != null ? gen.officialReferences().size() : 0);
+            return aiCallLogService.logWithAttribution(new AiCallLogService.LogEntry(
+                    session.getUserId(),
+                    "live_script_slot",
+                    scriptType,
+                    modelCode,
+                    summary,
+                    content != null ? content.length() : 0,
+                    null,
+                    null,
+                    null,
+                    1,
+                    null,
+                    false,
+                    referencedChunkIds,
+                    null
+            ), null, session.getId());
+        } catch (Exception e) {
+            log.debug("直播话术 AI 调用日志写入跳过: {}", e.getMessage());
+            return null;
+        }
     }
 }

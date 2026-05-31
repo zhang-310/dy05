@@ -71,6 +71,9 @@ public class DouyinCookieQrLoginServiceImpl implements DouyinCookieQrLoginServic
     @Value("${app.douyin-cookie.qr-screenshot-full-page:false}")
     private boolean qrScreenshotFullPage;
 
+    @Value("${app.douyin-cookie.session-eviction-enabled:true}")
+    private boolean sessionEvictionEnabled;
+
     private static final String SSO_LOGIN_URL = "https://sso.douyin.com/";
     /** 部分环境下根路径无登录 UI，带 login 的路径更易露出扫码/账号登录页 */
     private static final String SSO_LOGIN_PATH_URL = "https://sso.douyin.com/login/";
@@ -203,8 +206,11 @@ public class DouyinCookieQrLoginServiceImpl implements DouyinCookieQrLoginServic
         }
     }
 
-    @Scheduled(fixedRate = 60_000)
+    @Scheduled(fixedRateString = "${app.douyin-cookie.session-eviction-fixed-rate-ms:60000}")
     public void evictExpiredSessions() {
+        if (!sessionEvictionEnabled) {
+            return;
+        }
         long now = System.currentTimeMillis();
         for (String sid : Set.copyOf(sessionsById.keySet())) {
             QrSession s = sessionsById.get(sid);

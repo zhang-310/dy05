@@ -1,16 +1,20 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_competitive_insight")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveCompetitiveInsight {
 
     @Id

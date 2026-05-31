@@ -3,7 +3,8 @@ package cn.gaifan.douyinOperations.module.product.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -28,7 +29,8 @@ import java.time.LocalDateTime;
     @Index(name = "idx_effectiveness_record_composite", columnList = "product_id, script_version_id, calculated_at DESC")
 })
 @SQLRestriction("deleted = 0")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder

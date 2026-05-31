@@ -5,6 +5,8 @@ import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
 import cn.gaifan.douyinOperations.module.douyin.repository.DyPersonaRepository;
+import cn.gaifan.douyinOperations.module.product.entity.DyProduct;
+import cn.gaifan.douyinOperations.module.product.repository.DyProductRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvHotTopic;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvViralVideo;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvHotTopicRepository;
@@ -49,6 +51,9 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
 
     @Autowired(required = false)
     private ViolationWordService violationWordService;
+
+    @Autowired(required = false)
+    private DyProductRepository productRepository;
 
     @Override
     public List<Map<String, Object>> matchPersonas(Long viralVideoId, Long userId) {
@@ -138,6 +143,12 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
 
     @Override
     public Map<String, Object> generatePersonaFusedScript(Long viralVideoId, Long personaId, String remakeType, Long userId) {
+        return generatePersonaFusedScript(viralVideoId, personaId, remakeType, null, userId);
+    }
+
+    @Override
+    public Map<String, Object> generatePersonaFusedScript(Long viralVideoId, Long personaId, String remakeType,
+                                                          PersonaFusionOptions options, Long userId) {
         SvViralVideo viral = viralVideoService.getViralVideo(viralVideoId, userId);
         DyPersona persona = personaRepository.findByIdAndDeleted(personaId, 0).orElse(null);
         if (persona == null || !userId.equals(persona.getOwnerId())) {
@@ -148,6 +159,11 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
             return Map.of("error", "AI 服务不可用");
         }
 
+        DyProduct product = resolvePersonaFusionProduct(options, userId);
+        if (options != null && options.productId() != null && product == null) {
+            return Map.of("error", "关联商品不存在或无权访问");
+        }
+
         ViralEvidenceHelper.EvidenceSnapshot evidence = ViralEvidenceHelper.resolveEvidence(
                 viral.getDeepAnalysisResult(), viral.getTranscript(), viral.getSceneDescriptions());
         String variableTableHint = "";
@@ -156,6 +172,7 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
         }
         String transcriptHint = buildTranscriptHint(viral, evidence);
         String sceneHint = buildSceneHint(viral, evidence);
+        String pageConstraintHint = buildPersonaFusionConstraintHint(options, product);
 
         String analysisSnippet = buildStructuredDeepAnalysisSnippet(viral, evidence);
         if (analysisSnippet.length() > 2000) {
@@ -177,6 +194,8 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
                 口癖/标志性表达: （请在脚本中融入人设的标志性表达）
 
                 【二创类型】%s
+
+                %s
 
                 %s
 
@@ -228,6 +247,7 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
                 persona.getDescription() != null ? persona.getDescription() : "",
                 persona.getTone() != null ? persona.getTone() : "自然",
                 remakeType != null ? remakeType : "form_imitation",
+                pageConstraintHint,
                 buildComplianceConstraint(userId));
 
         try {
@@ -243,6 +263,7 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
                 r.put("personaId", personaId);
                 r.put("remakeType", remakeType != null ? remakeType : "form_imitation");
                 r.put("usedVariableTable", viral.getRemakeVariableTable() != null);
+                attachPersonaFusionConstraints(r, options, product);
                 attachViolationCheck(r, scriptText, userId);
                 return r;
             }
@@ -250,6 +271,88 @@ public class PersonaViralFusionServiceImpl implements PersonaViralFusionService 
             log.error("[人设融合生成] 失败: {}", e.getMessage());
         }
         return Map.of("error", "生成失败");
+    }
+
+    private DyProduct resolvePersonaFusionProduct(PersonaFusionOptions options, Long userId) {
+        if (options == null || options.productId() == null || productRepository == null) {
+            return null;
+        }
+        return productRepository.findByIdAndDeleted(options.productId(), 0)
+                .filter(product -> userId != null && userId.equals(product.getUserId()))
+                .orElse(null);
+    }
+
+    private String buildPersonaFusionConstraintHint(PersonaFusionOptions options, DyProduct product) {
+        if (options == null) {
+            return "";
+        }
+        List<String> lines = new ArrayList<>();
+        if (product != null) {
+            lines.add("【关联商品】");
+            lines.add("- 商品ID: " + product.getId());
+            lines.add("- 商品名称: " + safeText(product.getProductName()));
+            if (StringUtils.hasText(product.getProductCategory())) {
+                lines.add("- 商品品类: " + product.getProductCategory());
+            }
+            if (StringUtils.hasText(product.getAiSellingPoints())) {
+                lines.add("- AI 卖点: " + truncate(product.getAiSellingPoints(), 500));
+            } else if (StringUtils.hasText(product.getDescription())) {
+                lines.add("- 商品描述: " + truncate(product.getDescription(), 500));
+            }
+            if (product.getPrice() != null) {
+                lines.add("- 商品价格: " + product.getPrice());
+            }
+            lines.add("要求：脚本必须自然植入该商品卖点，不得硬广堆砌。");
+        }
+        if (StringUtils.hasText(options.topic())) {
+            lines.add("【话题/场景约束】" + truncate(options.topic(), 200));
+        }
+        if (options.durationSeconds() != null && options.durationSeconds() > 0) {
+            lines.add("【目标时长】约 " + options.durationSeconds() + " 秒，请按该时长控制段落数量和节奏。");
+        }
+        if (options.count() != null && options.count() > 1) {
+            lines.add("【生成数量】请在 JSON 中增加 alternatives 数组，给出 " + options.count() + " 个差异化备选方案。");
+        }
+        if (lines.isEmpty()) {
+            return "";
+        }
+        return String.join("\n", lines);
+    }
+
+    private void attachPersonaFusionConstraints(Map<String, Object> result, PersonaFusionOptions options, DyProduct product) {
+        if (options == null) {
+            return;
+        }
+        Map<String, Object> constraints = new LinkedHashMap<>();
+        if (product != null) {
+            constraints.put("productId", product.getId());
+            constraints.put("productName", product.getProductName() != null ? product.getProductName() : "");
+            constraints.put("productCategory", product.getProductCategory() != null ? product.getProductCategory() : "");
+        }
+        if (StringUtils.hasText(options.topic())) {
+            constraints.put("topic", options.topic().trim());
+        }
+        if (options.durationSeconds() != null) {
+            constraints.put("durationSeconds", options.durationSeconds());
+        }
+        if (options.count() != null) {
+            constraints.put("count", options.count());
+        }
+        if (!constraints.isEmpty()) {
+            result.put("constraintsApplied", constraints);
+        }
+    }
+
+    private String safeText(String text) {
+        return text != null ? text : "";
+    }
+
+    private String truncate(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        String trimmed = text.trim();
+        return trimmed.length() > maxLength ? trimmed.substring(0, maxLength) : trimmed;
     }
 
     @Override

@@ -20,6 +20,12 @@ public interface SvProjectRepository extends JpaRepository<SvProject, Long>, Jpa
     /** 统计用户的项目总数（战略规划用） */
     long countByOwnerIdAndDeleted(Long ownerId, Integer deleted);
 
+    /** 发布复盘：全局已发布项目数（以发布时间为准） */
+    long countByPublishTimeIsNotNullAndDeleted(Integer deleted);
+
+    /** 发布复盘：用户已发布项目数（以发布时间为准） */
+    long countByOwnerIdAndPublishTimeIsNotNullAndDeleted(Long ownerId, Integer deleted);
+
     /** 每日拍摄：按日期、人设筛选 */
     List<SvProject> findByOwnerIdAndProjectTypeAndDeletedOrderByScheduleDateDescCreateTimeDesc(
             Long ownerId, String projectType, Integer deleted);

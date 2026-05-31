@@ -99,7 +99,7 @@ class QueryRewriteServiceImplTest {
         @Test
         void rewrite_useTaskConfigModels_whenConfigExists() {
             DouyinAccount account = buildAccount();
-            when(accountRepository.findByUserIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
+            when(accountRepository.findByOwnerIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
                     .thenReturn(new PageImpl<>(List.of(account)));
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
             when(valueOps.get(anyString())).thenReturn(null);
@@ -127,7 +127,7 @@ class QueryRewriteServiceImplTest {
         @Test
         void rewrite_fallbackToAnyModels_whenNoTaskConfig() {
             DouyinAccount account = buildAccount();
-            when(accountRepository.findByUserIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
+            when(accountRepository.findByOwnerIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
                     .thenReturn(new PageImpl<>(List.of(account)));
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
             when(valueOps.get(anyString())).thenReturn(null);
@@ -145,7 +145,7 @@ class QueryRewriteServiceImplTest {
 
         @Test
         void rewrite_noAccounts_shouldReturnOriginal() {
-            when(accountRepository.findByUserIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
+            when(accountRepository.findByOwnerIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
                     .thenReturn(new PageImpl<>(Collections.emptyList()));
             List<String> result = queryRewriteService.rewrite(1L, "查询");
             assertThat(result).containsExactly("查询");
@@ -159,7 +159,7 @@ class QueryRewriteServiceImplTest {
 
         @Test
         void rewrite_cacheHit_shouldNotCallLlm() {
-            when(accountRepository.findByUserIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
+            when(accountRepository.findByOwnerIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
                     .thenReturn(new PageImpl<>(List.of(buildAccount())));
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
             when(valueOps.get(anyString())).thenReturn("缓存子查询1\n缓存子查询2");
@@ -177,7 +177,7 @@ class QueryRewriteServiceImplTest {
         @Test
         void rewrite_queryOver500Chars_shouldTruncate() {
             String longQuery = "a".repeat(600);
-            when(accountRepository.findByUserIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
+            when(accountRepository.findByOwnerIdAndDeleted(1L, 0, PageRequest.of(0, 1)))
                     .thenReturn(new PageImpl<>(List.of(buildAccount())));
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
             when(valueOps.get(anyString())).thenReturn(null);

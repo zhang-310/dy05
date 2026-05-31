@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.benchmark.service.impl;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.ai.AiEmbeddingConstants;
+import cn.gaifan.douyinOperations.module.ai.service.VectorService;
 import cn.gaifan.douyinOperations.module.benchmark.entity.BenchmarkQualityScript;
 import cn.gaifan.douyinOperations.module.benchmark.repository.BenchmarkQualityScriptRepository;
 import cn.gaifan.douyinOperations.module.benchmark.service.BenchmarkScriptSimilarityService;
@@ -47,6 +48,9 @@ public class BenchmarkScriptSimilarityServiceImpl implements BenchmarkScriptSimi
 
     @Autowired
     private BenchmarkQualityScriptRepository qualityScriptRepository;
+
+    @Autowired(required = false)
+    private VectorService vectorService;
 
     /**
      * 为质量脚本生成向量嵌入
@@ -330,34 +334,19 @@ public class BenchmarkScriptSimilarityServiceImpl implements BenchmarkScriptSimi
      * 从文本生成向量嵌入
      */
     private byte[] generateEmbeddingFromText(String text) {
-        // 模拟向量生成（实际生产应调用 Ollama 或其他 Embedding API）
-        float[] embedding = generateMockEmbedding(text);
+        if (vectorService == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Embedding 服务未配置，无法生成脚本向量");
+        }
+        List<Float> vector = vectorService.generateEmbedding(text);
+        if (vector == null || vector.size() != VECTOR_DIMENSION) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "向量维度不匹配，期望: " + VECTOR_DIMENSION + "，实际: " + (vector == null ? 0 : vector.size()));
+        }
+        float[] embedding = new float[vector.size()];
+        for (int i = 0; i < vector.size(); i++) {
+            embedding[i] = vector.get(i);
+        }
         return floatsToBytes(embedding);
-    }
-
-    /**
-     * 生成模拟向量（用于开发测试）
-     */
-    private float[] generateMockEmbedding(String text) {
-        float[] embedding = new float[VECTOR_DIMENSION];
-        Random rand = new Random(text.hashCode());
-
-        for (int i = 0; i < VECTOR_DIMENSION; i++) {
-            embedding[i] = (rand.nextFloat() - 0.5f) * 2.0f;  // [-1, 1]
-        }
-
-        // 归一化
-        float norm = 0.0f;
-        for (float v : embedding) {
-            norm += v * v;
-        }
-        norm = (float) Math.sqrt(norm);
-
-        for (int i = 0; i < VECTOR_DIMENSION; i++) {
-            embedding[i] /= norm;
-        }
-
-        return embedding;
     }
 
     /**
@@ -629,4 +618,3 @@ public class BenchmarkScriptSimilarityServiceImpl implements BenchmarkScriptSimi
         return content.substring(0, maxLength) + "...";
     }
 }
-

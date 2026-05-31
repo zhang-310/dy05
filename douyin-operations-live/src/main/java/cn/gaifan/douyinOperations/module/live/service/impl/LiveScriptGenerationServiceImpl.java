@@ -5,6 +5,7 @@ import cn.gaifan.douyinOperations.common.compliance.vo.ComplianceCheckResult;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
+import cn.gaifan.douyinOperations.module.ai.service.AiCallLogService;
 import cn.gaifan.douyinOperations.module.ai.service.KnowledgeBaseService;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
@@ -69,6 +70,7 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
     @Resource private LiveProductRepository liveProductRepository;
     @Resource private ProductService productService;
     @Resource private LlmClient llmClient;
+    @Resource private AiCallLogService aiCallLogService;
     @Resource private LiveScriptService liveScriptService;
     @Resource private LivePromptBuilder promptBuilder;
     @Resource private LiveAiModelHelper modelHelper;
@@ -400,6 +402,10 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
             if (!response.success() || response.content() == null || response.content().isBlank()) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI 生成失败: " + response.errorMsg());
             }
+            if (ragResult == null || ragResult.refs() == null || ragResult.refs().isEmpty()) {
+                throw new BusinessException(ErrorCode.COMPLIANCE_VIOLATION,
+                        "官方规则引用门禁未通过：产品话术生成必须检索到 douyin/douyin_weigui 知识库引用，禁止放行生成结果");
+            }
             scriptContent = response.content().trim();
             tokenUsage = (int) Math.min(response.tokensUsed(), Integer.MAX_VALUE);
             if (tokenUsage > 0) {
@@ -520,7 +526,9 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
         }
 
         LiveScriptPostProcessor.GenerateResult gen = slotGenerator.generateWithLlm(scriptType, session, persona, vo);
+        LiveScriptPostProcessor.assertOfficialGenerationGate(gen.officialReferences(), "直播话术生成");
         String content = gen.content();
+        String referencedChunkIds = LiveScriptPostProcessor.toReferencedChunkIdsJson(gen.ragRefs(), gen.officialReferences());
 
         cn.gaifan.douyinOperations.module.abtest.vo.ScriptStyleAssignVO abAssign = postProcessor.tryAssignAbStyle(session);
 
@@ -579,6 +587,10 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
         if (vo.getDurationLimitSec() != null && vo.getDurationLimitSec() > 0) {
             script.setDurationLimitSec(vo.getDurationLimitSec());
         }
+        Long callLogId = logLiveGenerationCall(session, scriptType, vo, gen, content, referencedChunkIds, null);
+        if (callLogId != null) {
+            script.setAiCallLogId(callLogId);
+        }
         Map<String, Object> hints = liveScriptQualityService.applyGenerationQualityHints(script);
         scriptRepository.save(script);
 
@@ -593,7 +605,8 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
         result.setDuplicateCheck(duplicateCheck);
         result.setViolationCheck(checkResult);
         result.setRagRefs(LiveScriptPostProcessor.toRagRefVOs(gen.ragRefs()));
-        result.setReferencedChunkIds(LiveScriptPostProcessor.toReferencedChunkIdsJson(gen.ragRefs()));
+        result.setOfficialReferences(LiveScriptPostProcessor.toOfficialReferenceVOs(gen.officialReferences()));
+        result.setReferencedChunkIds(referencedChunkIds);
         result.setSessionIdForAttribution(session.getId());
         result.setScriptIdForAttribution(script.getId());
         return result;
@@ -631,6 +644,49 @@ public class LiveScriptGenerationServiceImpl implements LiveScriptGenerationServ
         // 批量查询：一次数据库调用获取所有产品
         List<DyProduct> products = productRepository.findAllById(new ArrayList<>(allProductIds));
         return products.stream().collect(Collectors.toMap(DyProduct::getId, p -> p));
+    }
+
+    private Long logLiveGenerationCall(
+            LiveSession session,
+            String scriptType,
+            LiveAiGenerateVO vo,
+            LiveScriptPostProcessor.GenerateResult gen,
+            String content,
+            String referencedChunkIds,
+            Long scriptId) {
+        if (aiCallLogService == null || session == null || session.getUserId() == null) {
+            return null;
+        }
+        try {
+            String modelCode = vo != null && vo.getModelId() != null
+                    ? "model:" + vo.getModelId()
+                    : "task:copy_processing";
+            String summary = String.format(java.util.Locale.ROOT,
+                    "live generate type=%s session=%s script=%s officialRefs=%d",
+                    scriptType,
+                    session.getId(),
+                    scriptId,
+                    gen != null && gen.officialReferences() != null ? gen.officialReferences().size() : 0);
+            return aiCallLogService.logWithAttribution(new AiCallLogService.LogEntry(
+                    session.getUserId(),
+                    "live_script_" + (scriptType != null ? scriptType : "custom"),
+                    scriptType,
+                    modelCode,
+                    summary,
+                    content != null ? content.length() : 0,
+                    null,
+                    null,
+                    null,
+                    1,
+                    null,
+                    false,
+                    referencedChunkIds,
+                    null
+            ), null, session.getId());
+        } catch (Exception e) {
+            log.debug("直播单段 AI 调用日志写入跳过: {}", e.getMessage());
+            return null;
+        }
     }
 
     // ─── 私有方法：完整结果构建 ──────────────────────────────────────

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
 /**
  * 短视频拍摄任务工单，与 sql/shortvideo/schema.sql 中 sv_shooting_task 对应。
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_shooting_task")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvShootingTask {
 
     @Id

@@ -6,10 +6,13 @@ import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.product.entity.DyProductScript;
 import cn.gaifan.douyinOperations.module.product.entity.ScriptVersionHistory;
 import cn.gaifan.douyinOperations.module.product.service.ProductScriptService;
+import cn.gaifan.douyinOperations.module.product.service.ProductScriptShortVideoExportService;
 import cn.gaifan.douyinOperations.module.product.service.ScriptVersionHistoryService;
 import cn.gaifan.douyinOperations.module.product.vo.BatchGenerateRequestVO;
 import cn.gaifan.douyinOperations.module.product.vo.MultiStyleGenerateRequestVO;
 import cn.gaifan.douyinOperations.module.product.vo.MultiStyleGenerateResultVO;
+import cn.gaifan.douyinOperations.module.product.vo.ProductScriptExportToShortVideoResultVO;
+import cn.gaifan.douyinOperations.module.product.vo.ProductScriptExportToShortVideoVO;
 import cn.gaifan.douyinOperations.module.product.vo.ProductScriptSaveVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -40,6 +43,9 @@ public class ProductScriptController {
 
     @Resource
     private ScriptVersionHistoryService scriptVersionHistoryService;
+
+    @Resource
+    private ProductScriptShortVideoExportService productScriptShortVideoExportService;
 
     @PostMapping("/save")
     @Operation(summary = "保存产品话术 / Save Product Script")
@@ -164,7 +170,7 @@ public class ProductScriptController {
                                             @RequestParam(required = false) String kbCategories) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "product-script-multi-style-auth-error");
             err.completeWithError(new RuntimeException("未登录"));
             return err;
         }
@@ -186,13 +192,13 @@ public class ProductScriptController {
             try {
                 vo.setStyleWeights(parseStyleWeights(styleWeights));
             } catch (Exception e) {
-                SseEmitter err = new SseEmitter(1000L);
+                SseEmitter err = createSseEmitter(1000L, "product-script-multi-style-validation-error");
                 err.completeWithError(new RuntimeException("styleWeights 格式错误"));
                 return err;
             }
         }
 
-        SseEmitter emitter = new SseEmitter(600_000L);
+        SseEmitter emitter = createSseEmitter(600_000L, "product-script-multi-style");
         productScriptService.generateMultiStyleScriptsWithProgress(vo, userId, emitter);
         return emitter;
     }
@@ -212,11 +218,11 @@ public class ProductScriptController {
                                           @Valid @RequestBody BatchGenerateRequestVO vo) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "product-script-batch-auth-error");
             err.completeWithError(new RuntimeException("未登录"));
             return err;
         }
-        SseEmitter emitter = new SseEmitter(600_000L); // 10 分钟
+        SseEmitter emitter = createSseEmitter(600_000L, "product-script-batch"); // 10 分钟
         try {
             productScriptService.generateBatchWithProgress(vo, userId, (current, total, productId, productName, style, success, message) -> {
                 try {
@@ -249,6 +255,14 @@ public class ProductScriptController {
         return emitter;
     }
 
+    private SseEmitter createSseEmitter(long timeoutMs, String streamName) {
+        SseEmitter emitter = new SseEmitter(timeoutMs);
+        emitter.onCompletion(() -> log.debug("SSE completed: {}", streamName));
+        emitter.onTimeout(() -> log.debug("SSE timeout: {}", streamName));
+        emitter.onError(error -> log.debug("SSE error: {}, {}", streamName, error.getMessage()));
+        return emitter;
+    }
+
     @PostMapping("/active")
     @Operation(summary = "获取产品的激活话术 / List Active Scripts")
     public RESTResult<List<DyProductScript>> listActiveScripts(HttpServletRequest request,
@@ -274,7 +288,7 @@ public class ProductScriptController {
         }
 
         productScriptService.activateScript(scriptId, userId);
-        RESTResult<Void> r = RESTResult.getSuccess(null);
+        RESTResult<Void> r = RESTResult.success();
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -307,7 +321,7 @@ public class ProductScriptController {
         }
 
         productScriptService.deleteScript(scriptId, userId);
-        RESTResult<Void> r = RESTResult.getSuccess(null);
+        RESTResult<Void> r = RESTResult.success();
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -346,6 +360,19 @@ public class ProductScriptController {
         } catch (Exception e) {
             return RESTResult.error(ErrorCode.INTERNAL_ERROR, "生成失败: " + e.getMessage());
         }
+    }
+
+    @PostMapping("/export-to-shortvideo")
+    @Operation(summary = "商品话术导出为短视频项目 / Export Product Script To Short Video")
+    public RESTResult<ProductScriptExportToShortVideoResultVO> exportToShortVideo(HttpServletRequest request,
+            @Valid @RequestBody ProductScriptExportToShortVideoVO vo) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        ProductScriptExportToShortVideoResultVO result =
+                productScriptShortVideoExportService.exportToShortVideoProject(vo, userId);
+        RESTResult<ProductScriptExportToShortVideoResultVO> r = RESTResult.addSuccess(result);
+        r.setTraceId(MDC.get("traceId"));
+        return r;
     }
 
     @PostMapping("/usage-list")

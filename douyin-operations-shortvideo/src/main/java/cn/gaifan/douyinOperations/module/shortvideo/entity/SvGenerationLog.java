@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -10,9 +12,11 @@ import java.sql.Timestamp;
  * 图生视频生成历史 (Phase 5/6 知识库闭环)
  * 表: sv_generation_log
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_generation_log")
+@NoArgsConstructor
 public class SvGenerationLog {
 
     @Id
@@ -21,6 +25,9 @@ public class SvGenerationLog {
 
     @Column(name = "project_id")
     private Long projectId;
+
+    @Column(name = "owner_id")
+    private Long ownerId;
 
     @Column(name = "shot_id")
     private Long shotId;

@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.benchmark.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.math.BigDecimal;
@@ -10,10 +12,12 @@ import java.time.LocalDateTime;
 /**
  * Prompt A/B 测试实体
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "benchmark_prompt_ab_test")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class BenchmarkPromptAbTest {
 
     @Id

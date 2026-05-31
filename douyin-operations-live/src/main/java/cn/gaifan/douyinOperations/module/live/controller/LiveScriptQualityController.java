@@ -65,7 +65,7 @@ public class LiveScriptQualityController {
     public RESTResult<LiveAiResultVO.ViolationCheckResult> checkViolationEnhanced(
             HttpServletRequest request,
             @Valid @RequestBody ScriptIdVO vo) {
-        requireUserId(request);
+        Long userId = requireUserId(request);
         if (liveScriptRepository == null) {
             return withTraceId(RESTResult.fail(ErrorCode.DATA_NOT_FOUND, "话术服务不可用"));
         }
@@ -77,7 +77,7 @@ public class LiveScriptQualityController {
         }
         DyProduct finalProduct = product;
         LiveAiResultVO.ViolationCheckResult data = liveScriptQualityService.checkViolationEnhanced(
-                script.getScriptContent(), finalProduct);
+                script.getScriptContent(), finalProduct, userId);
         return withTraceId(RESTResult.getSuccess(data));
     }
 

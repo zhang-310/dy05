@@ -3,11 +3,17 @@ package cn.gaifan.douyinOperations.module.product.service.impl;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
+import cn.gaifan.douyinOperations.module.product.entity.DyProduct;
+import cn.gaifan.douyinOperations.module.product.entity.DyProductScript;
 import cn.gaifan.douyinOperations.module.product.entity.ProductScriptSnapshot;
 import cn.gaifan.douyinOperations.module.product.entity.ProductScriptVersion;
+import cn.gaifan.douyinOperations.module.product.repository.DyProductRepository;
+import cn.gaifan.douyinOperations.module.product.repository.DyProductScriptRepository;
 import cn.gaifan.douyinOperations.module.product.repository.ProductScriptSnapshotRepository;
 import cn.gaifan.douyinOperations.module.product.repository.ProductScriptVersionRepository;
 import cn.gaifan.douyinOperations.module.product.service.ProductScriptVersionService;
+import cn.gaifan.douyinOperations.module.product.vo.EnsureOptimizationVersionResultVO;
+import cn.gaifan.douyinOperations.module.product.vo.EnsureOptimizationVersionVO;
 import cn.gaifan.douyinOperations.module.product.vo.ProductScriptRecommendVO;
 import cn.gaifan.douyinOperations.module.product.vo.ProductScriptSnapshotVO;
 import cn.gaifan.douyinOperations.module.product.vo.ProductScriptVersionSaveVO;
@@ -44,6 +50,12 @@ public class ProductScriptVersionServiceImpl implements ProductScriptVersionServ
 
     @Resource
     private ProductScriptVersionRepository versionRepository;
+
+    @Resource
+    private DyProductScriptRepository scriptRepository;
+
+    @Resource
+    private DyProductRepository productRepository;
 
     @Resource
     private ProductScriptSnapshotRepository snapshotRepository;
@@ -522,20 +534,8 @@ public class ProductScriptVersionServiceImpl implements ProductScriptVersionServ
     public List<ProductScriptVersionVO> listByProductId(Long productId, Long userId) {
         log.info("获取产品的所有话术版本: productId={}, userId={}", productId, userId);
 
-        Specification<ProductScriptVersion> spec = (root, query, cb) -> {
-            List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("productId"), productId));
-            predicates.add(cb.equal(root.get("ownerId"), userId));
-            predicates.add(cb.equal(root.get("deleted"), 0));
-            return cb.and(predicates.toArray(new Predicate[0]));
-        };
-
-        // 按版本号倒序排列
-        Pageable pageable = PageRequest.of(0, Integer.MAX_VALUE,
-                                          Sort.by(Sort.Direction.DESC, "versionNumber"));
-        Page<ProductScriptVersion> page = versionRepository.findAll(spec, pageable);
-
-        return page.getContent().stream()
+        return versionRepository.findByOwnerIdAndProductIdAndDeletedOrderByVersionNumberDesc(userId, productId, 0)
+                .stream()
                 .map(this::convert)
                 .collect(Collectors.toList());
     }
@@ -701,6 +701,72 @@ public class ProductScriptVersionServiceImpl implements ProductScriptVersionServ
         setB.stream().filter(line -> !setA.contains(line)).forEach(diff.added::add);
         setA.stream().filter(line -> !setB.contains(line)).forEach(diff.removed::add);
         return diff;
+    }
+
+    @Override
+    public EnsureOptimizationVersionResultVO ensureOptimizationVersion(EnsureOptimizationVersionVO vo, Long userId) {
+        if (vo == null || vo.getScriptId() == null || vo.getScriptId() <= 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "商品话术 ID 不能为空");
+        }
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "用户 ID 无效");
+        }
+
+        DyProductScript script = scriptRepository.findById(vo.getScriptId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "商品话术不存在"));
+        if (script.getProductId() == null) {
+            throw new BusinessException(ErrorCode.INVALID_PARAMS, "情绪话术暂不支持商品优化链路");
+        }
+
+        DyProduct product = productRepository.findByIdForUpdate(script.getProductId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "商品不存在"));
+        if (!product.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.PRODUCT_FORBIDDEN, "无权访问该商品话术");
+        }
+
+        boolean forceNew = Boolean.TRUE.equals(vo.getForceNew());
+        if (!forceNew) {
+            Optional<ProductScriptVersion> existing = versionRepository
+                    .findFirstByScriptIdAndOwnerIdAndDeletedOrderByVersionNumberDesc(
+                            script.getId(), userId, 0);
+            if (existing.isPresent()) {
+                ProductScriptVersion version = existing.get();
+                return EnsureOptimizationVersionResultVO.builder()
+                        .scriptId(script.getId())
+                        .scriptVersionId(version.getId())
+                        .created(false)
+                        .build();
+            }
+        }
+
+        Integer maxVersionNumber = versionRepository.findMaxVersionNumberByProductId(script.getProductId());
+        ProductScriptVersion version = ProductScriptVersion.builder()
+                .productId(script.getProductId())
+                .scriptId(script.getId())
+                .versionNumber((maxVersionNumber != null ? maxVersionNumber : 0) + 1)
+                .content(script.getScriptContent())
+                .style(script.getStyle())
+                .effectivenessScore(BigDecimal.ZERO)
+                .conversionRate(BigDecimal.ZERO)
+                .isActive(script.getIsActive() != null ? script.getIsActive() : true)
+                .isRecommended(false)
+                .archived(false)
+                .ownerId(userId)
+                .usageCount(0)
+                .likesCount(0)
+                .commentsCount(0)
+                .deleted(0)
+                .build();
+        ProductScriptVersion saved = versionRepository.save(version);
+
+        log.info("商品话术优化镜像已创建: scriptId={}, scriptVersionId={}, productId={}",
+                script.getId(), saved.getId(), script.getProductId());
+
+        return EnsureOptimizationVersionResultVO.builder()
+                .scriptId(script.getId())
+                .scriptVersionId(saved.getId())
+                .created(true)
+                .build();
     }
 
     // ===== 工具方法 =====

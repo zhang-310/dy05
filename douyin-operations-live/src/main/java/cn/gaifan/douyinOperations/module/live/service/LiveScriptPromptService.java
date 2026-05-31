@@ -51,6 +51,15 @@ public interface LiveScriptPromptService {
                                       String style, int promptLength, String requirement);
 
     /**
+     * 构建 RAG 上下文，并按用户选择的素材类型（如顺口溜/金句/段子）额外检索 TianAPI 素材。
+     */
+    default RagContextResult buildRagContext(Long userId, DyProduct product, String scriptType,
+                                             String style, int promptLength, String requirement,
+                                             String materialType) {
+        return buildRagContext(userId, product, scriptType, style, promptLength, requirement);
+    }
+
+    /**
      * 批量构建 RAG 上下文（全场生成优化）
      * <p>
      * 将多个槽位所需的 RAG 查询合并为一次知识库检索，再按 scriptType 分发结果，

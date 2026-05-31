@@ -192,7 +192,7 @@ public class LiveProductController {
         }
         List<Long> productIds = ids.stream().map(Number::longValue).toList();
         liveProductService.batchSort(sessionId, productIds);
-        RESTResult<Void> r = RESTResult.updateSuccess(null);
+        RESTResult<Void> r = RESTResult.success("排序成功", null);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

@@ -54,7 +54,9 @@ public class LiveMonitorSseController {
             try {
                 emitter.send(SseEmitter.event().name("error").data("{\"message\":\"未登录\"}"));
                 emitter.complete();
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+                // SSE发送失败，客户端已断开
+            }
             return emitter;
         }
 

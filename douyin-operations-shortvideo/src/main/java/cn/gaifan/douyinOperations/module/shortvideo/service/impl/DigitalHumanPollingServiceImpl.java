@@ -38,12 +38,21 @@ public class DigitalHumanPollingServiceImpl implements DigitalHumanPollingServic
     @Value("${app.shortvideo.digital-human.did-api-base:https://api.d-id.com}")
     private String didApiBase;
 
+    @Value("${app.shortvideo.digital-human.polling-enabled:true}")
+    private boolean pollingEnabled;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    @Scheduled(fixedDelay = 60000, initialDelay = 30000)
+    @Scheduled(
+            fixedDelayString = "${app.shortvideo.digital-human.polling-fixed-delay-ms:60000}",
+            initialDelayString = "${app.shortvideo.digital-human.polling-initial-delay-ms:30000}")
     public void pollPendingTasks() {
+        if (!pollingEnabled) {
+            log.debug("[DigitalHumanPoller] 轮询已禁用，跳过");
+            return;
+        }
         List<SvDigitalHumanTask> pendingTasks = taskRepository
                 .findByStatusInAndDeletedAndRetryCountLessThan(
                         List.of("SUBMITTED", "PROCESSING"), 0, 10);

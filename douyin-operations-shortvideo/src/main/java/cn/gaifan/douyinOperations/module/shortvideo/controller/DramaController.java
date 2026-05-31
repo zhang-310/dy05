@@ -270,7 +270,7 @@ public class DramaController {
     }
 
     @PostMapping("/generate-script")
-    @Operation(summary = "AI 生成剧本 (占位)")
+    @Operation(summary = "AI 生成剧本")
     public RESTResult<String> generateScript(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");

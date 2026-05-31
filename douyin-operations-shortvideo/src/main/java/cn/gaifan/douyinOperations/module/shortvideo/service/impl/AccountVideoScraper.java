@@ -50,6 +50,9 @@ public class AccountVideoScraper {
     @Value("${app.account-collect.playwright-timeout-ms:60000}")
     private int timeoutMs;
 
+    @Value("${app.account-collect.browser-executable-path:}")
+    private String browserExecutablePath;
+
     @Value("${app.account-collect.max-scroll-rounds:80}")
     private int maxScrollRounds;
 
@@ -68,6 +71,9 @@ public class AccountVideoScraper {
     /** 账号主页 SPA 渲染与接口拉取作品列表的额外等待（毫秒） */
     @Value("${app.account-collect.user-page-settle-ms:5000}")
     private int userPageSettleMs;
+
+    @Value("${app.shortvideo.account-collect.worker.cookie-id:}")
+    private Long workerCookieId;
 
     private final boolean playwrightAvailable;
 
@@ -94,6 +100,16 @@ public class AccountVideoScraper {
                 .setUserAgent(CHROME_UA)
                 .setLocale("zh-CN")
                 .setViewportSize(1365, 768);
+    }
+
+    private Browser launchBrowser(Playwright playwright) {
+        BrowserType.LaunchOptions options = new BrowserType.LaunchOptions()
+                .setHeadless(true)
+                .setArgs(List.of("--no-sandbox", "--disable-dev-shm-usage"));
+        if (StringUtils.hasText(browserExecutablePath)) {
+            options.setExecutablePath(Path.of(browserExecutablePath.trim()));
+        }
+        return playwright.chromium().launch(options);
     }
 
     /** 抖音页多为 SPA，默认 waitUntil=load 易长时间不触发导致 navigate 超时 */
@@ -210,6 +226,20 @@ public class AccountVideoScraper {
                 return a;
             }
             return Math.max(a, b);
+        }
+    }
+
+    private static final class CookieInjectionResult {
+        private final int cookieCount;
+        private final Long dbCookieId;
+
+        private CookieInjectionResult(int cookieCount, Long dbCookieId) {
+            this.cookieCount = cookieCount;
+            this.dbCookieId = dbCookieId;
+        }
+
+        private boolean hasCookies() {
+            return cookieCount > 0;
         }
     }
 
@@ -427,8 +457,7 @@ public class AccountVideoScraper {
     public String extractAuthorUrlFromVideoPage(String videoUrl, Long cookieOwnerId) {
         if (!playwrightAvailable || !StringUtils.hasText(videoUrl)) return null;
         try (Playwright playwright = Playwright.create()) {
-            try (Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true))) {
+            try (Browser browser = launchBrowser(playwright)) {
                 try (BrowserContext context = browser.newContext(newBrowserContextOptions())) {
                     injectCookies(context, cookieOwnerId);
                     Page page = context.newPage();
@@ -470,8 +499,7 @@ public class AccountVideoScraper {
     public String extractAuthorNameFromVideoPage(String videoUrl, Long cookieOwnerId) {
         if (!playwrightAvailable || !StringUtils.hasText(videoUrl)) return null;
         try (Playwright playwright = Playwright.create()) {
-            try (Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true))) {
+            try (Browser browser = launchBrowser(playwright)) {
                 try (BrowserContext context = browser.newContext(newBrowserContextOptions())) {
                     injectCookies(context, cookieOwnerId);
                     Page page = context.newPage();
@@ -503,8 +531,7 @@ public class AccountVideoScraper {
         if (!playwrightAvailable || !StringUtils.hasText(douyinId)) return null;
         List<String> candidates = userSearchCandidateUrls(douyinId);
         try (Playwright playwright = Playwright.create()) {
-            try (Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true))) {
+            try (Browser browser = launchBrowser(playwright)) {
                 try (BrowserContext context = browser.newContext(newBrowserContextOptions())) {
                     injectCookies(context, cookieOwnerId);
                     Page page = context.newPage();
@@ -557,24 +584,100 @@ public class AccountVideoScraper {
         }
         ScrapeResult result = new ScrapeResult();
         result.setAccountName("视频搜索");
+        Long usedDbCookieId = null;
         try (Playwright playwright = Playwright.create()) {
-            try (Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true))) {
+            try (Browser browser = launchBrowser(playwright)) {
                 try (BrowserContext context = browser.newContext(newBrowserContextOptions())) {
-                    injectCookies(context, cookieOwnerId);
+                    CookieInjectionResult cookieInjection = injectCookies(context, cookieOwnerId);
+                    usedDbCookieId = cookieInjection.dbCookieId;
+                    if (!cookieInjection.hasCookies()) {
+                        throw new IllegalStateException("未找到有效抖音 Cookie，请在 Cookie 管理中扫码登录，或为采集 worker 配置有效 COLLECTOR_COOKIE_ID");
+                    }
                     Map<String, VideoStatsAgg> statsSink = new ConcurrentHashMap<>();
                     Page page = context.newPage();
                     attachDouyinAwemeStatsListener(page, statsSink);
                     navigateDouyin(page, searchUrl);
                     Thread.sleep(4000);
                     result.setVideos(scrollAndCollectSearchVideos(page, statsSink));
+                    if (result.getVideos().isEmpty()) {
+                        String blockedReason = logSearchEmptyDiagnostics(page, searchUrl);
+                        if (StringUtils.hasText(blockedReason)) {
+                            throw new IllegalStateException(blockedReason);
+                        }
+                    }
                 }
             }
         } catch (Exception e) {
+            markCookieUnavailableIfBlocked(cookieOwnerId, usedDbCookieId, e.getMessage());
             log.error("抓取搜索视频列表失败: {}", e.getMessage(), e);
+            throw new IllegalStateException("抓取搜索视频列表失败: " + e.getMessage(), e);
         }
         log.info("搜索页视频抓取完成，共 {} 条", result.getVideos().size());
         return result;
+    }
+
+    private String logSearchEmptyDiagnostics(Page page, String searchUrl) {
+        try {
+            Object raw = page.evaluate("() => {"
+                    + "const text = (document.body && document.body.innerText || '').replace(/\\s+/g, ' ').trim();"
+                    + "return {"
+                    + "  title: document.title || '',"
+                    + "  url: location.href || '',"
+                    + "  videoAnchors: document.querySelectorAll('a[href*=\"/video/\"]').length,"
+                    + "  userAnchors: document.querySelectorAll('a[href*=\"/user/\"]').length,"
+                    + "  images: document.querySelectorAll('img').length,"
+                    + "  mainText: text.substring(0, 500)"
+                    + "};"
+                    + "}");
+            if (raw instanceof Map<?, ?> map) {
+                String title = str(map, "title");
+                String url = str(map, "url");
+                String mainText = str(map, "mainText");
+                String videoAnchors = str(map, "videoAnchors");
+                String userAnchors = str(map, "userAnchors");
+                String images = str(map, "images");
+                log.warn("搜索页未解析到视频: targetUrl={}, currentUrl={}, title={}, videoAnchors={}, userAnchors={}, images={}, text={}",
+                        searchUrl, url, title, videoAnchors, userAnchors, images, mainText);
+                String combined = ((title == null ? "" : title) + " " + (url == null ? "" : url)
+                        + " " + (mainText == null ? "" : mainText)).toLowerCase(Locale.ROOT);
+                if (containsSecurityVerificationMarker(combined)) {
+                    return "抖音搜索页疑似进入登录/安全验证/风控页，请更新有效 Cookie 或降低采集频率";
+                }
+            }
+        } catch (Exception e) {
+            log.warn("搜索页空结果诊断失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private static boolean containsAny(String text, String... needles) {
+        if (text == null) {
+            return false;
+        }
+        for (String needle : needles) {
+            if (needle != null && text.contains(needle.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsSecurityVerificationMarker(String text) {
+        return containsAny(text, "验证码", "安全验证", "请完成验证", "扫码登录", "请登录",
+                "登录后", "访问频繁", "captcha", "verify", "verification", "robot");
+    }
+
+    private void markCookieUnavailableIfBlocked(Long cookieOwnerId, Long dbCookieId, String message) {
+        if (cookieOwnerId == null || dbCookieId == null || douyinCookieService == null
+                || !containsSecurityVerificationMarker(message)) {
+            return;
+        }
+        try {
+            douyinCookieService.markUnavailable(dbCookieId, cookieOwnerId, "douyin",
+                    "采集时进入登录/安全验证/风控页: " + message);
+        } catch (Exception markEx) {
+            log.warn("标记抖音 Cookie 不可用失败: cookieId={}, err={}", dbCookieId, markEx.getMessage());
+        }
     }
 
     private List<ScrapedVideo> scrollAndCollectSearchVideos(Page page, Map<String, VideoStatsAgg> statsSink) {
@@ -680,11 +783,15 @@ public class AccountVideoScraper {
         ScrapeResult result = new ScrapeResult();
         result.setSecUid(secUid);
 
+        Long usedDbCookieId = null;
         try (Playwright playwright = Playwright.create()) {
-            try (Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions().setHeadless(true))) {
+            try (Browser browser = launchBrowser(playwright)) {
                 try (BrowserContext context = browser.newContext(newBrowserContextOptions())) {
-                    injectCookies(context, cookieOwnerId);
+                    CookieInjectionResult cookieInjection = injectCookies(context, cookieOwnerId);
+                    usedDbCookieId = cookieInjection.dbCookieId;
+                    if (!cookieInjection.hasCookies()) {
+                        throw new IllegalStateException("未找到有效抖音 Cookie，请在 Cookie 管理中扫码登录，或为采集 worker 配置有效 COLLECTOR_COOKIE_ID");
+                    }
                     Map<String, VideoStatsAgg> statsSink = new ConcurrentHashMap<>();
                     Page page = context.newPage();
                     attachDouyinAwemeStatsListener(page, statsSink);
@@ -705,12 +812,17 @@ public class AccountVideoScraper {
                     result.setAccountName(extractAccountName(page));
                     result.setVideos(scrollAndCollectVideos(page, statsSink));
                     if (result.getVideos().isEmpty()) {
-                        logScrapeEmptyDiagnostics(page, pageUrl);
+                        String blockedReason = logScrapeEmptyDiagnostics(page, pageUrl);
+                        if (StringUtils.hasText(blockedReason)) {
+                            throw new IllegalStateException(blockedReason);
+                        }
                     }
                 }
             }
         } catch (Exception e) {
+            markCookieUnavailableIfBlocked(cookieOwnerId, usedDbCookieId, e.getMessage());
             log.error("抓取账号视频列表失败: {}", e.getMessage(), e);
+            throw new IllegalStateException("抓取账号视频列表失败: " + e.getMessage(), e);
         }
         return result;
     }
@@ -786,16 +898,23 @@ public class AccountVideoScraper {
         }
     }
 
-    private void logScrapeEmptyDiagnostics(Page page, String pageUrl) {
+    private String logScrapeEmptyDiagnostics(Page page, String pageUrl) {
         try {
             String title = page.title();
             Object vcount = page.evaluate("() => document.querySelectorAll('a[href*=\"/video/\"]').length");
             Object hasPost = page.evaluate("() => !!document.querySelector('[data-e2e=\"user-post-list\"]')");
-            log.warn("账号主页未解析到视频卡片: url={}, title={}, user-post-list={}, a[video]={}",
-                    pageUrl, title, hasPost, vcount);
+            Object text = page.evaluate("() => (document.body && document.body.innerText || '').replace(/\\s+/g, ' ').trim().substring(0, 500)");
+            log.warn("账号主页未解析到视频卡片: url={}, currentUrl={}, title={}, user-post-list={}, a[video]={}, text={}",
+                    pageUrl, page.url(), title, hasPost, vcount, text);
+            String combined = ((title == null ? "" : title) + " " + page.url()
+                    + " " + (text == null ? "" : text.toString())).toLowerCase(Locale.ROOT);
+            if (containsSecurityVerificationMarker(combined)) {
+                return "抖音账号页疑似进入登录/安全验证/风控页，请更新有效 Cookie 或降低采集频率";
+            }
         } catch (Exception e) {
             log.warn("账号主页采集为空，且诊断失败: {}", e.getMessage());
         }
+        return null;
     }
 
     private List<ScrapedVideo> extractVideoCards(Page page) {
@@ -863,16 +982,21 @@ public class AccountVideoScraper {
      *
      * @param cookieOwnerId 当前登录用户 id，用于拉取库内 Cookie；为 null 时仅使用文件
      */
-    private void injectCookies(BrowserContext context, Long cookieOwnerId) {
+    private CookieInjectionResult injectCookies(BrowserContext context, Long cookieOwnerId) {
         List<Cookie> merged = new ArrayList<>();
         merged.addAll(loadCookiesFromNetscapeFile());
+        Long usedDbCookieId = null;
         if (cookieOwnerId != null && douyinCookieService != null) {
             try {
-                String header = douyinCookieService.getAvailableCookie(cookieOwnerId, "douyin");
+                DouyinCookieService.AvailableCookie selected =
+                        douyinCookieService.getAvailableCookieForUse(cookieOwnerId, "douyin", workerCookieId);
+                String header = selected != null ? selected.cookieValue() : null;
                 if (StringUtils.hasText(header)) {
+                    usedDbCookieId = selected.id();
                     List<Cookie> fromDb = parseCookieHeaderToPlaywright(header);
                     merged.addAll(fromDb);
-                    log.info("AccountVideoScraper 从库解析并合并 {} 条抖音 Cookie（键）", fromDb.size());
+                    log.info("AccountVideoScraper 从库解析并合并 {} 条抖音 Cookie（键），cookieId={}, preferredCookieId={}",
+                            fromDb.size(), usedDbCookieId, workerCookieId);
                 }
             } catch (Exception e) {
                 log.warn("读取库内抖音 Cookie 失败: {}", e.getMessage());
@@ -880,14 +1004,16 @@ public class AccountVideoScraper {
         }
         if (merged.isEmpty()) {
             log.debug("AccountVideoScraper 未注入任何 Cookie（无文件且无库内记录）");
-            return;
+            return new CookieInjectionResult(0, usedDbCookieId);
         }
         try {
             context.addCookies(merged);
             log.info("AccountVideoScraper 合计向浏览器上下文注入 {} 条 Cookie", merged.size());
         } catch (Exception e) {
             log.warn("注入 Cookie 失败: {}", e.getMessage());
+            return new CookieInjectionResult(0, usedDbCookieId);
         }
+        return new CookieInjectionResult(merged.size(), usedDbCookieId);
     }
 
     private List<Cookie> loadCookiesFromNetscapeFile() {

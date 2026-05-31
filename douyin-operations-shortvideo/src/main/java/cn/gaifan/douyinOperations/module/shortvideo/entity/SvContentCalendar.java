@@ -1,16 +1,20 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_content_calendar")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvContentCalendar {
 
     @Id

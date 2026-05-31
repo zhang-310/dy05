@@ -8,6 +8,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
@@ -28,6 +30,8 @@ import java.util.Map;
 @RequestMapping("/api/v1/short-video/viral")
 @Tag(name = "爆款深度拆解 / Viral Deep Analyze", description = "下载→ASR→抽帧→LLM 综合拆解（与 /viral/analyze 触发的服务相同）")
 public class ViralVideoDeepAnalysisController {
+
+    private static final Logger log = LoggerFactory.getLogger(ViralVideoDeepAnalysisController.class);
 
     @Resource
     private ViralVideoDeepAnalysisService viralVideoDeepAnalysisService;
@@ -117,18 +121,26 @@ public class ViralVideoDeepAnalysisController {
             HttpServletRequest request) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "viral-deep-analyze-auth-error");
             err.completeWithError(new IllegalStateException("未登录"));
             return err;
         }
         Long id = longFromBody(body, "id");
         if (id == null) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "viral-deep-analyze-validation-error");
             err.completeWithError(new IllegalArgumentException("缺少 id"));
             return err;
         }
-        SseEmitter emitter = new SseEmitter(35L * 60 * 1000L);
+        SseEmitter emitter = createSseEmitter(35L * 60 * 1000L, "viral-deep-analyze");
         viralVideoDeepAnalysisService.startDeepAnalyzeStream(id, userId, emitter);
+        return emitter;
+    }
+
+    private SseEmitter createSseEmitter(long timeoutMs, String streamName) {
+        SseEmitter emitter = new SseEmitter(timeoutMs);
+        emitter.onCompletion(() -> log.debug("SSE completed: {}", streamName));
+        emitter.onTimeout(() -> log.debug("SSE timeout: {}", streamName));
+        emitter.onError(error -> log.debug("SSE error: {}, {}", streamName, error.getMessage()));
         return emitter;
     }
 

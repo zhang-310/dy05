@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 账号短视频采集任务，对应表 sv_account_collect_task
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_account_collect_task")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvAccountCollectTask {
 
     @Id
@@ -64,6 +68,43 @@ public class SvAccountCollectTask {
     @Column(name = "target_kb_id")
     private Long targetKbId;
 
+    /** 本次列表采集最多写入多少条视频 */
+    @Column(name = "max_count")
+    private Integer maxCount;
+
+    /** 领取该任务的采集节点 ID */
+    @Column(name = "worker_id", length = 128)
+    private String workerId;
+
+    /** 领取该任务的采集节点区域 */
+    @Column(name = "worker_region", length = 64)
+    private String workerRegion;
+
+    /** 当前采集租约过期时间，过期后其他节点可接力 */
+    @Column(name = "lease_until")
+    private Timestamp leaseUntil;
+
+    @Column(name = "claimed_at")
+    private Timestamp claimedAt;
+
+    @Column(name = "started_at")
+    private Timestamp startedAt;
+
+    @Column(name = "finished_at")
+    private Timestamp finishedAt;
+
+    @Column(name = "last_heartbeat_at")
+    private Timestamp lastHeartbeatAt;
+
+    @Column(name = "next_run_at")
+    private Timestamp nextRunAt;
+
+    @Column(name = "retry_count", nullable = false)
+    private Integer retryCount = 0;
+
+    @Column(name = "max_retry_count", nullable = false)
+    private Integer maxRetryCount = 3;
+
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
@@ -80,6 +121,9 @@ public class SvAccountCollectTask {
     public void prePersist() {
         if (createTime == null) createTime = new Timestamp(System.currentTimeMillis());
         if (updateTime == null) updateTime = new Timestamp(System.currentTimeMillis());
+        if (nextRunAt == null) nextRunAt = createTime;
+        if (retryCount == null) retryCount = 0;
+        if (maxRetryCount == null) maxRetryCount = 3;
     }
 
     @PreUpdate

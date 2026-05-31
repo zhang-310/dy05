@@ -5,7 +5,7 @@ import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.contract.auth.DataScopeResolver;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
-import cn.gaifan.douyinOperations.module.live.repository.LiveSessionRepository;
+import cn.gaifan.douyinOperations.module.live.service.LiveScriptService;
 import cn.gaifan.douyinOperations.module.live.service.LiveScriptService;
 import cn.gaifan.douyinOperations.module.live.vo.*;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,8 +33,6 @@ public class LiveScriptController {
     private LiveScriptService liveScriptService;
     @Resource
     private DataScopeResolver dataScopeService;
-    @Resource
-    private LiveSessionRepository liveSessionRepository;
 
     @PostMapping("/search")
     @Operation(
@@ -60,7 +58,7 @@ public class LiveScriptController {
         String roleCode = AuthTokenFilter.getRoleCode(request);
         List<Long> visibleUserIds = dataScopeService.getVisibleUserIds(userId, roleCode);
         if (visibleUserIds != null && vo.getSessionId() == null) {
-            List<Long> visibleSessionIds = liveSessionRepository.findIdsByUserIdIn(visibleUserIds);
+            List<Long> visibleSessionIds = liveScriptService.findSessionIdsByUserIds(visibleUserIds);
             vo.setSessionIds(visibleSessionIds);
         }
         PageResultVO<LiveScriptVO> data = liveScriptService.search(vo);

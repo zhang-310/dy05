@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.douyin.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
 /**
  * 粉丝画像统计表
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "dy_fan_profile_stats")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class DyFanProfileStats {
 
     @Id

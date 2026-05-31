@@ -1,20 +1,27 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.type.SqlTypes;
 
 import jakarta.persistence.*;
 import java.sql.Date;
 import java.sql.Timestamp;
+import java.util.List;
 
 /**
  * 短视频项目表，与 sql/shortvideo/migration-bos-production.sql 中 sv_project 对应
  * 所有媒体 URL 均为 BOS CDN URL
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_project")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvProject {
 
     @Id
@@ -65,6 +72,10 @@ public class SvProject {
 
     @Column(name = "duration")
     private Integer duration;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "related_product_ids")
+    private List<Long> relatedProductIds;
 
     @Column(name = "publish_title", length = 255)
     private String publishTitle;

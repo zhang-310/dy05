@@ -7,6 +7,7 @@ import cn.gaifan.douyinOperations.module.live.vo.DanmakuSentimentSnapshotVO;
 import cn.gaifan.douyinOperations.module.live.vo.RealtimeSuggestionVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -34,6 +35,9 @@ public class SuggestionPushServiceImpl implements SuggestionPushService {
     @Resource
     private DanmakuSentimentService danmakuSentimentService;
 
+    @Value("${app.live.realtime.suggestion.push-enabled:true}")
+    private boolean pushEnabled;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** sessionId -> (emitterId -> Subscriber) */
@@ -55,6 +59,7 @@ public class SuggestionPushServiceImpl implements SuggestionPushService {
         registry.computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>()).put(id, new Subscriber(emitter, userId));
         emitter.onCompletion(() -> unregister(sessionId, emitter));
         emitter.onTimeout(() -> unregister(sessionId, emitter));
+        emitter.onError(error -> unregister(sessionId, emitter));
         log.debug("实时建议 SSE 注册: sessionId={}, userId={}", sessionId, userId);
     }
 
@@ -67,8 +72,12 @@ public class SuggestionPushServiceImpl implements SuggestionPushService {
         }
     }
 
-    @Scheduled(fixedDelay = 30_000)
+    @Scheduled(fixedDelayString = "${app.live.realtime.suggestion.push-fixed-delay-ms:30000}")
     public void evaluateAndPush() {
+        if (!pushEnabled) {
+            log.debug("实时建议 SSE 推送已禁用，跳过");
+            return;
+        }
         registry.forEach((sessionId, map) -> {
             map.forEach((id, sub) -> {
                 try {
@@ -89,7 +98,7 @@ public class SuggestionPushServiceImpl implements SuggestionPushService {
                             sessionId, suggestions.size(), sentiment.getDominant());
                 } catch (IOException e) {
                     log.warn("推送建议失败 sessionId={}: {}", sessionId, e.getMessage());
-                    map.remove(id);
+                    unregister(sessionId, sub.emitter);
                 } catch (Exception e) {
                     log.warn("评估建议异常 sessionId={}: {}", sessionId, e.getMessage());
                 }

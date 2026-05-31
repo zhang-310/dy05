@@ -3,6 +3,9 @@ package cn.gaifan.douyinOperations.module.shortvideo.controller;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvDigitalHumanTask;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvDigitalHumanTaskRepository;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryLedgerService;
+import cn.gaifan.douyinOperations.module.platform.identity.CommercialIdentityBridge;
+import cn.gaifan.douyinOperations.common.config.RequestIdentityHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +25,9 @@ public class DigitalHumanWebhookController {
 
     @Autowired(required = false)
     private cn.gaifan.douyinOperations.module.shortvideo.service.DigitalHumanPollingService pollingService;
+
+    @Autowired(required = false)
+    private DeliveryLedgerService deliveryLedgerService;
 
     /**
      * HeyGen 回调
@@ -57,8 +63,11 @@ public class DigitalHumanWebhookController {
             }
             taskRepository.save(task);
 
-            if ("COMPLETED".equals(task.getStatus()) && pollingService != null) {
-                pollingService.onTaskCompleted(task);
+            if ("COMPLETED".equals(task.getStatus())) {
+                recordWebhookDelivery(task);
+                if (pollingService != null) {
+                    pollingService.onTaskCompleted(task);
+                }
             }
 
             return RESTResult.success("ok");
@@ -100,8 +109,11 @@ public class DigitalHumanWebhookController {
             }
             taskRepository.save(task);
 
-            if ("COMPLETED".equals(task.getStatus()) && pollingService != null) {
-                pollingService.onTaskCompleted(task);
+            if ("COMPLETED".equals(task.getStatus())) {
+                recordWebhookDelivery(task);
+                if (pollingService != null) {
+                    pollingService.onTaskCompleted(task);
+                }
             }
 
             return RESTResult.success("ok");
@@ -109,5 +121,18 @@ public class DigitalHumanWebhookController {
             log.error("[Webhook] D-ID 回调处理失败", e);
             return RESTResult.success("error");
         }
+    }
+
+    private void recordWebhookDelivery(SvDigitalHumanTask task) {
+        if (deliveryLedgerService == null) {
+            return;
+        }
+        var ctx = RequestIdentityHolder.current();
+        String tenantId = CommercialIdentityBridge.resolveTenantId(ctx);
+        if (tenantId == null || tenantId.isBlank() || "default".equals(tenantId)) {
+            tenantId = "demo-tenant";
+        }
+        String traceId = "dh-webhook-" + task.getId();
+        deliveryLedgerService.recordDigitalHumanDelivery(tenantId, traceId, "WEBHOOK_COMPLETED");
     }
 }

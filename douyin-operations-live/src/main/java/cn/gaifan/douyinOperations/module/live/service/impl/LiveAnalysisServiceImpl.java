@@ -7,6 +7,7 @@ import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
 import cn.gaifan.douyinOperations.module.ai.repository.AiLiveReviewRepository;
 import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.live.entity.*;
 import cn.gaifan.douyinOperations.module.live.repository.*;
 import cn.gaifan.douyinOperations.module.live.service.LiveAnalysisService;
@@ -16,14 +17,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class LiveAnalysisServiceImpl implements LiveAnalysisService {
@@ -58,6 +64,9 @@ public class LiveAnalysisServiceImpl implements LiveAnalysisService {
     @Resource
     private LlmClient llmClient;
 
+    @Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -85,6 +94,7 @@ public class LiveAnalysisServiceImpl implements LiveAnalysisService {
                 });
         entity.setAiAnalysis(json);
         sessionDataRepository.save(entity);
+        writeSessionReflection(session, entity, productDataList, scripts, monitors, result);
 
         return result;
     }
@@ -254,5 +264,140 @@ public class LiveAnalysisServiceImpl implements LiveAnalysisService {
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_BUSY, "序列化失败");
         }
+    }
+
+    private void writeSessionReflection(LiveSession session, LiveSessionData sessionData,
+                                        List<LiveProductData> productDataList, List<LiveScript> scripts,
+                                        List<LiveMonitor> monitors, LiveAnalysisVO result) {
+        if (operationalStrategyKnowledgeService == null || session == null || session.getUserId() == null
+                || session.getUserId() <= 0 || result == null) {
+            return;
+        }
+        try {
+            String templateType = isSuccessful(result, sessionData) ? "live_success_template" : "live_failure_reason";
+            String title = ("live_success_template".equals(templateType) ? "直播整场复盘-成功模板-" : "直播整场复盘-失败原因-")
+                    + safe(session.getLiveTitle(), String.valueOf(session.getId()));
+            String content = buildSessionReflectionContent(session, sessionData, productDataList, scripts, monitors, result, templateType);
+            Map<String, String> metadata = new LinkedHashMap<>();
+            metadata.put("source", "live_session_analysis");
+            metadata.put("sessionId", String.valueOf(session.getId()));
+            metadata.put("rating", safe(result.getRating(), ""));
+            metadata.put("templateType", templateType);
+            metadata.put("scriptCount", String.valueOf(scripts != null ? scripts.size() : 0));
+            metadata.put("monitorPointCount", String.valueOf(monitors != null ? monitors.size() : 0));
+            metadata.put("peakViewers", String.valueOf(sessionData != null && sessionData.getPeakViewers() != null ? sessionData.getPeakViewers() : 0));
+            metadata.put("totalRevenue", String.valueOf(sessionData != null && sessionData.getTotalRevenue() != null ? sessionData.getTotalRevenue() : BigDecimal.ZERO));
+            operationalStrategyKnowledgeService.writePerformanceReflection(session.getUserId(), title, content, metadata);
+        } catch (Exception e) {
+            log.debug("直播整场复盘知识回流跳过 sessionId={}, err={}", session.getId(), e.getMessage());
+        }
+    }
+
+    private String buildSessionReflectionContent(LiveSession session, LiveSessionData sessionData,
+                                                 List<LiveProductData> productDataList, List<LiveScript> scripts,
+                                                 List<LiveMonitor> monitors, LiveAnalysisVO result, String templateType) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# 直播整场复盘：").append(safe(session.getLiveTitle(), "未命名场次")).append("\n\n");
+        sb.append("## 复盘结论\n");
+        sb.append("- 类型：").append("live_success_template".equals(templateType) ? "成功模板" : "失败原因").append("\n");
+        sb.append("- 评分：").append(safe(result.getRating(), "未评分")).append("\n");
+        sb.append("- 总结：").append(safe(result.getSummary(), "无")).append("\n\n");
+        sb.append("## 核心数据\n");
+        if (sessionData != null) {
+            sb.append("- 总观看：").append(num(sessionData.getTotalViewers())).append("\n");
+            sb.append("- 峰值在线：").append(num(sessionData.getPeakViewers())).append("\n");
+            sb.append("- GMV：").append(money(sessionData.getTotalRevenue())).append("\n");
+            sb.append("- 订单：").append(num(sessionData.getTotalOrders())).append("\n");
+            sb.append("- 评论：").append(num(sessionData.getTotalComments())).append("\n");
+            sb.append("- 点赞：").append(num(sessionData.getTotalLikes())).append("\n");
+            sb.append("- 新增粉丝：").append(num(sessionData.getNewFollowers())).append("\n");
+        } else {
+            sb.append("- 暂无汇总数据\n");
+        }
+        sb.append("\n## 高分话术样本\n");
+        List<LiveScript> topScripts = scripts == null ? List.of() : scripts.stream()
+                .filter(s -> s.getEffectivenessScore() != null || StringUtils.hasText(s.getScriptContent()))
+                .sorted(Comparator.comparing((LiveScript s) -> s.getEffectivenessScore() == null ? BigDecimal.ZERO : s.getEffectivenessScore()).reversed())
+                .limit(5)
+                .toList();
+        if (topScripts.isEmpty()) {
+            sb.append("- 无可用话术样本\n");
+        } else {
+            for (LiveScript script : topScripts) {
+                sb.append("- 分数 ").append(money(script.getEffectivenessScore()))
+                        .append(" / 类型 ").append(safe(script.getScriptType(), "unknown"))
+                        .append(" / 内容：").append(truncate(script.getScriptContent(), 180)).append("\n");
+            }
+        }
+        sb.append("\n## 商品表现\n");
+        List<LiveProductData> products = productDataList == null ? List.of() : productDataList.stream()
+                .sorted(Comparator.comparing((LiveProductData p) -> p.getRevenue() == null ? BigDecimal.ZERO : p.getRevenue()).reversed())
+                .limit(8)
+                .toList();
+        if (products.isEmpty()) {
+            sb.append("- 无商品数据\n");
+        } else {
+            for (LiveProductData product : products) {
+                sb.append("- 商品 ").append(product.getProductId())
+                        .append("：GMV ").append(money(product.getRevenue()))
+                        .append("，订单 ").append(num(product.getOrders()))
+                        .append("，转化率 ").append(money(product.getConversionRate())).append("\n");
+            }
+        }
+        appendList(sb, "亮点", result.getHighlights());
+        appendList(sb, "问题", result.getIssues());
+        appendList(sb, "下一轮生成策略", result.getSuggestions());
+        sb.append("\n## 监控数据轮廓\n");
+        sb.append("- 监控点：").append(monitors != null ? monitors.size() : 0).append("\n");
+        if (monitors != null && !monitors.isEmpty()) {
+            LiveMonitor peak = monitors.stream()
+                    .max(Comparator.comparing(m -> m.getOnlineCount() != null ? m.getOnlineCount() : 0))
+                    .orElse(null);
+            if (peak != null) {
+                sb.append("- 最高在线点：").append(num(peak.getOnlineCount()))
+                        .append("，GMV ").append(money(peak.getGmv()))
+                        .append("，订单 ").append(num(peak.getOrders())).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private boolean isSuccessful(LiveAnalysisVO result, LiveSessionData sessionData) {
+        String rating = result.getRating();
+        if ("A".equalsIgnoreCase(rating) || "A+".equalsIgnoreCase(rating) || "B+".equalsIgnoreCase(rating)) {
+            return true;
+        }
+        BigDecimal revenue = sessionData != null && sessionData.getTotalRevenue() != null ? sessionData.getTotalRevenue() : BigDecimal.ZERO;
+        Integer orders = sessionData != null && sessionData.getTotalOrders() != null ? sessionData.getTotalOrders() : 0;
+        return revenue.compareTo(BigDecimal.valueOf(5000)) >= 0 || orders >= 50;
+    }
+
+    private static void appendList(StringBuilder sb, String title, List<String> values) {
+        sb.append("\n## ").append(title).append("\n");
+        if (values == null || values.isEmpty()) {
+            sb.append("- 无\n");
+            return;
+        }
+        for (String value : values) {
+            sb.append("- ").append(safe(value, "无")).append("\n");
+        }
+    }
+
+    private static String safe(String value, String fallback) {
+        return StringUtils.hasText(value) ? value.trim() : fallback;
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (!StringUtils.hasText(value)) return "无";
+        String text = value.trim().replaceAll("\\s+", " ");
+        return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
+    }
+
+    private static String money(BigDecimal value) {
+        return value != null ? value.stripTrailingZeros().toPlainString() : "0";
+    }
+
+    private static String num(Number value) {
+        return value != null ? String.valueOf(value) : "0";
     }
 }

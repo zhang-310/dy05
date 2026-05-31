@@ -4,6 +4,12 @@ import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.common.util.RequestRoleResolver;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
+import cn.gaifan.douyinOperations.module.ai.entity.AiCallLog;
+import cn.gaifan.douyinOperations.module.ai.entity.AiKbDocument;
+import cn.gaifan.douyinOperations.module.ai.entity.AiKnowledgeBase;
+import cn.gaifan.douyinOperations.module.ai.repository.AiCallLogRepository;
+import cn.gaifan.douyinOperations.module.ai.repository.AiKbDocumentRepository;
+import cn.gaifan.douyinOperations.module.ai.repository.AiKnowledgeBaseRepository;
 import cn.gaifan.douyinOperations.module.ai.util.ContentSecurityScanner;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScript;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScriptApproval;
@@ -20,8 +26,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import jakarta.annotation.Resource;
 import jakarta.persistence.criteria.Predicate;
@@ -40,6 +48,12 @@ public class LiveScriptApprovalServiceImpl implements LiveScriptApprovalService 
     private LiveScriptRepository scriptRepository;
     @Resource
     private LiveSessionRepository sessionRepository;
+    @Autowired(required = false)
+    private AiCallLogRepository aiCallLogRepository;
+    @Autowired(required = false)
+    private AiKbDocumentRepository aiKbDocumentRepository;
+    @Autowired(required = false)
+    private AiKnowledgeBaseRepository aiKnowledgeBaseRepository;
 
     @Override
     @Transactional
@@ -60,6 +74,7 @@ public class LiveScriptApprovalServiceImpl implements LiveScriptApprovalService 
         if (script.getApprovalStatus() != null && script.getApprovalStatus() == 2) {
             throw new BusinessException(ErrorCode.LIVE_APPROVAL_ALREADY_APPROVED, "该话术已审核通过");
         }
+        assertOfficialApprovalGate(script, "直播话术提交审核");
 
         // P0-10 多级审批：根据内容安全风险等级设置 max_level
         String content = script.getScriptContent() != null ? script.getScriptContent() : "";
@@ -145,6 +160,8 @@ public class LiveScriptApprovalServiceImpl implements LiveScriptApprovalService 
         if ("reject".equals(action)) {
             newStatus = 3;
         } else {
+            scriptRepository.findById(approval.getScriptId())
+                    .ifPresent(script -> assertOfficialApprovalGate(script, "直播话术审批通过"));
             // approve：P0-10 分级审批
             int maxLevel = approval.getMaxLevel() != null ? approval.getMaxLevel() : 1;
             int currentLevel = approval.getApprovalLevel() != null ? approval.getApprovalLevel() : 1;
@@ -250,6 +267,84 @@ public class LiveScriptApprovalServiceImpl implements LiveScriptApprovalService 
                 .sorted(Comparator.comparing(LiveScriptApproval::getCreateTime).reversed())
                 .map(a -> toVO(a, script, null))
                 .collect(Collectors.toList());
+    }
+
+    private void assertOfficialApprovalGate(LiveScript script, String scene) {
+        if (hasRequiredOfficialReferences(script)) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.COMPLIANCE_VIOLATION,
+                "官方规则引用门禁未通过：" + scene
+                        + " 必须能追溯到 douyin 官方学习资料和 douyin_weigui 违规规则引用，禁止放行审批结果");
+    }
+
+    private boolean hasRequiredOfficialReferences(LiveScript script) {
+        if (script == null || script.getAiCallLogId() == null
+                || aiCallLogRepository == null || aiKbDocumentRepository == null || aiKnowledgeBaseRepository == null) {
+            return false;
+        }
+        return aiCallLogRepository.findById(script.getAiCallLogId())
+                .map(AiCallLog::getReferencedChunkIds)
+                .map(this::resolveReferenceGate)
+                .orElse(false);
+    }
+
+    private boolean resolveReferenceGate(String referencedChunkIds) {
+        if (!StringUtils.hasText(referencedChunkIds)) {
+            return false;
+        }
+        Set<Long> docIds = parseReferencedDocIds(referencedChunkIds);
+        if (docIds.isEmpty()) {
+            return false;
+        }
+        List<AiKbDocument> docs = aiKbDocumentRepository.findByIdIn(new ArrayList<>(docIds));
+        if (docs.isEmpty()) {
+            return false;
+        }
+        Set<Long> kbIds = docs.stream()
+                .map(AiKbDocument::getKbId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (kbIds.isEmpty()) {
+            return false;
+        }
+        Map<Long, String> kbNames = aiKnowledgeBaseRepository.findAllById(kbIds).stream()
+                .collect(Collectors.toMap(AiKnowledgeBase::getId, AiKnowledgeBase::getKbName, (a, b) -> a));
+        boolean hasOfficialLearning = false;
+        boolean hasViolationRule = false;
+        for (AiKbDocument doc : docs) {
+            String kbName = kbNames.get(doc.getKbId());
+            if ("douyin".equals(kbName)) {
+                hasOfficialLearning = true;
+            }
+            if ("douyin_weigui".equals(kbName)) {
+                hasViolationRule = true;
+            }
+        }
+        return hasOfficialLearning && hasViolationRule;
+    }
+
+    private Set<Long> parseReferencedDocIds(String referencedChunkIds) {
+        Set<Long> docIds = new LinkedHashSet<>();
+        try {
+            List<Number> nums = com.alibaba.fastjson2.JSON.parseArray(referencedChunkIds, Number.class);
+            if (nums == null) {
+                return docIds;
+            }
+            for (Number n : nums) {
+                if (n == null) {
+                    continue;
+                }
+                long raw = n.longValue();
+                if (raw <= 0) {
+                    continue;
+                }
+                docIds.add(raw >= 10000L ? raw / 10000L : raw);
+            }
+        } catch (Exception e) {
+            log.debug("解析直播话术官方引用失败: {}", e.getMessage());
+        }
+        return docIds;
     }
 
     // ── Mapping ──

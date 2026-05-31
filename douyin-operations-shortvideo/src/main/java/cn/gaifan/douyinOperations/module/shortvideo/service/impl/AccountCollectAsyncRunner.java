@@ -24,6 +24,17 @@ public class AccountCollectAsyncRunner {
     }
 
     @Async("accountCollectExecutor")
+    public void runCollectAsync(Long taskId, Long userId, Runnable onDone) {
+        try {
+            collectService.runCollectPipeline(taskId, userId);
+        } finally {
+            if (onDone != null) {
+                onDone.run();
+            }
+        }
+    }
+
+    @Async("accountCollectExecutor")
     public void runAnalyzeAsync(Long taskId, List<Long> viralVideoIds, Long userId) {
         collectService.runAnalyzePipeline(taskId, viralVideoIds, userId);
     }

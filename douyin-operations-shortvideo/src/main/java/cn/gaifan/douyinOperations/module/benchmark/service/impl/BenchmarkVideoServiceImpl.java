@@ -51,16 +51,30 @@ public class BenchmarkVideoServiceImpl implements BenchmarkVideoService {
     public PageResultVO<BenchmarkVideoVO> search(BenchmarkVideoSearchVO searchVO, Long ownerId) {
         searchVO.validateParams();
 
+        // 数据隔离：优先使用 benchmark_video.ownerId，兼容老数据用账号归属兜底。
+        List<Long> accountIds = accountRepository.findByOwnerIdAndPlatform(ownerId, "douyin").stream()
+                .map(BenchmarkAccount::getId)
+                .toList();
+        if (searchVO.getBenchmarkAccountId() != null) {
+            BenchmarkAccount account = accountRepository.findById(searchVO.getBenchmarkAccountId())
+                    .orElseThrow(() -> new RuntimeException("账号不存在"));
+            if (!account.getOwnerId().equals(ownerId)) {
+                throw new RuntimeException("无权访问该账号的视频");
+            }
+        }
+
         Specification<BenchmarkVideo> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
-            // 数据隔离：通过账号的ownerId过滤
             if (searchVO.getBenchmarkAccountId() != null) {
                 predicates.add(cb.equal(root.get("benchmarkAccountId"), searchVO.getBenchmarkAccountId()));
             } else {
-                // 如果没有指定账号ID，需要关联账号表过滤ownerId
-                // 这里简化处理，实际应该用join
-                log.warn("未指定账号ID，可能返回其他用户的数据");
+                Predicate ownerPredicate = cb.equal(root.get("ownerId"), ownerId);
+                if (!accountIds.isEmpty()) {
+                    predicates.add(cb.or(ownerPredicate, root.get("benchmarkAccountId").in(accountIds)));
+                } else {
+                    predicates.add(ownerPredicate);
+                }
             }
 
             // 关键词搜索
@@ -105,6 +119,12 @@ public class BenchmarkVideoServiceImpl implements BenchmarkVideoService {
     public BenchmarkVideoVO getById(Long id, Long ownerId) {
         BenchmarkVideo video = videoRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("视频不存在"));
+        if (video.getOwnerId() != null && video.getOwnerId().equals(ownerId)) {
+            return entityToVO(video);
+        }
+        if (video.getOwnerId() != null && video.getOwnerId() != 0L) {
+            throw new RuntimeException("无权访问该视频");
+        }
 
         // 验证权限：通过账号的ownerId
         BenchmarkAccount account = accountRepository.findById(video.getBenchmarkAccountId())
@@ -113,6 +133,8 @@ public class BenchmarkVideoServiceImpl implements BenchmarkVideoService {
         if (!account.getOwnerId().equals(ownerId)) {
             throw new RuntimeException("无权访问该视频");
         }
+        video.setOwnerId(ownerId);
+        video = videoRepository.save(video);
 
         return entityToVO(video);
     }
@@ -135,12 +157,20 @@ public class BenchmarkVideoServiceImpl implements BenchmarkVideoService {
             // 更新
             video = videoRepository.findById(saveVO.getId())
                     .orElseThrow(() -> new RuntimeException("视频不存在"));
+            if (video.getOwnerId() != null && !video.getOwnerId().equals(ownerId) && video.getOwnerId() != 0L) {
+                throw new RuntimeException("无权修改该视频");
+            }
+            if (!video.getBenchmarkAccountId().equals(saveVO.getBenchmarkAccountId())) {
+                throw new RuntimeException("不允许跨账号移动对标视频");
+            }
         } else {
             // 新增
             video = new BenchmarkVideo();
+            video.setOwnerId(ownerId);
         }
 
         BeanUtils.copyProperties(saveVO, video, "id");
+        video.setOwnerId(ownerId);
         video = videoRepository.save(video);
 
         return entityToVO(video);
@@ -162,6 +192,7 @@ public class BenchmarkVideoServiceImpl implements BenchmarkVideoService {
         }
 
         video.setDeleted(1);
+        video.setOwnerId(ownerId);
         videoRepository.save(video);
     }
 
@@ -227,6 +258,7 @@ public class BenchmarkVideoServiceImpl implements BenchmarkVideoService {
 
                 // 创建新视频记录
                 BenchmarkVideo video = new BenchmarkVideo();
+                video.setOwnerId(ownerId);
                 video.setBenchmarkAccountId(account.getId());
                 video.setVideoId(scrapedVideo.getVideoId());
                 video.setVideoUrl(scrapedVideo.getVideoUrl());
@@ -234,6 +266,15 @@ public class BenchmarkVideoServiceImpl implements BenchmarkVideoService {
                 video.setCoverUrl(scrapedVideo.getCoverUrl());
                 video.setLikeCount(scrapedVideo.getLikeCount().intValue());
                 video.setViewCount(scrapedVideo.getViewCount());
+                if (scrapedVideo.getCommentCount() != null) {
+                    video.setCommentCount(scrapedVideo.getCommentCount().intValue());
+                }
+                if (scrapedVideo.getShareCount() != null) {
+                    video.setShareCount(scrapedVideo.getShareCount().intValue());
+                }
+                if (scrapedVideo.getFavoriteCount() != null) {
+                    video.setFavoriteCount(scrapedVideo.getFavoriteCount().intValue());
+                }
                 video.setIsQualified(true);
                 video.setAnalysisStatus("pending");
 

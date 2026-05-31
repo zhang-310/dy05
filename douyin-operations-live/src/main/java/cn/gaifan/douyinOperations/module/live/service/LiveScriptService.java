@@ -63,6 +63,9 @@ public interface LiveScriptService {
     /** 导出场次话术为文本 */
     String exportScripts(Long sessionId);
 
+    /** 根据 userId 列表查询可见的场次 ID (数据范围过滤) */
+    java.util.List<Long> findSessionIdsByUserIds(java.util.List<Long> userIds);
+
     /** 确保场次有话术槽位（无则创建 opening/closing 等默认槽位） */
     void ensureScriptSlotsForSession(Long sessionId);
 

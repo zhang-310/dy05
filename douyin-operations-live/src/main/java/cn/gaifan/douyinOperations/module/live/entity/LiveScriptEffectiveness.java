@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -12,10 +14,12 @@ import java.sql.Timestamp;
  * W-04: 效果评分系统
  * 记录每个话术版本的效果评分和关键指标
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_script_effectiveness")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveScriptEffectiveness {
 
     @Id

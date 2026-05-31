@@ -319,7 +319,9 @@ public class AttributionServiceImpl implements AttributionService {
             if (matcher.find()) return Math.min(Integer.parseInt(matcher.group(1)), 100);
             matcher = java.util.regex.Pattern.compile("\u8bc4\u5206[\uff1a:]?\\s*(\\d{1,3})").matcher(content);
             if (matcher.find()) return Math.min(Integer.parseInt(matcher.group(1)), 100);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.debug("评分提取失败，使用默认值: {}", e.getMessage());
+        }
         return 50;
     }
 

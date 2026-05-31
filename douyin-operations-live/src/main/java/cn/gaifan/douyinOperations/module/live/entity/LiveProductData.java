@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -10,9 +12,11 @@ import java.sql.Timestamp;
  * 直播商品数据汇总表
  * 与 sql/live/migration-data-sync.sql 中 live_product_data 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_product_data")
+@NoArgsConstructor
 public class LiveProductData {
 
     @Id

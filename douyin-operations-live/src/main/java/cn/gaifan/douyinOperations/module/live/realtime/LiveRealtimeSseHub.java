@@ -31,12 +31,18 @@ public class LiveRealtimeSseHub {
 
     public void register(Long sessionId, String subscriberId, SseEmitter emitter) {
         subscribers.computeIfAbsent(sessionId, k -> new ConcurrentHashMap<>()).put(subscriberId, emitter);
+        emitter.onCompletion(() -> unregister(sessionId, subscriberId));
+        emitter.onTimeout(() -> unregister(sessionId, subscriberId));
+        emitter.onError(error -> unregister(sessionId, subscriberId));
     }
 
     public void unregister(Long sessionId, String subscriberId) {
         ConcurrentHashMap<String, SseEmitter> m = subscribers.get(sessionId);
         if (m != null) {
             m.remove(subscriberId);
+            if (m.isEmpty()) {
+                subscribers.remove(sessionId, m);
+            }
         }
     }
 
@@ -79,7 +85,7 @@ public class LiveRealtimeSseHub {
                         .build());
             } catch (IOException e) {
                 log.warn("SSE 推送数据更新失败: sessionId={}, subscriberId={}", sessionId, subscriberId);
-                emitters.remove(subscriberId);
+                unregister(sessionId, subscriberId);
             }
         });
     }
@@ -109,7 +115,7 @@ public class LiveRealtimeSseHub {
                         .build());
             } catch (IOException e) {
                 log.warn("SSE 推送话术变化失败: sessionId={}, subscriberId={}", sessionId, subscriberId);
-                emitters.remove(subscriberId);
+                unregister(sessionId, subscriberId);
             }
         });
     }
@@ -134,7 +140,7 @@ public class LiveRealtimeSseHub {
                         .build());
             } catch (IOException e) {
                 log.warn("SSE 推送完成事件失败: sessionId={}, subscriberId={}", sessionId, subscriberId);
-                emitters.remove(subscriberId);
+                unregister(sessionId, subscriberId);
             }
         });
     }
@@ -166,7 +172,7 @@ public class LiveRealtimeSseHub {
                         .build());
             } catch (IOException e) {
                 log.warn("SSE 推送互动提示失败: sessionId={}, subscriberId={}", sessionId, subscriberId);
-                emitters.remove(subscriberId);
+                unregister(sessionId, subscriberId);
             }
         });
     }

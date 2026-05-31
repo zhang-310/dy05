@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.sql.Timestamp;
 
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 图生视频异步任务 (Phase 2.2)
  * 表: sv_video_generation_task
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_video_generation_task")
+@NoArgsConstructor
 public class SvVideoGenerationTask {
 
     @Id

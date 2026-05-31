@@ -6,8 +6,11 @@ import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScript;
 import cn.gaifan.douyinOperations.module.live.repository.LiveProductRepository;
 import cn.gaifan.douyinOperations.module.live.repository.LiveScriptRepository;
+import cn.gaifan.douyinOperations.module.live.repository.LiveSessionRepository;
 import cn.gaifan.douyinOperations.module.live.service.LiveScriptService;
 import cn.gaifan.douyinOperations.module.live.vo.*;
+import cn.gaifan.douyinOperations.module.script.entity.ScriptLibrary;
+import cn.gaifan.douyinOperations.module.script.repository.ScriptLibraryRepository;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
@@ -33,6 +36,12 @@ public class LiveScriptServiceImpl implements LiveScriptService {
     @Resource
     private LiveProductRepository liveProductRepository;
 
+    @Resource
+    private ScriptLibraryRepository scriptLibraryRepository;
+
+    @Resource
+    private LiveSessionRepository liveSessionRepository;
+
     private static final Set<String> SORTABLE_FIELDS = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList("id", "sessionId", "sequenceNo", "executionTime", "executed", "createTime", "updateTime")));
 
@@ -43,31 +52,33 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         Pageable pageable = PageRequest.of(vo.getPage(), vo.getRows(),
                 Sort.by("desc".equalsIgnoreCase(vo.getSortOrder()) ? Sort.Direction.DESC : Sort.Direction.ASC, sortName));
 
+        if (vo.getSessionId() == null && vo.getSessionIds() != null && vo.getSessionIds().isEmpty()) {
+            return PageResultVO.of(0L, Collections.emptyList(), vo.getPage(), vo.getRows());
+        }
+
         Page<LiveScript> page;
-        if (vo.getSessionId() != null && vo.getSessionId() > 0) {
-            if (vo.getExecuted() != null) {
-                List<LiveScript> scripts = liveScriptRepository.findBySessionIdAndExecutedAndDeleted(
-                        vo.getSessionId(), vo.getExecuted(), 0);
-                page = null;
-            } else {
-                page = liveScriptRepository.findBySessionIdAndDeleted(vo.getSessionId(), 0, pageable);
-            }
+        if (hasAdvancedFilter(vo)) {
+            List<Long> sessionIds = vo.getSessionIds() == null || vo.getSessionIds().isEmpty()
+                    ? List.of(-1L)
+                    : vo.getSessionIds();
+            page = liveScriptRepository.searchByFilters(
+                    validPositive(vo.getSessionId()) ? vo.getSessionId() : null,
+                    sessionIds,
+                    vo.getSessionIds() != null && !vo.getSessionIds().isEmpty(),
+                    trimToNull(vo.getScriptType()),
+                    trimToNull(vo.getKeyword()),
+                    vo.getExecuted(),
+                    pageable);
+        } else if (vo.getSessionId() != null && vo.getSessionId() > 0) {
+            page = liveScriptRepository.findBySessionIdAndDeleted(vo.getSessionId(), 0, pageable);
         } else if (vo.getSessionIds() != null && !vo.getSessionIds().isEmpty()) {
             page = liveScriptRepository.findBySessionIdInAndDeleted(vo.getSessionIds(), 0, pageable);
         } else {
             page = liveScriptRepository.findAll(pageable);
         }
 
-        List<LiveScriptVO> list;
-        long total;
-        if (page != null) {
-            list = page.getContent().stream().map(this::toLiveScriptVO).collect(Collectors.toList());
-            total = page.getTotalElements();
-        } else {
-            list = liveScriptRepository.findBySessionIdAndDeleted(vo.getSessionId(), 0).stream()
-                    .map(this::toLiveScriptVO).collect(Collectors.toList());
-            total = list.size();
-        }
+        List<LiveScriptVO> list = page.getContent().stream().map(this::toLiveScriptVO).collect(Collectors.toList());
+        long total = page.getTotalElements();
 
         return PageResultVO.of(total, list, vo.getPage(), vo.getRows());
     }
@@ -89,21 +100,53 @@ public class LiveScriptServiceImpl implements LiveScriptService {
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "live:script", key = "#vo.id", condition = "#vo.id != null")
     public long save(LiveScriptSaveVO vo) {
-        if (vo.getSessionId() == null || vo.getSessionId() <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
-        }
-
         LiveScript script;
         if (vo.getId() != null && vo.getId() > 0) {
             script = liveScriptRepository.findById(vo.getId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播话术不存在"));
+            if (vo.getSessionId() != null) {
+                if (vo.getSessionId() <= 0) {
+                    throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
+                }
+                script.setSessionId(vo.getSessionId());
+            }
         } else {
+            if (vo.getSessionId() == null || vo.getSessionId() <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
+            }
+            if (vo.getScriptContent() == null || vo.getScriptContent().isBlank()) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "话术内容不能为空");
+            }
             script = new LiveScript();
             script.setSessionId(vo.getSessionId());
         }
-        script.setScriptContent(vo.getScriptContent());
-        script.setSequenceNo(vo.getSequenceNo());
-        script.setExecutionTime(vo.getExecutionTime());
+        if (vo.getScriptContent() != null) {
+            if (vo.getScriptContent().isBlank()) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAIL, "话术内容不能为空");
+            }
+            script.setScriptContent(vo.getScriptContent());
+        }
+        if (trimToNull(vo.getScriptType()) != null) {
+            script.setScriptType(trimToNull(vo.getScriptType()));
+        }
+        if (vo.getStyle() != null) {
+            script.setStyle(trimToNull(vo.getStyle()));
+        }
+        if (vo.getRequirement() != null) {
+            script.setRequirement(trimToNull(vo.getRequirement()));
+        }
+        if (vo.getProductId() != null) {
+            script.setProductId(vo.getProductId());
+        }
+        if (vo.getDurationLimitSec() != null) {
+            script.setDurationLimitSec(vo.getDurationLimitSec());
+        }
+        if (vo.getSequenceNo() != null) {
+            script.setSequenceNo(vo.getSequenceNo());
+        }
+        if (vo.getExecutionTime() != null) {
+            script.setExecutionTime(vo.getExecutionTime());
+        }
         if (vo.getExecuted() != null) {
             script.setExecuted(vo.getExecuted());
         }
@@ -130,7 +173,7 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         if (sessionId == null || sessionId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
         }
-        return liveScriptRepository.findBySessionIdAndDeleted(sessionId, 0).stream()
+        return liveScriptRepository.findBySessionIdAndDeletedOrderBySequenceNoAsc(sessionId, 0).stream()
                 .map(this::toLiveScriptVO).collect(Collectors.toList());
     }
 
@@ -165,14 +208,48 @@ public class LiveScriptServiceImpl implements LiveScriptService {
 
     @Override
     public long saveToLibrary(Long scriptId, Long userId) {
-        // TODO: 接入话术库后实现
-        return 0L;
+        if (scriptId == null || scriptId <= 0 || userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "参数无效");
+        }
+        LiveScript script = liveScriptRepository.findById(scriptId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "直播话术不存在"));
+        if (script.getScriptContent() == null || script.getScriptContent().isBlank()
+                || "[待填写]".equals(script.getScriptContent().trim())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAIL, "空话术不能保存到话术库");
+        }
+        ScriptLibrary library = new ScriptLibrary();
+        library.setUserId(userId);
+        library.setTitle(buildLibraryTitle(script));
+        library.setContent(script.getScriptContent());
+        library.setCategory(script.getScriptType());
+        library.setSource("live");
+        library.setSourceId(script.getSessionId());
+        library.setStatus(1);
+        return scriptLibraryRepository.save(library).getId();
     }
 
     @Override
     public int saveBatchToLibrary(Long sessionId, List<Long> scriptIds, Long userId) {
-        // TODO: 接入话术库后实现
-        return 0;
+        if (scriptIds == null || scriptIds.isEmpty()) {
+            return 0;
+        }
+        int saved = 0;
+        for (Long scriptId : scriptIds) {
+            try {
+                saveToLibrary(scriptId, userId);
+                saved++;
+            } catch (BusinessException e) {
+                if (e.getErrorCode() != ErrorCode.VALIDATION_FAIL) {
+                    throw e;
+                }
+            }
+        }
+        return saved;
+    }
+
+    @Override
+    public java.util.List<Long> findSessionIdsByUserIds(java.util.List<Long> userIds) {
+        return liveSessionRepository.findIdsByUserIdIn(userIds);
     }
 
     @Override
@@ -193,12 +270,12 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         if (sessionId == null || sessionId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
         }
-        List<LiveScript> existing = liveScriptRepository.findBySessionIdAndDeleted(sessionId, 0);
+        List<LiveScript> existing = liveScriptRepository.findBySessionIdAndDeletedOrderBySequenceNoAsc(sessionId, 0);
         if (!existing.isEmpty()) {
             return;
         }
         List<cn.gaifan.douyinOperations.module.live.entity.LiveProduct> products =
-                liveProductRepository.findBySessionId(sessionId);
+                liveProductRepository.findBySessionIdOrderByPositionAscIdAsc(sessionId);
 
         // P1-12: 批量保存，避免 N+1 写入
         List<LiveScript> scripts = new ArrayList<>();
@@ -278,5 +355,28 @@ public class LiveScriptServiceImpl implements LiveScriptService {
         vo.setCreateTime(script.getCreateTime());
         vo.setUpdateTime(script.getUpdateTime());
         return vo;
+    }
+
+    private String buildLibraryTitle(LiveScript script) {
+        String type = script.getScriptType() != null ? script.getScriptType() : "live";
+        return "直播话术-" + type + "-" + script.getId();
+    }
+
+    private static boolean hasAdvancedFilter(LiveScriptSearchVO vo) {
+        return vo.getExecuted() != null
+                || trimToNull(vo.getScriptType()) != null
+                || trimToNull(vo.getKeyword()) != null;
+    }
+
+    private static boolean validPositive(Long value) {
+        return value != null && value > 0;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

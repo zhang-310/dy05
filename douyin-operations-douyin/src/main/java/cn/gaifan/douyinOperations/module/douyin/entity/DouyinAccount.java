@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.douyin.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
  * 抖音账号表
  * 与 sql/douyin/schema.sql 中 douyin_account 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "douyin_account")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class DouyinAccount {
 
     @Id
@@ -22,6 +26,23 @@ public class DouyinAccount {
 
     @Column(name = "user_id", nullable = false)
     private Long ownerId;
+
+    public Long getOwnerId() {
+        return ownerId;
+    }
+
+    public void setOwnerId(Long ownerId) {
+        this.ownerId = ownerId;
+    }
+
+    // Alias methods for backward compatibility with test code
+    public Long getUserId() {
+        return ownerId;
+    }
+
+    public void setUserId(Long userId) {
+        this.ownerId = userId;
+    }
 
     @Column(name = "account_name", nullable = false, length = 128)
     private String accountName;

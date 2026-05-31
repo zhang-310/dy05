@@ -6,7 +6,9 @@ import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
 import cn.gaifan.douyinOperations.module.ai.entity.AiTaskModelConfig;
 import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.repository.AiTaskModelConfigRepository;
+import cn.gaifan.douyinOperations.module.ai.service.AiCallLogService;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
 import cn.gaifan.douyinOperations.module.douyin.repository.DyPersonaRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvViralVideo;
@@ -42,13 +44,21 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
     private AiModelRepository modelRepository;
 
     @Resource
+    private AiCallLogService aiCallLogService;
+
+    @Resource
     private SvViralVideoRepository viralVideoRepository;
 
     @Resource
     private DyPersonaRepository personaRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
+
     /** 任务编码：短视频脚本/文案/分镜/标题等 AI 生成 */
     private static final String TASK_CODE = "short_video_script";
+
+    private record LlmCallResult(String content, String modelCode, long durationMs, boolean fallback) {}
 
     @Override
     public String generateCopy(AiCopyGenerateVO vo, Long userId) {
@@ -57,6 +67,11 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
 
     @Override
     public String generateCopy(AiCopyGenerateVO vo, Long userId, String taskCode) {
+        return generateCopyRich(vo, userId, taskCode).getContent();
+    }
+
+    @Override
+    public AiTextGenerateResultVO generateCopyRich(AiCopyGenerateVO vo, Long userId, String taskCode) {
         // 构建上下文
         StringBuilder context = new StringBuilder();
 
@@ -79,6 +94,12 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
                 context.append(buildViralReferenceContext(viral));
             }
         }
+
+        List<DouyinOfficialReferenceVO> officialReferences = appendOpsLearningContext(context, userId, String.join(" ",
+                vo.getTopic() != null ? vo.getTopic() : "",
+                vo.getKeywords() != null ? vo.getKeywords() : "",
+                vo.getStyle() != null ? vo.getStyle() : "",
+                "短视频文案 标题 钩子 官方规则 违规风险"));
 
         // 3. 构建 Prompt
         String lengthDesc = getLengthDesc(vo.getLength());
@@ -109,11 +130,23 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
         );
 
         String effectiveTask = taskCode != null ? taskCode : TASK_CODE;
-        return callLlm("你是专业的短视频文案创作者", prompt, effectiveTask);
+        return richResult(
+                callLlm("你是专业的短视频文案创作者", prompt, effectiveTask),
+                "copy",
+                officialReferences,
+                userId,
+                effectiveTask,
+                null
+        );
     }
 
     @Override
     public String generateScript(AiScriptGenerateVO vo, Long userId) {
+        return generateScriptRich(vo, userId).getContent();
+    }
+
+    @Override
+    public AiTextGenerateResultVO generateScriptRich(AiScriptGenerateVO vo, Long userId) {
         // 构建上下文
         StringBuilder context = new StringBuilder();
 
@@ -134,33 +167,58 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
             }
         }
 
+        List<DouyinOfficialReferenceVO> officialReferences = appendOpsLearningContext(context, userId, String.join(" ",
+                vo.getCopyText() != null ? vo.getCopyText() : "",
+                vo.getSceneType() != null ? vo.getSceneType() : "",
+                "短视频脚本 分镜 素材 字幕 抖音官方规则 短视频违规 千川素材违规"));
+        appendViralPatternContext(context, userId, String.join(" ",
+                vo.getCopyText() != null ? vo.getCopyText() : "",
+                vo.getSceneType() != null ? vo.getSceneType() : "",
+                "爆款模式 三秒钩子 短视频脚本 分镜 数字人口播 产品展示"));
+
         // 3. 构建 Prompt
         String prompt = String.format("""
-                请基于以下文案，生成详细的短视频拍摄脚本。
+                请基于以下创作输入，生成可直接进入「分镜、素材准备、配音字幕、剪辑合成」的短视频拍摄脚本。
 
                 %s
-                文案内容：
+                创作输入：
                 %s
 
                 场景类型：%s
                 视频时长：%d秒
 
-                请按以下格式输出脚本：
+                请按以下结构输出：
+
+                ## 创意简报
+                - 目标用户：
+                - 核心承诺：
+                - 前三秒钩子：
+                - 合规注意：
 
                 ## 镜头1（0-5秒）
                 - 画面：描述画面内容
-                - 文案：对应的文案
+                - 口播：对应口播
+                - 屏幕字幕：短句字幕
                 - 动作：演员动作
+                - 素材：需要准备的素材
                 - 音效：背景音效
 
                 ## 镜头2（5-10秒）
                 ...
 
+                ## 成片生产清单
+                - 主体素材：
+                - 证据/截图：
+                - BGM/音效：
+                - 封面标题：
+                - 发布标签：
+
                 要求：
-                1. 镜头切换流畅
-                2. 画面与文案配合
-                3. 符合场景类型
-                4. 控制在指定时长
+                1. 前 3 秒必须给出强钩子，不能泛泛而谈。
+                2. 每个镜头都要能被后续分镜和素材系统执行。
+                3. 口播、字幕和画面必须相互支撑，避免重复堆字。
+                4. 控制在指定时长。
+                5. 避免绝对化、医疗化、夸大效果和无法证明的承诺。
                 """,
                 context.toString(),
                 vo.getCopyText(),
@@ -168,7 +226,14 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
                 vo.getDuration() != null ? vo.getDuration() : 60
         );
 
-        return callLlm("你是专业的短视频导演", prompt);
+        return richResult(
+                callLlm("你是专业的短视频导演", prompt),
+                "script",
+                officialReferences,
+                userId,
+                TASK_CODE,
+                null
+        );
     }
 
     @Override
@@ -199,7 +264,7 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
                 count
         );
 
-        String result = callLlm("你是专业的短视频标题创作者", prompt);
+        String result = callLlm("你是专业的短视频标题创作者", prompt).content();
 
         // 解析标题列表
         return Arrays.stream(result.split("\n"))
@@ -211,6 +276,11 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
 
     @Override
     public String generateVideoPlan(AiVideoPlanGenerateVO vo, Long userId) {
+        return generateVideoPlanRich(vo, userId).getContent();
+    }
+
+    @Override
+    public AiTextGenerateResultVO generateVideoPlanRich(AiVideoPlanGenerateVO vo, Long userId) {
         // 构建上下文
         StringBuilder context = new StringBuilder();
 
@@ -220,6 +290,12 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
                 context.append("参考爆款分析：\n").append(viral.getAnalysisResult()).append("\n\n");
             }
         }
+
+        List<DouyinOfficialReferenceVO> officialReferences = appendOpsLearningContext(context, userId, String.join(" ",
+                vo.getCopyText() != null ? vo.getCopyText() : "",
+                vo.getScriptText() != null ? vo.getScriptText() : "",
+                vo.getShootingStyle() != null ? vo.getShootingStyle() : "",
+                "短视频制作方案 发布 标签 合规"));
 
         String prompt = String.format("""
                 请基于以下内容，生成完整的短视频制作方案。
@@ -268,16 +344,24 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
                 vo.getShootingStyle() != null ? vo.getShootingStyle() : "vlog"
         );
 
-        return callLlm("你是专业的短视频制作顾问", prompt, TASK_CODE);
+        return richResult(
+                callLlm("你是专业的短视频制作顾问", prompt, TASK_CODE),
+                "video_plan",
+                officialReferences,
+                userId,
+                TASK_CODE,
+                null
+        );
     }
 
     // ─── 工具方法 ──────────────────────────────────────
 
-    private String callLlm(String system, String prompt) {
+    private LlmCallResult callLlm(String system, String prompt) {
         return callLlm(system, prompt, TASK_CODE);
     }
 
-    private String callLlm(String system, String prompt, String taskCode) {
+    private LlmCallResult callLlm(String system, String prompt, String taskCode) {
+        long start = System.currentTimeMillis();
         try {
             String effectiveTask = taskCode != null ? taskCode : TASK_CODE;
             List<AiModel> models = resolveModels(effectiveTask);
@@ -290,7 +374,8 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
             }
             LlmClient.LlmResponse response = llmClient.chatWithFallback(models, system, prompt);
             if (response.success()) {
-                return response.content();
+                String modelCode = !models.isEmpty() ? models.get(0).getModelVersion() : effectiveTask;
+                return new LlmCallResult(response.content(), modelCode, System.currentTimeMillis() - start, false);
             } else {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI生成失败: " + response.errorMsg());
             }
@@ -336,6 +421,171 @@ public class ShortVideoAiServiceImpl implements ShortVideoAiService {
             case "creative" -> "创意新颖风格";
             default -> "吸引眼球";
         };
+    }
+
+    private List<DouyinOfficialReferenceVO> appendOpsLearningContext(StringBuilder context, Long userId, String query) {
+        if (context == null || operationalStrategyKnowledgeService == null || userId == null) {
+            return List.of();
+        }
+        try {
+            OperationalStrategyKnowledgeService.PromptContext opsContext =
+                    operationalStrategyKnowledgeService.buildShortVideoGenerationContext(userId, query, 2600);
+            if (opsContext != null && opsContext.hasText()) {
+                context.append("\n").append(opsContext.promptBlock()).append("\n");
+                context.append("请把以上 AI 学习中心策略用于选题、钩子、脚本结构、成片生产和合规检查；违规知识只作为红线，不能改写成玩法。\n\n");
+                return toOfficialReferenceVOs(opsContext.officialReferences());
+            }
+        } catch (Exception e) {
+            log.debug("短视频运营策略知识注入跳过: {}", e.getMessage());
+        }
+        return List.of();
+    }
+
+    private void appendViralPatternContext(StringBuilder context, Long userId, String query) {
+        if (context == null || operationalStrategyKnowledgeService == null || userId == null) {
+            return;
+        }
+        try {
+            OperationalStrategyKnowledgeService.PromptContext viralContext =
+                    operationalStrategyKnowledgeService.buildViralPatternContext(userId, query, 2200);
+            if (viralContext != null && viralContext.hasText()) {
+                context.append("\n").append(viralContext.promptBlock()).append("\n");
+                context.append("请从爆款模式知识库中学习结构、节奏、镜头组合和转化信号；禁止抄袭原文，禁止复刻违规表达。\n\n");
+            }
+        } catch (Exception e) {
+            log.debug("短视频爆款模式知识注入跳过: {}", e.getMessage());
+        }
+    }
+
+    private AiTextGenerateResultVO richResult(
+            LlmCallResult llmResult,
+            String scene,
+            List<DouyinOfficialReferenceVO> officialReferences,
+            Long userId,
+            String taskCode,
+            Long linkedVideoId) {
+        AiTextGenerateResultVO result = new AiTextGenerateResultVO();
+        String content = llmResult != null ? llmResult.content() : "";
+        result.setContent(content);
+        result.setScene(scene);
+        result.setOfficialReferences(officialReferences != null ? officialReferences : List.of());
+        String referencedChunkIds = toReferencedChunkIdsJson(officialReferences);
+        result.setReferencedChunkIds(referencedChunkIds);
+        result.setOfficialReferenceRequired(true);
+        boolean satisfied = hasOfficialLearningRef(officialReferences) && hasViolationRuleRef(officialReferences);
+        result.setOfficialReferenceSatisfied(satisfied);
+        result.setOfficialReferenceStatus(satisfied ? "satisfied" : "missing_required_official_or_violation_reference");
+        if (!satisfied) {
+            logShortVideoGeneration(userId, scene, taskCode, llmResult, content, referencedChunkIds, linkedVideoId,
+                    officialReferences, 0, "missing_required_official_or_violation_reference");
+            throw new BusinessException(ErrorCode.COMPLIANCE_VIOLATION,
+                    "官方规则引用门禁未通过：短视频生成必须同时检索到 douyin 官方学习资料和 douyin_weigui 违规规则引用，禁止放行生成结果");
+        }
+        Long callLogId = logShortVideoGeneration(userId, scene, taskCode, llmResult, content, referencedChunkIds, linkedVideoId, officialReferences);
+        result.setAiCallLogId(callLogId);
+        return result;
+    }
+
+    private boolean hasOfficialLearningRef(List<DouyinOfficialReferenceVO> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return false;
+        }
+        return refs.stream().anyMatch(ref ->
+                ref != null && ("official_learning".equals(ref.getRefType()) || "douyin".equals(ref.getKbName())));
+    }
+
+    private boolean hasViolationRuleRef(List<DouyinOfficialReferenceVO> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return false;
+        }
+        return refs.stream().anyMatch(ref ->
+                ref != null && ("violation_rule".equals(ref.getRefType()) || "douyin_weigui".equals(ref.getKbName())));
+    }
+
+    private List<DouyinOfficialReferenceVO> toOfficialReferenceVOs(
+            List<OperationalStrategyKnowledgeService.OfficialReference> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return List.of();
+        }
+        return refs.stream().map(ref -> {
+            DouyinOfficialReferenceVO vo = new DouyinOfficialReferenceVO();
+            vo.setKbName(ref.kbName());
+            vo.setRefType(ref.refType());
+            vo.setDocId(ref.docId());
+            vo.setChunkId(ref.chunkId());
+            vo.setTitle(ref.title());
+            vo.setContentPreview(ref.contentPreview());
+            vo.setScore(ref.score());
+            return vo;
+        }).toList();
+    }
+
+    private String toReferencedChunkIdsJson(List<DouyinOfficialReferenceVO> officialReferences) {
+        if (officialReferences == null || officialReferences.isEmpty()) {
+            return null;
+        }
+        List<Long> ids = officialReferences.stream()
+                .map(DouyinOfficialReferenceVO::getChunkId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        return ids.isEmpty() ? null : com.alibaba.fastjson2.JSON.toJSONString(ids);
+    }
+
+    private Long logShortVideoGeneration(
+            Long userId,
+            String scene,
+            String taskCode,
+            LlmCallResult llmResult,
+            String content,
+            String referencedChunkIds,
+            Long linkedVideoId,
+            List<DouyinOfficialReferenceVO> officialReferences) {
+        return logShortVideoGeneration(userId, scene, taskCode, llmResult, content, referencedChunkIds, linkedVideoId,
+                officialReferences, 1, null);
+    }
+
+    private Long logShortVideoGeneration(
+            Long userId,
+            String scene,
+            String taskCode,
+            LlmCallResult llmResult,
+            String content,
+            String referencedChunkIds,
+            Long linkedVideoId,
+            List<DouyinOfficialReferenceVO> officialReferences,
+            int status,
+            String errorMessage) {
+        if (aiCallLogService == null || userId == null) {
+            return null;
+        }
+        try {
+            String summary = String.format(java.util.Locale.ROOT,
+                    "shortvideo scene=%s task=%s officialRefs=%d status=%s",
+                    scene,
+                    taskCode,
+                    officialReferences != null ? officialReferences.size() : 0,
+                    errorMessage == null ? "satisfied" : errorMessage);
+            return aiCallLogService.logWithAttribution(new AiCallLogService.LogEntry(
+                    userId,
+                    "short_video_" + (scene != null ? scene : "generate"),
+                    taskCode,
+                    llmResult != null ? llmResult.modelCode() : taskCode,
+                    summary,
+                    content != null ? content.length() : 0,
+                    null,
+                    null,
+                    llmResult != null ? llmResult.durationMs() : null,
+                    status,
+                    errorMessage,
+                    llmResult != null && llmResult.fallback(),
+                    referencedChunkIds,
+                    null
+            ), linkedVideoId, null);
+        } catch (Exception e) {
+            log.debug("短视频 AI 调用日志写入跳过: {}", e.getMessage());
+            return null;
+        }
     }
 
     private String buildViralReferenceContext(SvViralVideo viral) {

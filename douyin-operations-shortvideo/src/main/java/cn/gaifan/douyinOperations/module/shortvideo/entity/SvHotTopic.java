@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 热点话题表，与 sql/shortvideo/schema.sql 中 sv_hot_topic 一一对应
  * 注意：无 deleted 字段，热点话题不支持逻辑删除
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_hot_topic")
+@NoArgsConstructor
 public class SvHotTopic {
 
     @Id

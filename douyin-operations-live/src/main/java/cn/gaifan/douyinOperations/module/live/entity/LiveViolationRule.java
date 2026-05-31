@@ -1,15 +1,19 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
 
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_violation_rule")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveViolationRule {
 
     @Id

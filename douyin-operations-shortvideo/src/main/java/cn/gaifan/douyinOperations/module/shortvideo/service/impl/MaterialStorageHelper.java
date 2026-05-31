@@ -330,7 +330,9 @@ public class MaterialStorageHelper {
             }
             Path p = Path.of(url);
             if (Files.exists(p)) return Files.readAllBytes(p);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // 文件读取失败，返回null
+        }
         return null;
     }
 

@@ -8,6 +8,7 @@ import cn.gaifan.douyinOperations.module.ai.entity.AiTaskModelConfig;
 import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.repository.AiTaskModelConfigRepository;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvScript;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvShot;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvShotList;
@@ -49,6 +50,8 @@ public class SvShotListServiceImpl implements SvShotListService {
     private AiModelRepository modelRepository;
     @Resource
     private ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
 
     private static final String TASK_CODE = "short_video_script";
 
@@ -141,16 +144,47 @@ public class SvShotListServiceImpl implements SvShotListService {
     }
 
     @Override
+    public void deleteShot(Long shotId, Long ownerId) {
+        if (ownerId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        if (shotId == null) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "shotId 不能为空");
+        SvShot shot = shotRepository.findById(shotId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "分镜不存在"));
+        SvShotList list = shotListRepository.findById(shot.getShotListId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "分镜列表不存在"));
+        if (!list.getOwnerId().equals(ownerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限删除");
+        }
+        shot.setDeleted(1);
+        shotRepository.save(shot);
+        int remaining = Math.max(0, list.getShotCount() != null ? list.getShotCount() - 1 : 0);
+        list.setShotCount(remaining);
+        shotListRepository.save(list);
+    }
+
+    @Override
     public List<SvShotVO> generate(Long scriptId, String scriptContent, Integer shotCount, String style, Long ownerId) {
         if (ownerId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
         if (!StringUtils.hasText(scriptContent)) throw new BusinessException(ErrorCode.VALIDATION_FAIL, "脚本内容不能为空");
         int count = shotCount != null && shotCount > 0 ? Math.min(shotCount, 12) : 6;
+        String commerceInstruction = isDigitalHumanCommerce(scriptContent, style) ? """
+                数字人口播带货专项分镜约束：
+                - 每个分镜还必须包含 shotRole 和 visualAssetType。
+                - shotRole 只能从 avatar_talking_head、product_closeup、usage_demo、proof_overlay、cta 中选择。
+                - visualAssetType 只能从 digital_human、product_broll、screen_overlay、comparison 中选择。
+                - 数字人正脸口播约占 35%-45%，产品特写、使用演示、证据覆盖和对比镜头约占 55%-65%。
+                - product_closeup 至少 2 条，usage_demo 至少 1 条，proof_overlay 至少 1 条；画面必须证明口播，不要只有空泛情绪镜头。
+                - 口播、字幕和画面都必须避开绝对化、医疗化、无法证明的价格/功效承诺。
+                """ : "";
         String prompt = String.format("""
-                请将以下短视频脚本拆分为 %d 个分镜。每个分镜包含：timeRange（如0-3s）、sceneDescription（场景描述）、cameraAngle（机位：俯拍/平拍/仰拍）、action（动作）、dialogue（台词）、mood（情绪）。
-                以 JSON 数组格式输出，不要其他说明。示例：[{"shotNumber":1,"timeRange":"0-3s","sceneDescription":"城市夜景","cameraAngle":"俯拍","action":"镜头推进","dialogue":"你知道吗","mood":"神秘"}]
-                脚本内容：
+                请将以下短视频创作简报和脚本拆分为 %d 个可执行分镜。
+                每个分镜必须包含：timeRange（如0-3s）、sceneDescription（场景描述）、cameraAngle（机位：俯拍/平拍/仰拍/特写）、cameraType（运镜：push-in/pan/static/handheld）、action（动作）、dialogue（口播/台词）、mood（情绪）、duration（秒）。
                 %s
-                """, count, scriptContent);
+                %s
+                以 JSON 数组格式输出，不要其他说明。
+                示例：[{"shotNumber":1,"timeRange":"0-3s","shotRole":"avatar_talking_head","visualAssetType":"digital_human","sceneDescription":"数字人正脸近景，右侧叠加痛点字幕","cameraAngle":"近景","cameraType":"push-in","action":"数字人看镜头抛出痛点","dialogue":"先别急着买，先看这三个判断点","mood":"提醒","duration":3}]
+                创作简报和脚本：
+                %s
+                """, count, buildShortVideoShotOpsContext(ownerId, scriptContent + " " + style), commerceInstruction, scriptContent);
         List<AiModel> models = resolveShortVideoModels();
         if (models.isEmpty()) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "请先在「AI 模型配置」中配置至少一个可用模型（如 DeepSeek/Ollama）");
@@ -176,9 +210,11 @@ public class SvShotListServiceImpl implements SvShotListService {
                     shot.setTimeRange(shots.get(i).getTimeRange());
                     shot.setSceneDescription(shots.get(i).getSceneDescription());
                     shot.setCameraAngle(shots.get(i).getCameraAngle());
+                    shot.setCameraType(shots.get(i).getCameraType());
                     shot.setAction(shots.get(i).getAction());
                     shot.setDialogue(shots.get(i).getDialogue());
                     shot.setMood(shots.get(i).getMood());
+                    shot.setDuration(shots.get(i).getDuration());
                     shotRepository.save(shot);
                 }
             }
@@ -212,6 +248,38 @@ public class SvShotListServiceImpl implements SvShotListService {
         return modelRepository.findByStatusAndDeleted(1, 0).stream().limit(3).toList();
     }
 
+    private String buildShortVideoShotOpsContext(Long ownerId, String query) {
+        if (operationalStrategyKnowledgeService == null || ownerId == null || ownerId <= 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        try {
+            var official = operationalStrategyKnowledgeService.buildShortVideoGenerationContext(
+                    ownerId,
+                    String.join(" ", query != null ? query : "", "短视频分镜 数字人成片 官方规则 违规规则 千川素材审核"),
+                    2200);
+            if (official != null && official.hasText()) {
+                sb.append(official.promptBlock()).append("\n");
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            var viral = operationalStrategyKnowledgeService.buildViralPatternContext(
+                    ownerId,
+                    String.join(" ", query != null ? query : "", "爆款分镜 镜头节奏 产品展示 数字人口播"),
+                    1600);
+            if (viral != null && viral.hasText()) {
+                sb.append(viral.promptBlock()).append("\n");
+            }
+        } catch (Exception ignored) {
+        }
+        if (sb.isEmpty()) {
+            return "";
+        }
+        sb.append("分镜强制约束：必须遵守 douyin 与 douyin_weigui 引用；爆款模式只用于镜头节奏和结构借鉴，禁止复刻违规表达。\n");
+        return sb.toString();
+    }
+
     private List<SvShotVO> parseShotsFromLlm(String resp, int defaultCount) {
         List<SvShotVO> result = new ArrayList<>();
         if (!StringUtils.hasText(resp)) return result;
@@ -228,9 +296,11 @@ public class SvShotListServiceImpl implements SvShotListService {
                 vo.setTimeRange(getStr(m, "timeRange", (i + 1) + "-" + (i + 2) + "s"));
                 vo.setSceneDescription(getStr(m, "sceneDescription", ""));
                 vo.setCameraAngle(getStr(m, "cameraAngle", "平拍"));
+                vo.setCameraType(getStr(m, "cameraType", ""));
                 vo.setAction(getStr(m, "action", ""));
                 vo.setDialogue(getStr(m, "dialogue", ""));
                 vo.setMood(getStr(m, "mood", ""));
+                vo.setDuration(parseInteger(m.get("duration")));
                 result.add(vo);
             }
         } catch (Exception e) {
@@ -260,6 +330,39 @@ public class SvShotListServiceImpl implements SvShotListService {
     private String getStr(Map<String, Object> m, String key, String def) {
         Object v = m.get(key);
         return v != null ? v.toString().trim() : def;
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        if (value instanceof String s && StringUtils.hasText(s)) {
+            try {
+                return Integer.parseInt(s.trim().replaceAll("[^0-9-]", ""));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isDigitalHumanCommerce(String scriptContent, String style) {
+        String text = ((scriptContent == null ? "" : scriptContent) + " " + (style == null ? "" : style)).toLowerCase();
+        return containsAny(text,
+                "digital_human", "数字人", "avatar_talking_head", "product_closeup", "usage_demo",
+                "口播带货", "带货口播", "带货", "商品", "产品", "开箱", "测评", "种草", "软广", "product");
+    }
+
+    private static boolean containsAny(String text, String... words) {
+        if (text == null) {
+            return false;
+        }
+        for (String word : words) {
+            if (word != null && text.contains(word.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private SvShotVO shotToVO(SvShot s) {

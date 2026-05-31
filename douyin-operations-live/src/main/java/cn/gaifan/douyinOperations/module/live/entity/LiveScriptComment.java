@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -11,10 +13,12 @@ import java.time.LocalDateTime;
  * 话术行内评论表
  * 与 sql/live/migration-script-comment.sql 中 live_script_comment 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_script_comment")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveScriptComment {
 
     @Id

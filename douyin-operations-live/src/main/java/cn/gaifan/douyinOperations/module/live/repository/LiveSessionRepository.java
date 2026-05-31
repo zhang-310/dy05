@@ -128,4 +128,8 @@ public interface LiveSessionRepository extends JpaRepository<LiveSession, Long>,
     /** 按计划开始时间范围查询 */
     @Query("SELECT s FROM LiveSession s WHERE s.deleted = 0 AND s.scheduledTime >= :start AND s.scheduledTime < :end ORDER BY s.scheduledTime ASC")
     List<LiveSession> findScheduledBetween(@Param("start") Timestamp start, @Param("end") Timestamp end);
+
+    /** 搜索场次（按标题关键词，支持分页） */
+    @Query("SELECT s FROM LiveSession s WHERE s.deleted = 0 AND s.userId = :userId AND LOWER(s.liveTitle) LIKE LOWER(CONCAT('%', :keyword, '%')) ORDER BY s.scheduledTime DESC")
+    Page<LiveSession> searchByTitleKeyword(@Param("userId") Long userId, @Param("keyword") String keyword, Pageable pageable);
 }

@@ -168,4 +168,25 @@ public interface ProductScriptVersionRepository extends JpaRepository<ProductScr
     Page<ProductScriptVersion> findByOwnerIdAndProductId(@Param("ownerId") Long ownerId,
                                                          @Param("productId") Long productId,
                                                          Pageable pageable);
+
+    /**
+     * 查询商品主话术对应的优化镜像版本。
+     *
+     * @param scriptId dy_product_script.id
+     * @param ownerId 当前用户 ID
+     * @return 话术版本，Optional 包装
+     */
+    Optional<ProductScriptVersion> findFirstByScriptIdAndOwnerIdAndDeletedOrderByVersionNumberDesc(
+            Long scriptId, Long ownerId, Integer deleted);
+
+    /**
+     * 查询当前 owner 下指定商品的全部未删除版本，按版本号倒序。
+     *
+     * @param ownerId 当前用户 ID
+     * @param productId 产品 ID
+     * @param deleted 删除标记
+     * @return 话术版本列表
+     */
+    List<ProductScriptVersion> findByOwnerIdAndProductIdAndDeletedOrderByVersionNumberDesc(
+            Long ownerId, Long productId, Integer deleted);
 }

@@ -23,4 +23,10 @@ public class LiveProductSaveVO {
     private Integer saleQuantity = 0;
 
     private Integer position;
+
+    private String productType;
+
+    private String scriptSource;
+
+    private Long productScriptId;
 }

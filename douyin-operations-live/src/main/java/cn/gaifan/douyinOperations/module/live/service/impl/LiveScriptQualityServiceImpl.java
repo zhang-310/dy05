@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.live.service.impl;
 import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.ai.service.LlmToolAugmentedChatHelper;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.ai.tool.LlmToolContext;
 import cn.gaifan.douyinOperations.module.live.config.LiveGenerationProperties;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScript;
@@ -82,6 +83,9 @@ public class LiveScriptQualityServiceImpl implements LiveScriptQualityService {
     @Autowired(required = false)
     private MeterRegistry meterRegistry;
 
+    @Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
+
     /** 与 IndustryComplianceService / 商品话术合规 brain 对齐（sc_compliance_word + 行业正则 + 抖音公开规则摘要） */
     @Value("${app.live.compliance.industry-code:cosmetics}")
     private String liveComplianceIndustryCode;
@@ -134,23 +138,26 @@ public class LiveScriptQualityServiceImpl implements LiveScriptQualityService {
         result.setViolations(violations);
         result.setViolationCount(violations.size());
         result.setPassed(violations.isEmpty());
+        applyOfficialRuleGate(result, resolveOfficialViolationReferences(userId, text));
         return result;
     }
 
     @Override
-    public LiveAiResultVO.ViolationCheckResult checkViolationEnhanced(String content, DyProduct product) {
+    public LiveAiResultVO.ViolationCheckResult checkViolationEnhanced(String content, DyProduct product, Long userId) {
         if (content == null || content.isBlank()) {
             LiveAiResultVO.ViolationCheckResult empty = new LiveAiResultVO.ViolationCheckResult();
             empty.setViolations(List.of());
             empty.setViolationCount(0);
             empty.setPassed(true);
+            applyOfficialRuleGate(empty, resolveOfficialViolationReferences(resolveViolationUserId(userId, product), ""));
             return empty;
         }
+        Long effectiveUserId = resolveViolationUserId(userId, product);
 
         LinkedHashSet<String> lines = new LinkedHashSet<>();
 
         // 第一层：基础违禁词检测（复用现有逻辑）
-        ViolationCheckResultVO checkResult = violationWordService.check(content, "live", null);
+        ViolationCheckResultVO checkResult = violationWordService.check(content, "live", effectiveUserId);
         if (checkResult != null && checkResult.isHasViolation() && checkResult.getViolations() != null) {
             checkResult.getViolations().stream()
                     .map(v -> "[违规词库]" + v.getWord() + "(" + (v.getReason() != null ? v.getReason() : "") + ")")
@@ -163,6 +170,7 @@ public class LiveScriptQualityServiceImpl implements LiveScriptQualityService {
             result.setViolations(violations);
             result.setViolationCount(violations.size());
             result.setPassed(violations.isEmpty());
+            applyOfficialRuleGate(result, resolveOfficialViolationReferences(effectiveUserId, content));
             return result;
         }
 
@@ -212,7 +220,79 @@ public class LiveScriptQualityServiceImpl implements LiveScriptQualityService {
         result.setViolations(violations);
         result.setViolationCount(violations.size());
         result.setPassed(violations.isEmpty());
+        applyOfficialRuleGate(result, resolveOfficialViolationReferences(effectiveUserId, content));
         return result;
+    }
+
+    private Long resolveViolationUserId(Long userId, DyProduct product) {
+        if (userId != null && userId > 0) {
+            return userId;
+        }
+        return product != null && product.getUserId() != null && product.getUserId() > 0 ? product.getUserId() : null;
+    }
+
+    private List<LiveAiResultVO.OfficialReferenceVO> resolveOfficialViolationReferences(Long userId, String content) {
+        if (operationalStrategyKnowledgeService == null || userId == null || userId <= 0) {
+            return List.of();
+        }
+        try {
+            String query = String.join(" ",
+                    content != null ? content : "",
+                    "直播违规 直播话术违规 绝对化用语 虚假宣传 商品规则 douyin_weigui 官方规则");
+            OperationalStrategyKnowledgeService.PromptContext context =
+                    operationalStrategyKnowledgeService.buildLiveGenerationContext(userId, query, "violation_check", 1600);
+            OperationalStrategyKnowledgeService.PromptContext ruleContext =
+                    operationalStrategyKnowledgeService.buildViolationRuleContext(userId, query, "live_violation_check", 1600);
+            if (context == null || context.officialReferences() == null) {
+                context = new OperationalStrategyKnowledgeService.PromptContext("", List.of(), List.of());
+            }
+            List<OperationalStrategyKnowledgeService.OfficialReference> merged = new ArrayList<>(context.officialReferences());
+            if (ruleContext != null && ruleContext.officialReferences() != null) {
+                merged.addAll(ruleContext.officialReferences());
+            }
+            return merged.stream()
+                    .filter(ref -> "douyin_weigui".equals(ref.kbName()) || "violation_rule".equals(ref.refType()))
+                    .collect(java.util.stream.Collectors.toMap(
+                            ref -> String.valueOf(ref.docId()) + ":" + String.valueOf(ref.chunkId()),
+                            ref -> ref,
+                            (a, b) -> a,
+                            LinkedHashMap::new))
+                    .values().stream()
+                    .map(ref -> {
+                        LiveAiResultVO.OfficialReferenceVO vo = new LiveAiResultVO.OfficialReferenceVO();
+                        vo.setKbName(ref.kbName());
+                        vo.setRefType(ref.refType());
+                        vo.setDocId(ref.docId());
+                        vo.setChunkId(ref.chunkId());
+                        vo.setTitle(ref.title());
+                        vo.setContentPreview(ref.contentPreview());
+                        vo.setScore(ref.score());
+                        return vo;
+                    })
+                    .toList();
+        } catch (Exception e) {
+            log.debug("直播违规官方规则引用检索跳过: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private void applyOfficialRuleGate(
+            LiveAiResultVO.ViolationCheckResult result,
+            List<LiveAiResultVO.OfficialReferenceVO> officialReferences) {
+        List<LiveAiResultVO.OfficialReferenceVO> refs = officialReferences != null ? officialReferences : List.of();
+        boolean satisfied = refs.stream().anyMatch(ref ->
+                "violation_rule".equals(ref.getRefType()) || "douyin_weigui".equals(ref.getKbName()));
+        result.setOfficialReferences(refs);
+        result.setOfficialReferenceRequired(true);
+        result.setOfficialReferenceSatisfied(satisfied);
+        result.setOfficialReferenceStatus(satisfied ? "satisfied" : "missing_douyin_weigui_reference");
+        if (!satisfied) {
+            List<String> violations = new ArrayList<>(result.getViolations() != null ? result.getViolations() : List.of());
+            violations.add("[官方规则引用缺失][高危] 未检索到 douyin_weigui 官方违规规则引用，禁止判定为审核通过");
+            result.setViolations(violations);
+            result.setViolationCount(violations.size());
+            result.setPassed(false);
+        }
     }
 
     @Override

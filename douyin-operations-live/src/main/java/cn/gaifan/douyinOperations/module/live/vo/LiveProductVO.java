@@ -18,5 +18,8 @@ public class LiveProductVO {
     private Integer saleQuantity;
     private BigDecimal revenue;
     private Integer position;
+    private String productType;
+    private String scriptSource;
+    private Long productScriptId;
     private Timestamp createTime;
 }

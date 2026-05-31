@@ -1,6 +1,7 @@
 package cn.gaifan.douyinOperations.module.live.service.impl;
 
 import cn.gaifan.douyinOperations.module.ai.service.KnowledgeBaseService;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScript;
 import cn.gaifan.douyinOperations.module.live.entity.LiveSession;
 import cn.gaifan.douyinOperations.module.live.repository.LiveScriptRepository;
@@ -36,6 +37,9 @@ public class LiveScriptPostProcessor {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private KnowledgeBaseService knowledgeBaseService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
+
     @Resource
     private LiveKnowledgeBaseAccessResolver knowledgeBaseAccessResolver;
 
@@ -44,7 +48,16 @@ public class LiveScriptPostProcessor {
 
     // ─── 记录类型 ──────────────────────────────────────
 
-    record GenerateResult(String content, List<KnowledgeBaseService.SearchResult> ragRefs, String generationPromptHash) {}
+    record GenerateResult(
+            String content,
+            List<KnowledgeBaseService.SearchResult> ragRefs,
+            String generationPromptHash,
+            List<OperationalStrategyKnowledgeService.OfficialReference> officialReferences
+    ) {
+        GenerateResult(String content, List<KnowledgeBaseService.SearchResult> ragRefs, String generationPromptHash) {
+            this(content, ragRefs, generationPromptHash, List.of());
+        }
+    }
 
     record SlotResult(LiveAiResultVO result, double consumption) {}
 
@@ -65,6 +78,8 @@ public class LiveScriptPostProcessor {
             String content = r.content();
             vo.setContentPreview(content != null && content.length() > RAG_REF_PREVIEW_LEN ? content.substring(0, RAG_REF_PREVIEW_LEN) + "…" : content);
             vo.setScore(r.score());
+            vo.setSource(r.source());
+            vo.setLabels(r.labels());
             list.add(vo);
         }
         return list;
@@ -78,21 +93,79 @@ public class LiveScriptPostProcessor {
             try {
                 List<Number> nums = com.alibaba.fastjson2.JSON.parseArray(s, Number.class);
                 if (nums != null) nums.forEach(n -> all.add(n.longValue()));
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // JSON解析失败，跳过该项
+            }
         }
         if (all.isEmpty()) return null;
         return com.alibaba.fastjson2.JSON.toJSONString(new ArrayList<>(all));
     }
 
     static String toReferencedChunkIdsJson(List<KnowledgeBaseService.SearchResult> refs) {
-        if (refs == null || refs.isEmpty()) return null;
-        List<Long> ids = refs.stream()
-                .map(KnowledgeBaseService.SearchResult::chunkId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
+        return toReferencedChunkIdsJson(refs, null);
+    }
+
+    static String toReferencedChunkIdsJson(
+            List<KnowledgeBaseService.SearchResult> refs,
+            List<OperationalStrategyKnowledgeService.OfficialReference> officialRefs) {
+        Set<Long> ids = new java.util.LinkedHashSet<>();
+        if (refs != null) {
+            refs.stream()
+                    .map(KnowledgeBaseService.SearchResult::chunkId)
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
+        if (officialRefs != null) {
+            officialRefs.stream()
+                    .map(OperationalStrategyKnowledgeService.OfficialReference::chunkId)
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
         if (ids.isEmpty()) return null;
-        return com.alibaba.fastjson2.JSON.toJSONString(ids);
+        return com.alibaba.fastjson2.JSON.toJSONString(new ArrayList<>(ids));
+    }
+
+    static List<LiveAiResultVO.OfficialReferenceVO> toOfficialReferenceVOs(
+            List<OperationalStrategyKnowledgeService.OfficialReference> refs) {
+        if (refs == null || refs.isEmpty()) return List.of();
+        return refs.stream().map(ref -> {
+            LiveAiResultVO.OfficialReferenceVO vo = new LiveAiResultVO.OfficialReferenceVO();
+            vo.setKbName(ref.kbName());
+            vo.setRefType(ref.refType());
+            vo.setDocId(ref.docId());
+            vo.setChunkId(ref.chunkId());
+            vo.setTitle(ref.title());
+            vo.setContentPreview(ref.contentPreview());
+            vo.setScore(ref.score());
+            return vo;
+        }).toList();
+    }
+
+    static void assertOfficialGenerationGate(
+            List<OperationalStrategyKnowledgeService.OfficialReference> refs,
+            String scene) {
+        if (!hasOfficialLearningRef(refs) || !hasViolationRuleRef(refs)) {
+            throw new cn.gaifan.douyinOperations.common.exception.BusinessException(
+                    cn.gaifan.douyinOperations.common.constant.ErrorCode.COMPLIANCE_VIOLATION,
+                    "官方规则引用门禁未通过：" + (scene != null ? scene : "AI生成")
+                            + " 必须同时检索到 douyin 官方学习资料和 douyin_weigui 违规规则引用，禁止放行生成结果");
+        }
+    }
+
+    static boolean hasOfficialLearningRef(List<OperationalStrategyKnowledgeService.OfficialReference> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return false;
+        }
+        return refs.stream().anyMatch(ref ->
+                ref != null && ("official_learning".equals(ref.refType()) || "douyin".equals(ref.kbName())));
+    }
+
+    static boolean hasViolationRuleRef(List<OperationalStrategyKnowledgeService.OfficialReference> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return false;
+        }
+        return refs.stream().anyMatch(ref ->
+                ref != null && ("violation_rule".equals(ref.refType()) || "douyin_weigui".equals(ref.kbName())));
     }
 
     // ─── 时间线构建 ──────────────────────────────────────
@@ -213,11 +286,37 @@ public class LiveScriptPostProcessor {
                     resolvedKb.accessUserId(),
                     "high_quality_script",
                     "script");
+            if (operationalStrategyKnowledgeService != null) {
+                operationalStrategyKnowledgeService.writePerformanceReflection(
+                        userId,
+                        "直播成功模板-" + title,
+                        buildLiveSuccessTemplate(content, scriptType, score),
+                        Map.of(
+                                "source", "live_script_post_processor",
+                                "templateType", "直播成功模板",
+                                "scriptType", scriptType != null ? scriptType : "通用",
+                                "score", String.valueOf(score)
+                        )
+                );
+            }
             log.info("高质量话术自动入库: type={}, score={}, kbId={}, sharedFallback={}",
                     scriptType, score, resolvedKb.kbId(), resolvedKb.sharedFallback());
         } catch (Exception e) {
             log.debug("高质量话术入库失败: {}", e.getMessage());
         }
+    }
+
+    private String buildLiveSuccessTemplate(String content, String scriptType, double score) {
+        return "# 直播成功模板：" + (scriptType != null ? scriptType : "通用") + "\n\n"
+                + "## 效果数据\n"
+                + "- 话术类型：" + (scriptType != null ? scriptType : "通用") + "\n"
+                + "- 效果分：" + score + "\n\n"
+                + "## 可复用模板\n"
+                + "- 结构：保留高分话术中的开场钩子、卖点证明、互动承接、促单节奏和合规表达。\n"
+                + "- 使用方式：后续直播话术生成/微调时检索本模板，只学习结构、语气和节奏，不机械复制原文。\n"
+                + "- 合规要求：继续叠加 douyin_weigui 官方违规规则审核。\n\n"
+                + "## 原话术\n"
+                + content;
     }
 
     // ─── A/B 风格分配 ──────────────────────────────────────

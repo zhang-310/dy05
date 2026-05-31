@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * 保存用户的话术生成偏好（风格、模型、知识库引用、时长模式、热门关键词等）
  * 与 sql/live/generation-preset-schema.sql 中 live_generation_preset 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_generation_preset")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveGenerationPreset {
 
     @Id

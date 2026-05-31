@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.sql.Timestamp;
 
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 爆款收藏表（用户收藏平台爆款）
  * 表: sv_viral_favorite
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_viral_favorite")
+@NoArgsConstructor
 public class SvViralFavorite {
 
     @Id

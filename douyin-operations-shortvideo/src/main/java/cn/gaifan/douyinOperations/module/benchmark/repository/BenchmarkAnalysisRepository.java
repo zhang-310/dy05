@@ -17,4 +17,9 @@ public interface BenchmarkAnalysisRepository extends JpaRepository<BenchmarkAnal
      * 根据视频ID查找分析结果
      */
     Optional<BenchmarkAnalysis> findByBenchmarkVideoId(Long benchmarkVideoId);
+
+    /**
+     * 根据视频ID和 ownerId 查找分析结果，避免跨租户读取。
+     */
+    Optional<BenchmarkAnalysis> findByBenchmarkVideoIdAndOwnerId(Long benchmarkVideoId, Long ownerId);
 }

@@ -4,6 +4,7 @@ import cn.gaifan.douyinOperations.common.annotation.CurrentUserId;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.shortvideo.service.PersonaViralFusionService;
+import cn.gaifan.douyinOperations.module.shortvideo.service.PersonaViralFusionService.PersonaFusionOptions;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -48,8 +49,15 @@ public class PersonaViralFusionController {
             return RESTResult.validError(ErrorCode.VALIDATION_FAIL, "缺少 viralVideoId 或 personaId");
         }
         String remakeType = body != null && body.get("remakeType") instanceof String s ? s : "form_imitation";
+        PersonaFusionOptions options = new PersonaFusionOptions(
+                body != null && body.get("productId") instanceof Number n ? n.longValue() : null,
+                body != null && body.get("topic") instanceof String s && !s.isBlank() ? s.trim() : null,
+                body != null && body.get("duration") instanceof Number n ? n.intValue()
+                        : body != null && body.get("durationSeconds") instanceof Number n ? n.intValue() : null,
+                body != null && body.get("count") instanceof Number n ? n.intValue() : null
+        );
         RESTResult<Map<String, Object>> r = RESTResult.getSuccess(
-                fusionService.generatePersonaFusedScript(viralVideoId, personaId, remakeType, userId));
+                fusionService.generatePersonaFusedScript(viralVideoId, personaId, remakeType, options, userId));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

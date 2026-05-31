@@ -7,8 +7,13 @@ import cn.gaifan.douyinOperations.module.douyin.entity.DouyinAccount;
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinAccountRepository;
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinVideoRepository;
 import cn.gaifan.douyinOperations.module.douyin.service.DouyinAccountService;
+import cn.gaifan.douyinOperations.contract.product.FeatureCode;
+import cn.gaifan.douyinOperations.contract.product.ProductCode;
 import cn.gaifan.douyinOperations.module.douyin.vo.*;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialProductChargeService;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryProduct;
 import com.github.benmanes.caffeine.cache.Cache;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -43,8 +48,14 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
     @Resource
     private DouyinVideoRepository douyinVideoRepository;
 
+    @Autowired(required = false)
+    private CommercialProductChargeService commercialProductChargeService;
+
     @Resource(name = "accountStatisticsCache")
     private Cache<Long, Object> accountStatisticsCache;
+
+    @Resource(name = "accountQueryCache")
+    private Cache<Long, Object> accountQueryCache;
 
     @Override
     public PageResultVO<DouyinAccountVO> search(DouyinAccountSearchVO vo) {
@@ -81,18 +92,33 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
     }
 
     @Override
+    @Cacheable(value = "accountQuery", key = "#id", unless = "#result == null")
     public DouyinAccountVO getAccount(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号 ID 无效");
         }
+
+        // P1-4: 先查 L1 本地缓存
+        Object cached = accountQueryCache.getIfPresent(id);
+        if (cached instanceof DouyinAccountVO) {
+            return (DouyinAccountVO) cached;
+        }
+
         DouyinAccount account = douyinAccountRepository.findByIdAndDeleted(id, 0)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAIL, "账号不存在"));
-        return toAccountVO(account);
+        DouyinAccountVO vo = toAccountVO(account);
+
+        // P1-4: 写入 L1 本地缓存
+        accountQueryCache.put(id, vo);
+
+        return vo;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = {"accountStatistics", "accountQuery"}, key = "#result", condition = "#result != null")
     public long saveAccount(DouyinAccountSaveVO vo) {
+        boolean isCreate = vo.getId() == null || vo.getId() <= 0;
         DouyinAccount account;
         if (vo.getId() != null && vo.getId() > 0) {
             account = douyinAccountRepository.findByIdAndDeleted(vo.getId(), 0)
@@ -114,9 +140,19 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
         if (vo.getTotalLikes() != null) account.setTotalLikes(vo.getTotalLikes());
         if (vo.getDescription() != null) account.setDescription(vo.getDescription());
         if (vo.getStatus() != null) account.setStatus(vo.getStatus());
+        if (isCreate && commercialProductChargeService != null) {
+            commercialProductChargeService.charge(
+                    CommercialProductChargeService.CommercialProductChargeCommand.of(
+                            ProductCode.DOUYIN_OPS,
+                            FeatureCode.DOUYIN_ACCOUNT_MGMT,
+                            "抖音账号绑定 ownerId=" + vo.getOwnerId(),
+                            DeliveryProduct.DOUYIN_OPS
+                    ));
+        }
         account = douyinAccountRepository.save(account);
 
-        // P2-5: 清除 L1 和 L2 缓存
+        // P1-4 & P2-5: 清除 L1 缓存（accountQuery + accountStatistics）
+        accountQueryCache.invalidate(account.getId());
         accountStatisticsCache.invalidate(account.getId());
 
         return account.getId();
@@ -124,7 +160,7 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "accountStatistics", key = "#id")
+    @CacheEvict(value = {"accountStatistics", "accountQuery"}, key = "#id")
     public void deleteAccount(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "账号 ID 无效");
@@ -134,7 +170,8 @@ public class DouyinAccountServiceImpl implements DouyinAccountService {
         account.setDeleted(1);
         douyinAccountRepository.save(account);
 
-        // P2-5: 清除 L1 缓存
+        // P1-4: 清除 L1 缓存（accountQuery）
+        accountQueryCache.invalidate(id);
         accountStatisticsCache.invalidate(id);
     }
 

@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.shortvideo.service.impl;
 
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.douyinapi.client.DouyinApiClient;
 import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvCinematicPreset;
@@ -50,6 +51,8 @@ public class PublishFeedbackServiceImpl implements PublishFeedbackService {
     private DouyinApiClient douyinApiClient;
     @Autowired(required = false)
     private OAuthTokenService oauthTokenService;
+    @Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
 
     @Override
     public ContentScore analyzePerformance(Long videoId, List<Long> visibleOwnerIds) {
@@ -167,9 +170,61 @@ public class PublishFeedbackServiceImpl implements PublishFeedbackService {
                 m.setConfidence(newConf);
                 sceneCameraMappingRepository.save(m);
             }
+            writePerformanceReflection(video, score);
         } catch (Exception e) {
             log.warn("feedbackToKnowledge 失败: videoId={}", videoId, e);
         }
+    }
+
+    private void writePerformanceReflection(SvVideo video, ContentScore score) {
+        if (operationalStrategyKnowledgeService == null || video == null || video.getOwnerId() == null || score == null) {
+            return;
+        }
+        String verdict = score.overallScore() >= 70 ? "成功模板" : "失败原因";
+        StringBuilder sb = new StringBuilder();
+        sb.append("# 发布复盘：").append(verdict).append(" - ")
+                .append(StringUtils.hasText(video.getTitle()) ? video.getTitle() : "视频" + video.getId()).append("\n\n");
+        sb.append("## 基础数据\n");
+        sb.append("- 视频ID：").append(video.getId()).append("\n");
+        sb.append("- 标题：").append(video.getTitle() != null ? video.getTitle() : "").append("\n");
+        sb.append("- 描述：").append(video.getDescription() != null ? video.getDescription() : "").append("\n");
+        sb.append("- 标签：").append(video.getTags() != null ? video.getTags() : "").append("\n");
+        sb.append("- 时长：").append(video.getDuration() != null ? video.getDuration() : 0).append("秒\n");
+        sb.append("- 播放：").append(video.getViewCount() != null ? video.getViewCount() : 0).append("\n");
+        sb.append("- 点赞：").append(video.getLikeCount() != null ? video.getLikeCount() : 0).append("\n");
+        sb.append("- 评论：").append(video.getCommentCount() != null ? video.getCommentCount() : 0).append("\n");
+        sb.append("- 分享：").append(video.getShareCount() != null ? video.getShareCount() : 0).append("\n\n");
+        sb.append("## 评分拆解\n");
+        sb.append("- 综合分：").append(round(score.overallScore())).append("\n");
+        sb.append("- 互动率分：").append(round(score.engagementRate())).append("\n");
+        sb.append("- 播放对比均值分：").append(round(score.viewsVsAvg())).append("\n");
+        sb.append("- 表现等级：").append(score.performance()).append("\n\n");
+        sb.append("## 自动提炼\n");
+        if (score.overallScore() >= 70) {
+            sb.append("- 成功模板：保留该视频的标题承诺、前 3 秒钩子、节奏长度、互动引导和发布标签作为同品类优先模板。\n");
+            sb.append("- 下一轮应用：短视频脚本和数字人成片生成时优先检索本模板，复用结构不复刻原文。\n");
+        } else {
+            sb.append("- 失败原因：标题封面、前三秒钩子、互动引导或内容承诺可能不足，需要结合指标重新拆解。\n");
+            sb.append("- 下一轮规避：生成脚本时降低空泛口号，强化证据镜头、评论痛点和合规 CTA。\n");
+        }
+        for (String insight : score.insights()) {
+            sb.append("- ").append(insight).append("\n");
+        }
+        operationalStrategyKnowledgeService.writePerformanceReflection(
+                video.getOwnerId(),
+                verdict + "-" + (StringUtils.hasText(video.getTitle()) ? video.getTitle() : video.getId()),
+                sb.toString(),
+                Map.of(
+                        "source", "publish_feedback",
+                        "videoId", String.valueOf(video.getId()),
+                        "performance", score.performance(),
+                        "templateType", verdict
+                )
+        );
+    }
+
+    private static double round(double value) {
+        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
     }
 
     private void updateVideoAndSnapshot(SvVideo video, DouyinApiClient.VideoDataResponse apiData) {

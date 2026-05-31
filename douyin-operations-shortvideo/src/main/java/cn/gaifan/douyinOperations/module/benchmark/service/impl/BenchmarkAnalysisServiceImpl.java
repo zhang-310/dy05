@@ -80,9 +80,15 @@ public class BenchmarkAnalysisServiceImpl implements BenchmarkAnalysisService {
     @Autowired(required = false)
     private Retry aiAnalysisRetry;
 
+    @Autowired(required = false)
+    private BenchmarkCommercialChargeHelper benchmarkCommercialChargeHelper;
+
     @Override
     @Transactional
     public BenchmarkAnalysisVO analyzeVideo(AnalyzeVideoVO analyzeVO, Long ownerId) {
+        if (benchmarkCommercialChargeHelper != null) {
+            benchmarkCommercialChargeHelper.chargeForAnalyze(analyzeVO.getBenchmarkVideoId());
+        }
         // 生成追踪ID用于日志关联
         String traceId = UUID.randomUUID().toString().substring(0, 8);
         MDC.put("traceId", traceId);
@@ -96,6 +102,7 @@ public class BenchmarkAnalysisServiceImpl implements BenchmarkAnalysisService {
 
             BenchmarkVideo video = videoRepository.findById(analyzeVO.getBenchmarkVideoId())
                     .orElseThrow(() -> new RuntimeException("视频不存在"));
+            verifyVideoOwner(video, ownerId);
 
             // 检查是否已分析
             if (!analyzeVO.getForceReanalyze() && "completed".equals(video.getAnalysisStatus())) {
@@ -109,7 +116,7 @@ public class BenchmarkAnalysisServiceImpl implements BenchmarkAnalysisService {
             long startTime = System.currentTimeMillis();
 
             // 执行9步分析流程
-            BenchmarkAnalysis analysis = executeAnalysisPipeline(video, analyzeVO, traceId);
+            BenchmarkAnalysis analysis = executeAnalysisPipeline(video, analyzeVO, ownerId, traceId);
 
             // 计算耗时
             long duration = System.currentTimeMillis() - startTime;
@@ -177,8 +184,20 @@ public class BenchmarkAnalysisServiceImpl implements BenchmarkAnalysisService {
 
     @Override
     public BenchmarkAnalysisVO getByVideoId(Long videoId, Long ownerId) {
-        BenchmarkAnalysis analysis = analysisRepository.findByBenchmarkVideoId(videoId)
-                .orElseThrow(() -> new RuntimeException("分析结果不存在"));
+        BenchmarkAnalysis analysis = analysisRepository.findByBenchmarkVideoIdAndOwnerId(videoId, ownerId)
+                .orElseGet(() -> analysisRepository.findByBenchmarkVideoId(videoId)
+                        .orElseThrow(() -> new RuntimeException("分析结果不存在")));
+        if (analysis.getOwnerId() == null || !analysis.getOwnerId().equals(ownerId)) {
+            BenchmarkVideo video = videoRepository.findById(videoId)
+                    .orElseThrow(() -> new RuntimeException("视频不存在"));
+            verifyVideoOwner(video, ownerId);
+            if (analysis.getOwnerId() == null || analysis.getOwnerId() == 0L) {
+                analysis.setOwnerId(ownerId);
+                analysis = analysisRepository.save(analysis);
+            } else {
+                throw new RuntimeException("无权访问该分析结果");
+            }
+        }
 
         return entityToVO(analysis);
     }
@@ -205,10 +224,11 @@ public class BenchmarkAnalysisServiceImpl implements BenchmarkAnalysisService {
     /**
      * 执行9步分析流程
      */
-    private BenchmarkAnalysis executeAnalysisPipeline(BenchmarkVideo video, AnalyzeVideoVO analyzeVO, String traceId) {
+    private BenchmarkAnalysis executeAnalysisPipeline(BenchmarkVideo video, AnalyzeVideoVO analyzeVO, Long ownerId, String traceId) {
         log.info("[{}] 开始执行分析流程", traceId);
 
         BenchmarkAnalysis analysis = new BenchmarkAnalysis();
+        analysis.setOwnerId(ownerId);
         analysis.setBenchmarkVideoId(video.getId());
 
         // Step 1: 视频下载（如果还没下载）
@@ -725,6 +745,20 @@ public class BenchmarkAnalysisServiceImpl implements BenchmarkAnalysisService {
         BenchmarkAnalysisVO vo = new BenchmarkAnalysisVO();
         BeanUtils.copyProperties(entity, vo);
         return vo;
+    }
+
+    private void verifyVideoOwner(BenchmarkVideo video, Long ownerId) {
+        if (video.getOwnerId() != null && video.getOwnerId().equals(ownerId)) {
+            return;
+        }
+        if (video.getOwnerId() == null || video.getOwnerId() == 0L) {
+            video.setOwnerId(ownerId);
+            videoRepository.save(video);
+            return;
+        }
+        if (!video.getOwnerId().equals(ownerId)) {
+            throw new RuntimeException("无权访问该视频");
+        }
     }
 
     private String toJson(Object obj) {

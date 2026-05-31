@@ -120,7 +120,9 @@ public class LiveCollaborationPresenceController {
                         item.put("userName", p.userName);
                         item.put("joinedAt", p.joinedAt);
                         viewers.add(item);
-                    } catch (Exception ignore) {}
+                    } catch (Exception e) {
+                        log.debug("解析presence数据失败: {}", e.getMessage());
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Redis presence viewers 失败，降级为内存: {}", e.getMessage());
