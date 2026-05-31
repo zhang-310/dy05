@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-05-31T23:35:00Z",
   "pushed": true,
-  "mergedToMain": "9d09c35",
+  "mergedToMain": "80143f7",
   "note": "Stack merged locally to main (0cf210e..9d09c35). Create stacked PRs for audit or close as superseded.",
   "stack": [
     {
