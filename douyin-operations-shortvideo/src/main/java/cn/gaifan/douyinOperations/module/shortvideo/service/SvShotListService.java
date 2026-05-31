@@ -22,6 +22,8 @@ public interface SvShotListService {
 
     Long save(SvShotSaveVO vo, Long ownerId);
 
+    void deleteShot(Long shotId, Long ownerId);
+
     /** AI 生成分镜，返回分镜列表 */
     List<SvShotVO> generate(Long scriptId, String scriptContent, Integer shotCount, String style, Long ownerId);
 

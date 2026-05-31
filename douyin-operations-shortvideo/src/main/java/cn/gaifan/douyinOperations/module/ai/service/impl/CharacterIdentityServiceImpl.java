@@ -6,6 +6,8 @@ import cn.gaifan.douyinOperations.module.shortvideo.repository.SvDramaCharacterR
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import jakarta.annotation.Resource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -18,6 +20,8 @@ import java.util.List;
  */
 @Service
 public class CharacterIdentityServiceImpl implements CharacterIdentityService {
+
+    private static final Logger log = LoggerFactory.getLogger(CharacterIdentityServiceImpl.class);
 
     @Resource
     private SvDramaCharacterRepository characterRepository;
@@ -57,7 +61,9 @@ public class CharacterIdentityServiceImpl implements CharacterIdentityService {
                         urls.add(obj.getString("url"));
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                log.debug("JSON解析referenceImages失败: {}", e.getMessage());
+            }
         }
         return urls;
     }

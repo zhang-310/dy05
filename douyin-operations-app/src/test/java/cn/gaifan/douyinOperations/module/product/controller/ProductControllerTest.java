@@ -155,7 +155,7 @@ class ProductControllerTest {
         Map<String, Object> body = new HashMap<>();
         body.put("id", 1L);
 
-        doNothing().when(productService).delete(eq(1L));
+        doNothing().when(productService).delete(eq(1L), eq(1L));
 
         mockMvc.perform(post("/api/v1/product/delete")
                         .requestAttr("userId", 1L)
@@ -172,7 +172,7 @@ class ProductControllerTest {
         Map<String, Object> body = new HashMap<>();
         body.put("ids", List.of(1L, 2L, 3L));
 
-        doNothing().when(productService).batchDelete(anyList());
+        doNothing().when(productService).batchDelete(eq(List.of(1L, 2L, 3L)), eq(1L));
 
         mockMvc.perform(post("/api/v1/product/batch-delete")
                         .requestAttr("userId", 1L)

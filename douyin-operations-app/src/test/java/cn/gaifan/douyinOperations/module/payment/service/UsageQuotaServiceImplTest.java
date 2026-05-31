@@ -1,5 +1,6 @@
 package cn.gaifan.douyinOperations.module.payment.service;
 
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
 import cn.gaifan.douyinOperations.module.payment.entity.Subscription;
 import cn.gaifan.douyinOperations.module.payment.entity.UsageRecord;
 import cn.gaifan.douyinOperations.module.payment.repository.UsageRecordRepository;
@@ -33,16 +34,22 @@ class UsageQuotaServiceImplTest {
     @Mock
     private SubscriptionService subscriptionService;
 
+    @Mock
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     @InjectMocks
     private UsageQuotaServiceImpl usageQuotaService;
 
     @Test
     @DisplayName("recordUsage 应写入用量记录")
     void recordUsage_shouldPersistUsageRecord() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(100L)).thenReturn(200L);
+
         usageQuotaService.recordUsage(100L, "aiGenerations", 3);
 
         verify(usageRecordRepository).save(org.mockito.ArgumentMatchers.argThat((UsageRecord record) ->
                 record.getUserId().equals(100L)
+                        && record.getOrgId().equals(200L)
                         && "aiGenerations".equals(record.getMetric())
                         && record.getDelta() == 3
         ));

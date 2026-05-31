@@ -8,7 +8,6 @@ import java.math.BigDecimal;
 @Data
 public class ProductSaveVO {
     private Long id;
-    @NotNull(message = "用户 ID 不能为空")
     private Long userId;
     @NotBlank(message = "商品名称不能为空")
     private String productName;

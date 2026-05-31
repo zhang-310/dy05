@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.common.compliance.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.sql.Date;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * 违规案例库实体
  * 对应表: compliance_case
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "compliance_case")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class ComplianceCase {
 
     @Id

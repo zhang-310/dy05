@@ -19,13 +19,32 @@ import {
   Paper,
   Chip,
   LinearProgress,
+  alpha,
+  useTheme,
 } from '@mui/material'
+import type { Theme } from '@mui/material/styles'
 import ReactECharts from 'echarts-for-react'
 import type { StyleMetrics } from '@/types/effectiveness'
 
 interface StyleComparisonChartProps {
   styles: StyleMetrics[]
   onStyleClick?: (style: string) => void
+}
+
+type StyleTone = 'primary' | 'secondary' | 'success' | 'warning' | 'error'
+
+function semanticColor(theme: Theme, tone: StyleTone) {
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main
+}
+
+function surfaceColor(theme: Theme, tone: StyleTone) {
+  return alpha(semanticColor(theme, tone), theme.palette.mode === 'dark' ? 0.18 : 0.1)
+}
+
+function getScoreTone(score: number): StyleTone {
+  if (score >= 80) return 'success'
+  if (score >= 60) return 'warning'
+  return 'error'
 }
 
 /**
@@ -35,6 +54,12 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
   styles,
   onStyleClick,
 }) => {
+  const theme = useTheme()
+  const scoreColor = semanticColor(theme, 'secondary')
+  const conversionColor = semanticColor(theme, 'primary')
+  const quietSurface = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.07 : 0.04)
+  const progressTrackColor = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.18 : 0.12)
+
   if (!styles || styles.length === 0) {
     return (
       <Card>
@@ -68,6 +93,7 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
           <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
             风格评分对比
           </Typography>
+          <Box data-testid="style-comparison-chart-surface" data-chart-colors={`${scoreColor}|${conversionColor}`}>
           <ReactECharts
             option={{
               xAxis: { type: 'category', data: chartData.map((d) => d.name) },
@@ -81,14 +107,14 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
                   type: 'bar',
                   name: '平均评分',
                   yAxisIndex: 0,
-                  itemStyle: { color: '#ff7043' },
+                  itemStyle: { color: scoreColor },
                 },
                 {
                   data: chartData.map((d) => d.转化率),
                   type: 'bar',
                   name: '转化率 %',
                   yAxisIndex: 1,
-                  itemStyle: { color: '#2196f3' },
+                  itemStyle: { color: conversionColor },
                 }
               ],
               tooltip: { trigger: 'axis' },
@@ -96,6 +122,7 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
             }}
             style={{ height: '300px' }}
           />
+          </Box>
         </CardContent>
       </Card>
 
@@ -107,7 +134,7 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
           </Typography>
           <TableContainer component={Paper}>
             <Table>
-              <TableHead sx={{ backgroundColor: '#f5f5f5' }}>
+              <TableHead data-testid="style-comparison-table-head-surface" sx={{ backgroundColor: quietSurface }}>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 'bold' }}>风格</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 'bold' }}>
@@ -142,9 +169,11 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
                     <TableCell align="right">{style.versionCount}</TableCell>
                     <TableCell
                       align="right"
+                      data-testid={style.avgScore === maxScore ? 'style-comparison-max-score-cell-surface' : undefined}
+                      data-score-tone={style.avgScore === maxScore ? 'warning' : undefined}
                       sx={{
                         backgroundColor:
-                          style.avgScore === maxScore ? '#fff3e0' : 'transparent',
+                          style.avgScore === maxScore ? surfaceColor(theme, 'warning') : 'transparent',
                         fontWeight:
                           style.avgScore === maxScore ? 'bold' : 'normal',
                       }}
@@ -161,24 +190,28 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {(() => {
+                          const tone = getScoreTone(style.avgScore)
+                          const color = semanticColor(theme, tone)
+                          return (
                         <LinearProgress
+                          data-testid="style-comparison-progress-surface"
+                          data-score-tone={tone}
+                          data-score-color={color}
                           variant="determinate"
                           value={(style.avgScore / 100) * 100}
                           sx={{
                             flex: 1,
                             height: 8,
                             borderRadius: 4,
-                            backgroundColor: '#e0e0e0',
+                            backgroundColor: progressTrackColor,
                             '& .MuiLinearProgress-bar': {
-                              backgroundColor:
-                                style.avgScore >= 80
-                                  ? '#4caf50'
-                                  : style.avgScore >= 60
-                                    ? '#ff9800'
-                                    : '#f44336',
+                              backgroundColor: color,
                             },
                           }}
                         />
+                          )
+                        })()}
                         <Typography variant="caption" sx={{ minWidth: 35 }}>
                           {(style.avgScore / 100) * 100}%
                         </Typography>
@@ -199,14 +232,14 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
             风格统计
           </Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 2 }}>
-            <Box sx={{ p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+            <Box data-testid="style-comparison-summary-surface" data-summary-tone="neutral" sx={{ p: 2, backgroundColor: quietSurface, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 风格总数
               </Typography>
               <Typography variant="h6">{styles.length}</Typography>
             </Box>
 
-            <Box sx={{ p: 2, backgroundColor: '#fff3e0', borderRadius: 1 }}>
+            <Box data-testid="style-comparison-summary-surface" data-summary-tone="warning" sx={{ p: 2, backgroundColor: surfaceColor(theme, 'warning'), border: `1px solid ${alpha(semanticColor(theme, 'warning'), 0.3)}`, borderRadius: 1 }}>
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 最高评分
               </Typography>
@@ -216,7 +249,7 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
               </Typography>
             </Box>
 
-            <Box sx={{ p: 2, backgroundColor: '#ffebee', borderRadius: 1 }}>
+            <Box data-testid="style-comparison-summary-surface" data-summary-tone="error" sx={{ p: 2, backgroundColor: surfaceColor(theme, 'error'), border: `1px solid ${alpha(semanticColor(theme, 'error'), 0.3)}`, borderRadius: 1 }}>
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 最低评分
               </Typography>
@@ -226,7 +259,7 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
               </Typography>
             </Box>
 
-            <Box sx={{ p: 2, backgroundColor: '#e3f2fd', borderRadius: 1 }}>
+            <Box data-testid="style-comparison-summary-surface" data-summary-tone="primary" sx={{ p: 2, backgroundColor: surfaceColor(theme, 'primary'), border: `1px solid ${alpha(semanticColor(theme, 'primary'), 0.3)}`, borderRadius: 1 }}>
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 平均评分
               </Typography>
@@ -237,7 +270,7 @@ export const StyleComparisonChart: React.FC<StyleComparisonChartProps> = ({
               </Typography>
             </Box>
 
-            <Box sx={{ p: 2, backgroundColor: '#e8f5e9', borderRadius: 1 }}>
+            <Box data-testid="style-comparison-summary-surface" data-summary-tone="success" sx={{ p: 2, backgroundColor: surfaceColor(theme, 'success'), border: `1px solid ${alpha(semanticColor(theme, 'success'), 0.3)}`, borderRadius: 1 }}>
               <Typography variant="body2" color="textSecondary" gutterBottom>
                 平均转化率
               </Typography>

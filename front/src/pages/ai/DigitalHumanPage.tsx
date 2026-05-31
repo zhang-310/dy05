@@ -17,9 +17,11 @@ import { aiApi } from '@/api/ai'
 import type { DigitalHumanGenerateResult } from '@/api/digital-human'
 import { PageHeader } from '@/components/base'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
 
 export default function DigitalHumanPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const [scriptText, setScriptText] = useState('')
   const [voiceId, setVoiceId] = useState('zh-CN-XiaoxiaoNeural')
@@ -56,7 +58,7 @@ export default function DigitalHumanPage() {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
       <PageHeader
         title="数字人"
-        subtitle="本页为管理端同步口播（HeyGen Provider，需配置 API Key）。短视频工作流里的数字人步骤走异步任务（SvDigitalHumanTask / Webhook），与这里不是同一条链路。"
+        subtitle="HeyGen 同步口播（/ai/digital-human）。六产品扣费轨请用 POST /api/v1/digital-human/create（见 api/digital-human-product.ts）。工作流异步任务走 SvDigitalHumanTask/Webhook。"
       />
 
       {statusLoading && <LinearProgress />}
@@ -143,7 +145,10 @@ export default function DigitalHumanPage() {
             <Box>
               <Button
                 variant="contained"
-                onClick={() => generateMutation.mutate()}
+                onClick={async () => {
+                  if (!(await gate('digital-human', 'digital-human.generate'))) return
+                  generateMutation.mutate()
+                }}
                 disabled={!scriptText.trim() || !isAvailable || generateMutation.isPending}
                 startIcon={generateMutation.isPending ? <CircularProgress size={18} /> : undefined}
               >

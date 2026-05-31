@@ -69,6 +69,11 @@ class LiveSessionServiceImplTest {
         testSession.setUserId(TEST_USER_ID);
         testSession.setLiveTitle("测试直播场次");
         testSession.setLiveDescription("测试描述");
+        testSession.setPersonaId(3001L);
+        testSession.setScriptStyle("专业");
+        testSession.setSessionType("品牌专场");
+        testSession.setLiveFormat("单人");
+        testSession.setScheduledEndTime(new Timestamp(System.currentTimeMillis() + 3600_000L));
         testSession.setStatus(0); // 0=draft
         testSession.setDeleted(0);
         testSession.setCreateTime(new Timestamp(System.currentTimeMillis()));
@@ -234,6 +239,11 @@ class LiveSessionServiceImplTest {
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(TEST_SESSION_ID);
         assertThat(result.getLiveTitle()).isEqualTo("测试直播场次");
+        assertThat(result.getPersonaId()).isEqualTo(3001L);
+        assertThat(result.getScriptStyle()).isEqualTo("专业");
+        assertThat(result.getSessionType()).isEqualTo("品牌专场");
+        assertThat(result.getLiveFormat()).isEqualTo("单人");
+        assertThat(result.getScheduledEndTime()).isNotNull();
 
         verify(liveSessionRepository).findByIdAndDeleted(TEST_SESSION_ID, 0);
         verify(liveSessionDetailCache).put(eq(TEST_SESSION_ID), any());
@@ -315,7 +325,13 @@ class LiveSessionServiceImplTest {
         verify(liveSessionRepository).save(argThat(session ->
                 session.getUserId().equals(TEST_USER_ID) &&
                 session.getLiveTitle().equals("新直播场次") &&
-                session.getLiveDescription().equals("新描述")
+                session.getLiveDescription().equals("新描述") &&
+                session.getDeleted().equals(0) &&
+                session.getViewers().equals(0) &&
+                session.getLikes().equals(0L) &&
+                session.getAutoSyncEnabled().equals(0) &&
+                session.getCreateTime() != null &&
+                session.getUpdateTime() != null
         ));
         verify(liveSessionListCache).invalidateAll();
     }
@@ -379,6 +395,37 @@ class LiveSessionServiceImplTest {
 
         verify(liveSessionRepository).findByIdAndDeleted(TEST_SESSION_ID, 0);
         verify(liveSessionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("克隆场次 - 成功后清理列表缓存")
+    void testCloneSession_InvalidatesListCache() {
+        // Arrange
+        when(liveSessionRepository.findByIdAndDeleted(TEST_SESSION_ID, 0))
+                .thenReturn(Optional.of(testSession));
+        when(liveSessionRepository.save(any(LiveSession.class)))
+                .thenAnswer(invocation -> {
+                    LiveSession session = invocation.getArgument(0);
+                    session.setId(3002L);
+                    return session;
+                });
+
+        // Act
+        long cloneId = liveSessionService.cloneSession(TEST_SESSION_ID, TEST_USER_ID, null);
+
+        // Assert
+        assertThat(cloneId).isEqualTo(3002L);
+        verify(liveSessionRepository).save(argThat(session ->
+                session.getUserId().equals(TEST_USER_ID) &&
+                session.getLiveTitle().equals("测试直播场次 (副本)") &&
+                session.getPersonaId().equals(3001L) &&
+                session.getScriptStyle().equals("专业") &&
+                session.getSessionType().equals("品牌专场") &&
+                session.getLiveFormat().equals("单人") &&
+                session.getDeleted().equals(0) &&
+                session.getStatus().equals(0)
+        ));
+        verify(liveSessionListCache).invalidateAll();
     }
 
     // ==================== 删除测试 ====================

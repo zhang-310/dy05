@@ -457,6 +457,10 @@ public final class ErrorCode {
     public static final int REFUND_STATUS_INVALID = 4412;
     /** 退款金额超过订单金额 */
     public static final int REFUND_AMOUNT_EXCEED = 4413;
+    /** 积分不足（商业化 enforce 开启时；HTTP 映射为 402 Payment Required） */
+    public static final int INSUFFICIENT_CREDITS = 4420;
+    /** 产品功能未授权（HTTP 映射为 402 Payment Required） */
+    public static final int ENTITLEMENT_DENIED = 4421;
     /** 退款失败 */
     public static final int REFUND_FAILED = 4414;
     /** 结算记录不存在 */

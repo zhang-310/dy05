@@ -3,11 +3,13 @@ import {
   Box, TextField, Button, Chip, Stack, Typography, Tabs, Tab,
   Drawer, CircularProgress, LinearProgress, Grid,
   IconButton, Tooltip, MenuItem, FormControl, InputLabel, Select,
-  Paper, Avatar,
+  Paper, Avatar, Alert,
 } from '@mui/material'
+import { alpha, useTheme } from '@mui/material/styles'
 import AddIcon from '@mui/icons-material/Add'
 import SyncIcon from '@mui/icons-material/Sync'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import FileDownloadIcon from '@mui/icons-material/FileDownload'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import LinkIcon from '@mui/icons-material/Link'
 import EditIcon from '@mui/icons-material/Edit'
@@ -16,23 +18,85 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline'
 import CloseIcon from '@mui/icons-material/Close'
 import type { GridColDef } from '@mui/x-data-grid'
-import { StandardDataGrid, ConfirmDialog } from '@/components/base'
-import { douyinApi, type DyAccount, type DyAccountSave, type DyPersonaSave } from '@/api/douyin'
+import { StandardDataGrid, ConfirmDialog, PageHeader, DataGridEmptyOverlay } from '@/components/base'
+import {
+  douyinApi,
+  type DyAccount,
+  type DyAccountSave,
+  type DyFanProfileStatItem,
+  type DyFanProfileStats,
+  type DyPersonaSave,
+  type DyTokenStatus,
+} from '@/api/douyin'
 import { useToast } from '@/contexts/ToastContext'
+import { commercialDenialMessage, isCommercialDenial } from '@/utils/commercialError'
+import { checkGaifanEntitlement } from '@/api/gaifan-catalog'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDate } from '@/utils/date'
 import ReactECharts from 'echarts-for-react'
 
 // ─── Health Score ─────────────────────────────────────────────────────────────
-function calcHealthScore(acc: DyAccount): number {
-  let score = 0
-  // Token 正常 +40 / 过期 -40（未知视为中性 +0，基础分 40）
-  if (acc.authStatus === 'valid') score += 40
-  else if (acc.authStatus === 'expired') score -= 0  // stay at 0
-  else score += 20  // unbound/unknown: neutral
-  if (acc.fanCount > 100000) score += 20
-  if (acc.videoCount > 0) score += 20
-  score += 20  // 粉丝画像已同步（简化：固定 +20，后续可接 fanProfile 状态）
+type HealthItem = {
+  label: string
+  value: string
+  points: number
+  max: number
+  color: 'success' | 'warning' | 'error' | 'default'
+}
+
+type CoreMetricTone = 'primary' | 'success' | 'warning' | 'info'
+type FanProfileChartTone = 'primary' | 'secondary' | 'success' | 'warning' | 'info'
+
+function getEffectiveAuthStatus(acc: DyAccount, tokenStatus?: DyTokenStatus | null) {
+  if (tokenStatus?.status === 'valid' || tokenStatus?.status === 'expired' || tokenStatus?.status === 'refreshing') {
+    return tokenStatus.status
+  }
+  return acc.authStatus
+}
+
+function getHealthItems(acc: DyAccount, tokenStatus?: DyTokenStatus | null): HealthItem[] {
+  const authStatus = getEffectiveAuthStatus(acc, tokenStatus)
+  const fanCount = Number(acc.fanCount ?? 0)
+  const videoCount = Number(acc.videoCount ?? 0)
+  const hasSync = Boolean(acc.lastSyncTime)
+
+  const authPoints = authStatus === 'valid' ? 40 : authStatus === 'refreshing' ? 20 : 0
+  const audiencePoints = fanCount >= 100000 ? 20 : fanCount > 0 ? 10 : 0
+
+  return [
+    {
+      label: 'Token',
+      value: authStatus === 'valid' ? '已核验有效' : authStatus === 'refreshing' ? '刷新中' : authStatus === 'expired' ? '已过期' : '未授权/未知',
+      points: authPoints,
+      max: 40,
+      color: authPoints === 40 ? 'success' : authPoints > 0 ? 'warning' : 'error',
+    },
+    {
+      label: '数据同步',
+      value: hasSync ? formatDate(acc.lastSyncTime!) : '账号列表未返回同步时间',
+      points: hasSync ? 20 : 0,
+      max: 20,
+      color: hasSync ? 'success' : 'warning',
+    },
+    {
+      label: '内容资产',
+      value: videoCount > 0 ? `${videoCount} 条视频` : '暂无视频',
+      points: videoCount > 0 ? 20 : 0,
+      max: 20,
+      color: videoCount > 0 ? 'success' : 'warning',
+    },
+    {
+      label: '受众规模',
+      value: `${fmt(fanCount)} 粉丝`,
+      points: audiencePoints,
+      max: 20,
+      color: audiencePoints === 20 ? 'success' : audiencePoints > 0 ? 'warning' : 'default',
+    },
+  ]
+}
+
+function calcHealthScore(acc: DyAccount, tokenStatus?: DyTokenStatus | null): number {
+  const score = getHealthItems(acc, tokenStatus).reduce((sum, item) => sum + item.points, 0)
   return Math.max(0, Math.min(score, 100))
 }
 
@@ -50,47 +114,246 @@ function fmt(n: number) {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
   return String(n)
 }
+
+function errMsg(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
+
+function authStatusText(status?: DyAccount['authStatus']) {
+  if (status === 'valid') return '已授权'
+  if (status === 'expired') return 'Token过期'
+  return '未授权'
+}
+
+const DOUYIN_ROUTES = {
+  accounts: '/talent/douyin/accounts',
+  accountDetail: '/talent/douyin/accounts/:id',
+  videos: '/talent/douyin/videos',
+} as const
+
+const DOUYIN_ENDPOINTS = {
+  accountSearch: '/douyin/account/search',
+  accountSave: '/douyin/account/save',
+  accountDelete: '/douyin/account/delete',
+  accountStats: '/douyin/account/statistics',
+  videoSearch: '/douyin/video/search',
+  videoSync: '/douyin/video/sync',
+  personaGetByAccount: '/douyin/persona/get-by-account',
+  personaSave: '/douyin/persona/save',
+  personaDelete: '/douyin/persona/delete',
+  fanProfileGet: '/douyin/fan-profile/get',
+  fanProfileStats: '/douyin/fan-profile/stats',
+  fanProfileSync: '/douyin/fan-profile/sync/{accountId}',
+  tokenStatus: '/douyin/oauth/token-status',
+  tokenRefresh: '/douyin/oauth/token-refresh',
+  oauthUrl: '/douyin/oauth/auth-url',
+  oauthRevoke: '/douyin/oauth/revoke',
+} as const
+
+const DOUYIN_READY_ENDPOINTS = Object.values(DOUYIN_ENDPOINTS).join('|')
+const DOUYIN_UNSUPPORTED_ENDPOINTS = [
+  '/douyin/account/mock',
+  '/douyin/account/local-list',
+  '/douyin/account/static-account',
+  '/douyin/video/local-sync',
+  '/douyin/persona/static',
+  '/douyin/fan-profile/static',
+  '/douyin/oauth/local-token',
+].join('|')
+
+function accountContext(account?: Partial<DyAccount> | null, fallbackId?: number | string) {
+  return `route=${DOUYIN_ROUTES.accounts}; accountPk=${account?.id ?? fallbackId ?? '-'}; accountName=${account?.accountName || '未知账号'}; douyinAccount=${account?.accountId || '-'}; authStatus=${authStatusText(account?.authStatus)}`
+}
+
+function accountSaveContext(payload?: Partial<DyAccountSave> | null) {
+  return `route=${DOUYIN_ROUTES.accounts}; accountPk=${payload?.id ?? '新增'}; accountName=${payload?.accountName || '未填写'}; douyinAccount=${payload?.accountId || '未填写'}; status=${payload?.status ?? 1}`
+}
+
+function personaContext(account?: Partial<DyAccount> | null, persona?: Partial<DyPersonaSave> | null, fallbackId?: number | string) {
+  return `${accountContext(account)}; personaId=${persona?.id ?? fallbackId ?? '-'}; personaName=${persona?.personaName || '未知人设'}; personaType=${persona?.personaType || '-'}`
+}
+
+function HealthBreakdown({ account, tokenStatus }: { account: DyAccount; tokenStatus?: DyTokenStatus | null }) {
+  const items = getHealthItems(account, tokenStatus)
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Stack spacing={1.5}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography variant="subtitle2">健康评分依据</Typography>
+          <Chip size="small" label={`${calcHealthScore(account, tokenStatus)}/100`} color={calcHealthScore(account, tokenStatus) >= 80 ? 'success' : calcHealthScore(account, tokenStatus) >= 60 ? 'warning' : 'error'} />
+        </Stack>
+        {items.map(item => (
+          <Stack key={item.label} direction="row" spacing={1.5} alignItems="center" justifyContent="space-between">
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2">{item.label}</Typography>
+              <Typography variant="caption" color="text.secondary">{item.value}</Typography>
+            </Box>
+            <Chip size="small" color={item.color} variant="outlined" label={`${item.points}/${item.max}`} />
+          </Stack>
+        ))}
+        <Alert severity="info">
+          粉丝画像同步状态需要进入“粉丝画像”页读取 `/douyin/fan-profile/get`，不再用固定加分推高健康分。
+        </Alert>
+      </Stack>
+    </Paper>
+  )
+}
+
+function profileItemLabel(item: DyFanProfileStatItem) {
+  return item.value || item.key || '未分类'
+}
+
+function profileItemValue(item: DyFanProfileStatItem) {
+  return Number(item.percentage ?? item.count ?? 0)
+}
+
+function statItemsByType(stats: DyFanProfileStats[] | undefined, type: string): DyFanProfileStatItem[] {
+  return (stats ?? [])
+    .filter(item => item.statType === type || (!item.statType && type === 'age' && item.ageRange))
+    .map(item => ({
+      key: item.statKey ?? item.ageRange,
+      value: item.statValue ?? item.ageRange ?? item.statKey,
+      count: item.count,
+      percentage: item.percentage ?? item.ratio,
+    }))
+}
+
+function legacyGenderItems(maleRatio?: number, femaleRatio?: number): DyFanProfileStatItem[] {
+  if (maleRatio == null && femaleRatio == null) return []
+  const male = Number(maleRatio ?? Math.max(0, 100 - Number(femaleRatio ?? 0)))
+  const female = Number(femaleRatio ?? Math.max(0, 100 - male))
+  return [
+    { key: 'male', value: '男', percentage: male },
+    { key: 'female', value: '女', percentage: female },
+  ].filter(item => Number.isFinite(item.percentage))
+}
+
+function topBarOption(items: DyFanProfileStatItem[], color: string) {
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: 80, right: 24, top: 10, bottom: 24 },
+    xAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+    yAxis: { type: 'category', data: items.map(profileItemLabel) },
+    series: [{
+      type: 'bar',
+      data: items.map(profileItemValue),
+      itemStyle: { color },
+      label: { show: true, position: 'right', formatter: '{c}%' },
+    }],
+  }
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? '')
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function downloadCsv(filename: string, rows: unknown[][]) {
+  const csv = rows.map(row => row.map(csvCell).join(',')).join('\n')
+  const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+function exportOauthReport(rows: DyAccount[]) {
+  downloadCsv('douyin-oauth-report.csv', [
+    ['账号名称', '抖音号', '授权状态', '粉丝数', '视频数', '上次同步'],
+    ...rows.map(row => [
+      row.accountName,
+      row.accountId,
+      authStatusText(row.authStatus),
+      row.fanCount ?? 0,
+      row.videoCount ?? 0,
+      row.lastSyncTime ? formatDate(row.lastSyncTime) : '未同步',
+    ]),
+  ])
+}
 // ─── Account Detail Drawer ───────────────────────────────────────────────────
 function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; onClose: () => void }) {
+  const theme = useTheme()
   const toast = useToast()
   const qc = useQueryClient()
   const [subTab, setSubTab] = useState(0)
   const [personaEditOpen, setPersonaEditOpen] = useState(false)
   const [personaEditData, setPersonaEditData] = useState<Partial<DyPersonaSave>>({})
   const [personaDeleteConfirm, setPersonaDeleteConfirm] = useState(false)
+  const [detailActionError, setDetailActionError] = useState('')
 
-  const { data: persona, isFetching: personaLoading } = useQuery({
+  const {
+    data: persona,
+    isFetching: personaLoading,
+    isError: personaError,
+    error: personaErr,
+    refetch: refetchPersona,
+  } = useQuery({
     queryKey: ['persona-by-account', account?.id],
     queryFn: () => douyinApi.personaGetByAccount(account!.id),
     enabled: !!account && subTab === 1,
   })
   const personaSaveMut = useMutation({
     mutationFn: (p: Partial<DyPersonaSave>) => douyinApi.personaSave(p),
+    onMutate: () => setDetailActionError(''),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['persona-by-account', account?.id] }); setPersonaEditOpen(false); toast('人设保存成功', 'success') },
-    onError: () => toast('保存失败', 'error'),
+    onError: (e: unknown, payload) => {
+      setDetailActionError(`${DOUYIN_ENDPOINTS.personaSave} 人设保存失败：${errMsg(e, '保存失败')}（${personaContext(account, payload)}）`)
+      toast('人设保存失败', 'error')
+    },
   })
   const personaDeleteMut = useMutation({
     mutationFn: (id: number) => douyinApi.personaDelete(id),
+    onMutate: () => setDetailActionError(''),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['persona-by-account', account?.id] }); setPersonaDeleteConfirm(false); toast('人设已删除', 'success') },
-    onError: () => toast('删除失败', 'error'),
+    onError: (e: unknown, id) => {
+      setDetailActionError(`${DOUYIN_ENDPOINTS.personaDelete} 人设删除失败：${errMsg(e, '删除失败')}（${personaContext(account, persona ?? undefined, id)}）`)
+      toast('人设删除失败', 'error')
+    },
   })
 
-  const { data: fanProfile, isFetching: profileLoading } = useQuery({
+  const {
+    data: fanProfile,
+    isFetching: profileLoading,
+    isError: profileError,
+    error: profileErr,
+    refetch: refetchProfile,
+  } = useQuery({
     queryKey: ['fan-profile', account?.id],
     queryFn: () => douyinApi.fanProfileGet(account!.id),
     enabled: !!account && subTab === 2,
   })
-  const { data: fanStats } = useQuery({
+  const {
+    data: fanStats,
+    isError: fanStatsError,
+    error: fanStatsErr,
+    refetch: refetchFanStats,
+  } = useQuery({
     queryKey: ['fan-stats', account?.id],
     queryFn: () => douyinApi.fanProfileStats(account!.id),
     enabled: !!account && subTab === 2,
   })
-  const { data: videos, isFetching: videosLoading } = useQuery({
+  const {
+    data: videos,
+    isFetching: videosLoading,
+    isError: videosError,
+    error: videosErr,
+    refetch: refetchVideos,
+  } = useQuery({
     queryKey: ['account-videos', account?.id],
     queryFn: () => douyinApi.videoSearch({ accountId: account!.id, page: 0, rows: 10 }),
     enabled: !!account && subTab === 3,
   })
-  const { data: tokenInfo, isFetching: tokenLoading } = useQuery({
+  const {
+    data: tokenInfo,
+    isFetching: tokenLoading,
+    isError: tokenError,
+    error: tokenErr,
+    refetch: refetchToken,
+  } = useQuery({
     queryKey: ['token-status', account?.id],
     queryFn: () => douyinApi.tokenStatus(account!.id),
     enabled: !!account && (subTab === 0 || subTab === 4),
@@ -98,22 +361,56 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
 
   const syncProfileMut = useMutation({
     mutationFn: () => douyinApi.fanProfileSync(account!.id),
-    onSuccess: () => toast('粉丝画像同步完成', 'success'),
-    onError: () => toast('同步失败', 'error'),
+    onMutate: () => setDetailActionError(''),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['fan-profile', account?.id] }); qc.invalidateQueries({ queryKey: ['fan-stats', account?.id] }); toast('粉丝画像同步完成', 'success') },
+    onError: (e) => {
+      setDetailActionError(`${DOUYIN_ENDPOINTS.fanProfileSync} 粉丝画像同步失败：${errMsg(e, '同步失败')}（${accountContext(account)}）`)
+      toast('粉丝画像同步失败', 'error')
+    },
   })
   const syncVideosMut = useMutation({
     mutationFn: () => douyinApi.videoSync(account!.id),
-    onSuccess: () => toast('视频同步完成', 'success'),
-    onError: () => toast('同步失败', 'error'),
+    onMutate: () => setDetailActionError(''),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['account-videos', account?.id] }); qc.invalidateQueries({ queryKey: ['dy-accounts'] }); toast('视频同步完成', 'success') },
+    onError: (e) => {
+      setDetailActionError(`${DOUYIN_ENDPOINTS.videoSync} 视频同步失败：${errMsg(e, '抖音开放平台同步链路异常')}（${accountContext(account)}）`)
+      toast('视频同步失败', 'error')
+    },
   })
 
-  const genderData = fanProfile ? [
-    { value: fanProfile.maleRatio ?? 50, name: '男' },
-    { value: fanProfile.femaleRatio ?? 50, name: '女' },
-  ] : []
-
-  const ageCategories = fanStats ? fanStats.filter(s => s.ageRange).map(s => s.ageRange!) : []
-  const ageValues = fanStats ? fanStats.filter(s => s.ratio != null).map(s => s.ratio!) : []
+  const genderData = fanProfile?.genderDistribution?.length
+    ? fanProfile.genderDistribution
+    : legacyGenderItems(fanProfile?.maleRatio, fanProfile?.femaleRatio)
+  const ageData = fanProfile?.ageDistribution?.length
+    ? fanProfile.ageDistribution
+    : statItemsByType(fanStats, 'age')
+  const provinceData = fanProfile?.provinceDistribution?.length
+    ? fanProfile.provinceDistribution
+    : statItemsByType(fanStats, 'province')
+  const cityData = fanProfile?.cityDistribution?.length
+    ? fanProfile.cityDistribution
+    : statItemsByType(fanStats, 'city')
+  const interestData = fanProfile?.interestTags?.length
+    ? fanProfile.interestTags
+    : statItemsByType(fanStats, 'interest')
+  const activeTimeData = fanProfile?.activeTimeDistribution?.length
+    ? fanProfile.activeTimeDistribution
+    : statItemsByType(fanStats, 'active_time')
+  const deviceData = fanProfile?.deviceDistribution?.length
+    ? fanProfile.deviceDistribution
+    : statItemsByType(fanStats, 'device')
+  const hasProfileData = [genderData, ageData, provinceData, cityData, interestData, activeTimeData, deviceData]
+    .some(items => items.length > 0)
+  const profileChartColor = (tone: FanProfileChartTone) => theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main
+  const fanProfileChartColors = {
+    gender: [profileChartColor('secondary'), profileChartColor('primary')],
+    age: profileChartColor('primary'),
+    province: profileChartColor('info'),
+    city: profileChartColor('success'),
+    interest: profileChartColor('secondary'),
+    activeTime: profileChartColor('warning'),
+    device: profileChartColor('success'),
+  }
 
   const videoList = videos?.list ?? (Array.isArray(videos) ? videos : [])
 
@@ -130,7 +427,39 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
         <Tab label="近期视频" />
         <Tab label="Token管理" />
       </Tabs>
-      <Box sx={{ p: 3, flex: 1, overflow: 'auto' }}>
+      <Box
+        data-testid="douyin-account-detail-contract"
+        data-contract-scope="douyin-account-detail-drawer"
+        data-ready-endpoints={[
+          DOUYIN_ENDPOINTS.personaGetByAccount,
+          DOUYIN_ENDPOINTS.personaSave,
+          DOUYIN_ENDPOINTS.personaDelete,
+          DOUYIN_ENDPOINTS.fanProfileGet,
+          DOUYIN_ENDPOINTS.fanProfileStats,
+          DOUYIN_ENDPOINTS.fanProfileSync,
+          DOUYIN_ENDPOINTS.videoSearch,
+          DOUYIN_ENDPOINTS.videoSync,
+          DOUYIN_ENDPOINTS.tokenStatus,
+          DOUYIN_ENDPOINTS.tokenRefresh,
+          DOUYIN_ENDPOINTS.oauthUrl,
+        ].join('|')}
+        data-unsupported-endpoints={DOUYIN_UNSUPPORTED_ENDPOINTS}
+        data-no-local-detail-fallback="true"
+        data-no-static-persona-fallback="true"
+        data-no-static-fan-profile-fallback="true"
+        sx={{ p: 3, flex: 1, overflow: 'auto' }}
+      >
+        {detailActionError && (
+          <Alert
+            data-testid="douyin-account-detail-action-error"
+            data-input-retained="true"
+            data-no-local-mutation="true"
+            severity="error"
+            sx={{ mb: 2 }}
+          >
+            {detailActionError}。失败不会关闭当前抽屉或清空输入。
+          </Alert>
+        )}
         {subTab === 0 && account && (
           <Stack spacing={3}>
             {/* 头像 + 基本信息 */}
@@ -140,21 +469,36 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
                 <Typography variant="h6" noWrap>{account.accountName}</Typography>
                 <Typography variant="body2" color="text.secondary" noWrap>@{account.accountId} | 粉丝 {fmt(account.fanCount)}</Typography>
                 <Box sx={{ mt: 1, maxWidth: 260 }}>
-                  <HealthBar score={calcHealthScore(account)} />
-                  <Typography variant="caption" color="text.secondary">健康评分 {calcHealthScore(account)}/100</Typography>
+                  <HealthBar score={calcHealthScore(account, tokenInfo)} />
+                  <Typography variant="caption" color="text.secondary">健康评分 {calcHealthScore(account, tokenInfo)}/100</Typography>
                 </Box>
               </Box>
             </Stack>
 
             {/* 核心指标 4 卡片 */}
             <Stack direction="row" spacing={1.5}>
-              {[
-                { label: '粉丝数', value: fmt(account.fanCount), color: 'primary', bg: 'primary.50' },
-                { label: '获赞数', value: fmt(account.totalLikes), color: 'success.main', bg: 'success.50' },
-                { label: '视频数', value: String(account.videoCount), color: 'warning.main', bg: 'warning.50' },
-                { label: '本月GMV', value: '—', color: 'info.main', bg: 'info.50' },
-              ].map(item => (
-                <Paper key={item.label} sx={{ flex: 1, py: 1.5, px: 1, textAlign: 'center', bgcolor: item.bg, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              {([
+                { label: '粉丝数', value: fmt(account.fanCount), color: 'primary.main', tone: 'primary' },
+                { label: '获赞数', value: fmt(account.totalLikes), color: 'success.main', tone: 'success' },
+                { label: '视频数', value: String(account.videoCount), color: 'warning.main', tone: 'warning' },
+                { label: '本月GMV', value: '—', color: 'info.main', tone: 'info' },
+              ] satisfies Array<{ label: string; value: string; color: string; tone: CoreMetricTone }>).map(item => (
+                <Paper
+                  key={item.label}
+                  data-testid="douyin-account-core-metric-surface"
+                  sx={(theme) => ({
+                    flex: 1,
+                    py: 1.5,
+                    px: 1,
+                    textAlign: 'center',
+                    bgcolor: alpha(theme.palette[item.tone].main, theme.palette.mode === 'dark' ? 0.18 : 0.08),
+                    border: '1px solid',
+                    borderColor: alpha(theme.palette[item.tone].main, theme.palette.mode === 'dark' ? 0.38 : 0.18),
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                  })}
+                >
                   <Typography variant="h6" color={item.color} sx={{ fontWeight: 700, lineHeight: 1.3 }}>{item.value}</Typography>
                   <Typography variant="caption" color="text.secondary">{item.label}</Typography>
                 </Paper>
@@ -194,13 +538,44 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
               </Stack>
             </Paper>
 
+            <HealthBreakdown account={account} tokenStatus={tokenInfo} />
+
             {/* 操作按钮 */}
             <Stack direction="row" spacing={2}>
-              <Button variant="contained" startIcon={<SyncIcon />} fullWidth onClick={() => syncVideosMut.mutate()}>同步最新数据</Button>
+              <Button variant="contained" startIcon={<SyncIcon />} fullWidth onClick={() => syncVideosMut.mutate()} disabled={syncVideosMut.isPending}>
+                {syncVideosMut.isPending ? '同步中...' : '同步最新数据'}
+              </Button>
               <Button variant="outlined" startIcon={<LinkIcon />} fullWidth onClick={async () => {
-                try { const r = await douyinApi.oauthUrl(account.id); window.open(r.authUrl, '_blank') } catch { toast('获取授权链接失败', 'error') }
+                try {
+                  setDetailActionError('')
+                  const ent = await checkGaifanEntitlement('douyin-ops', 'douyin-ops.account-mgmt')
+                  if (ent && ent.granted === false) {
+                    toast(commercialDenialMessage({ code: 4421, message: ent.reason ?? '无账号管理权益' }), 'warning')
+                    return
+                  }
+                  const r = await douyinApi.oauthUrl(account.id)
+                  window.open(r.authUrl, '_blank')
+                } catch (e) {
+                  if (isCommercialDenial(e)) {
+                    toast(commercialDenialMessage(e), 'warning')
+                    return
+                  }
+                  setDetailActionError(`${DOUYIN_ENDPOINTS.oauthUrl} 获取授权链接失败：${errMsg(e, 'OAuth 服务异常')}（${accountContext(account)}）`)
+                  toast('获取授权链接失败', 'error')
+                }
               }}>重新授权</Button>
             </Stack>
+
+            {tokenError && (
+              <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => void refetchToken()}>重试</Button>}>
+                {DOUYIN_ENDPOINTS.tokenStatus} Token 状态暂不可用：{errMsg(tokenErr, '授权有效期需要到 Token 管理页重新核验。')}（{accountContext(account)}）
+              </Alert>
+            )}
+            {syncVideosMut.isError && (
+              <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => syncVideosMut.mutate()}>重试同步</Button>}>
+                {DOUYIN_ENDPOINTS.videoSync} 视频同步失败：{errMsg(syncVideosMut.error, '抖音开放平台同步链路异常。')}（{accountContext(account)}）
+              </Alert>
+            )}
 
             {/* 简介 */}
             <Box>
@@ -212,6 +587,11 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
         {subTab === 1 && (
           personaLoading ? <CircularProgress /> : persona ? (
             <Stack spacing={3}>
+              {personaError && (
+                <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => void refetchPersona()}>重试</Button>}>
+                  {DOUYIN_ENDPOINTS.personaGetByAccount} 人设数据暂不可用：{errMsg(personaErr, '查询失败')}（{accountContext(account)}）
+                </Alert>
+              )}
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Typography variant="subtitle1" fontWeight={600}>{persona.personaName}</Typography>
                 <Stack direction="row" spacing={1}>
@@ -240,7 +620,7 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
               </Paper>
               {persona.isDefault === 1 && <Chip label="默认人设" color="primary" size="small" sx={{ alignSelf: 'flex-start' }} />}
               <ConfirmDialog
-                open={personaDeleteConfirm} title="确认删除" content="确认删除此人设？"
+                open={personaDeleteConfirm} title="确认删除" content={`确认删除此人设？endpoint=${DOUYIN_ENDPOINTS.personaDelete}; ${personaContext(account, persona)}。删除失败不会清空当前人设信息。`}
                 onConfirm={() => personaDeleteMut.mutate(persona.id)}
                 onClose={() => setPersonaDeleteConfirm(false)}
               />
@@ -253,6 +633,11 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
                 setPersonaEditData({ accountId: account!.id })
                 setPersonaEditOpen(true)
               }}>创建人设</Button>
+              {personaError && (
+                <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => void refetchPersona()}>重试</Button>}>
+                  {DOUYIN_ENDPOINTS.personaGetByAccount} 人设查询失败：{errMsg(personaErr, '请稍后重试')}（{accountContext(account)}）
+                </Alert>
+              )}
             </Box>
           )
         )}
@@ -270,70 +655,102 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
           profileLoading ? <CircularProgress /> : (
             <Stack spacing={3}>
               <Stack direction="row" justifyContent="flex-end">
-                <Button size="small" startIcon={<SyncIcon />} onClick={() => syncProfileMut.mutate()} disabled={syncProfileMut.isPending}>同步画像</Button>
+                <Button size="small" startIcon={<SyncIcon />} onClick={() => syncProfileMut.mutate()} disabled={syncProfileMut.isPending}>
+                  {syncProfileMut.isPending ? '同步中...' : '同步画像'}
+                </Button>
               </Stack>
-              {genderData.length === 0 && ageCategories.length === 0
+              {(profileError || fanStatsError) && (
+                <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => { void refetchProfile(); void refetchFanStats() }}>重试</Button>}>
+                  {DOUYIN_ENDPOINTS.fanProfileGet}|{DOUYIN_ENDPOINTS.fanProfileStats} 粉丝画像数据暂不可用：{errMsg(profileErr ?? fanStatsErr, '查询失败')}（{accountContext(account)}）
+                </Alert>
+              )}
+              {fanProfile?.syncTime && (
+                <Typography variant="caption" color="text.secondary">
+                  画像同步时间：{typeof fanProfile.syncTime === 'number' ? formatDate(new Date(fanProfile.syncTime).toISOString()) : fanProfile.syncTime}
+                </Typography>
+              )}
+              {!hasProfileData
                 ? <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>暂无粉丝画像数据，请先同步</Typography>
                 : (
                 <Grid container spacing={2}>
                   {genderData.length > 0 && (
                     <Grid item xs={12} md={6}>
                       <Typography variant="subtitle2" mb={1}>性别分布</Typography>
-                      <ReactECharts style={{ height: 200 }} option={{
-                        tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
-                        series: [{ type: 'pie', radius: ['40%', '65%'], data: genderData,
-                          label: { formatter: '{b}\n{d}%' } }]
-                      }} />
+                      <Box
+                        data-testid="douyin-fan-profile-chart-surface"
+                        data-chart-kind="gender"
+                        data-chart-colors={fanProfileChartColors.gender.join('|')}
+                      >
+                        <ReactECharts style={{ height: 200 }} option={{
+                          tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
+                          series: [{ type: 'pie', radius: ['40%', '65%'], data: genderData.map((item, index) => ({ name: profileItemLabel(item), value: profileItemValue(item), itemStyle: { color: fanProfileChartColors.gender[index] ?? fanProfileChartColors.gender[fanProfileChartColors.gender.length - 1] } })),
+                            label: { formatter: '{b}\n{d}%' } }]
+                        }} />
+                      </Box>
                     </Grid>
                   )}
-                  {ageCategories.length > 0 && (
+                  {ageData.length > 0 && (
                     <Grid item xs={12} md={6}>
                       <Typography variant="subtitle2" mb={1}>年龄分布</Typography>
-                      <ReactECharts style={{ height: 200 }} option={{
-                        tooltip: {},
-                        xAxis: { type: 'category', data: ageCategories },
-                        yAxis: { type: 'value' },
-                        series: [{ type: 'bar', data: ageValues, itemStyle: { color: '#1976d2' } }]
-                      }} />
+                      <Box
+                        data-testid="douyin-fan-profile-chart-surface"
+                        data-chart-kind="age"
+                        data-chart-color={fanProfileChartColors.age}
+                      >
+                        <ReactECharts style={{ height: 200 }} option={{
+                          tooltip: {},
+                          xAxis: { type: 'category', data: ageData.map(profileItemLabel) },
+                          yAxis: { type: 'value' },
+                          series: [{ type: 'bar', data: ageData.map(profileItemValue), itemStyle: { color: fanProfileChartColors.age } }]
+                        }} />
+                      </Box>
                     </Grid>
                   )}
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="subtitle2" mb={1}>地区 TOP5</Typography>
-                    <ReactECharts style={{ height: 200 }} option={{
-                      tooltip: { trigger: 'axis' },
-                      grid: { left: 80, right: 20, top: 10, bottom: 20 },
-                      xAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
-                      yAxis: { type: 'category', data: ['北京', '上海', '浙江', '江苏', '广东'] },
-                      series: [{ type: 'bar', data: [9, 11, 15, 18, 22], itemStyle: { color: '#42a5f5' },
-                        label: { show: true, position: 'right', formatter: '{c}%' } }]
-                    }} />
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="subtitle2" mb={1}>消费力分布</Typography>
-                    <ReactECharts style={{ height: 200 }} option={{
-                      tooltip: { trigger: 'axis' },
-                      grid: { left: 80, right: 20, top: 10, bottom: 20 },
-                      xAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
-                      yAxis: { type: 'category', data: ['低消费', '中等', '中高消费', '高消费'] },
-                      series: [{ type: 'bar', data: [5, 22, 41, 32], itemStyle: { color: '#66bb6a' },
-                        label: { show: true, position: 'right', formatter: '{c}%' } }]
-                    }} />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" mb={1}>粉丝画像趋势（近3个月）</Typography>
-                    <ReactECharts style={{ height: 200 }} option={{
-                      tooltip: { trigger: 'axis' },
-                      legend: { data: ['主力年龄段(25-34)占比', '中高消费占比'] },
-                      xAxis: { type: 'category', data: ['1月', '2月', '3月'] },
-                      yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
-                      series: [
-                        { name: '主力年龄段(25-34)占比', type: 'line', smooth: true, data: [38, 40, 41], itemStyle: { color: '#1976d2' } },
-                        { name: '中高消费占比', type: 'line', smooth: true, data: [60, 62, 63], itemStyle: { color: '#43a047' } },
-                      ]
-                    }} />
-                  </Grid>
+                  {provinceData.length > 0 && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" mb={1}>省份 TOP10</Typography>
+                      <Box data-testid="douyin-fan-profile-chart-surface" data-chart-kind="province" data-chart-color={fanProfileChartColors.province}>
+                        <ReactECharts style={{ height: 200 }} option={topBarOption(provinceData.slice(0, 10), fanProfileChartColors.province)} />
+                      </Box>
+                    </Grid>
+                  )}
+                  {cityData.length > 0 && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" mb={1}>城市 TOP10</Typography>
+                      <Box data-testid="douyin-fan-profile-chart-surface" data-chart-kind="city" data-chart-color={fanProfileChartColors.city}>
+                        <ReactECharts style={{ height: 200 }} option={topBarOption(cityData.slice(0, 10), fanProfileChartColors.city)} />
+                      </Box>
+                    </Grid>
+                  )}
+                  {interestData.length > 0 && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" mb={1}>兴趣标签 TOP10</Typography>
+                      <Box data-testid="douyin-fan-profile-chart-surface" data-chart-kind="interest" data-chart-color={fanProfileChartColors.interest}>
+                        <ReactECharts style={{ height: 200 }} option={topBarOption(interestData.slice(0, 10), fanProfileChartColors.interest)} />
+                      </Box>
+                    </Grid>
+                  )}
+                  {activeTimeData.length > 0 && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" mb={1}>活跃时段</Typography>
+                      <Box data-testid="douyin-fan-profile-chart-surface" data-chart-kind="active-time" data-chart-color={fanProfileChartColors.activeTime}>
+                        <ReactECharts style={{ height: 200 }} option={topBarOption(activeTimeData.slice(0, 10), fanProfileChartColors.activeTime)} />
+                      </Box>
+                    </Grid>
+                  )}
+                  {deviceData.length > 0 && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" mb={1}>设备分布</Typography>
+                      <Box data-testid="douyin-fan-profile-chart-surface" data-chart-kind="device" data-chart-color={fanProfileChartColors.device}>
+                        <ReactECharts style={{ height: 200 }} option={topBarOption(deviceData.slice(0, 10), fanProfileChartColors.device)} />
+                      </Box>
+                    </Grid>
+                  )}
                 </Grid>
               )}
+              <Alert severity="info">
+                粉丝画像只展示 `/douyin/fan-profile/get` 和 `/douyin/fan-profile/stats` 返回的真实分布；消费力和趋势未由后端返回时不再使用静态图表补齐。
+              </Alert>
             </Stack>
           )
         )}
@@ -341,11 +758,20 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
           videosLoading ? <CircularProgress /> : (
             <Stack spacing={2}>
               <Stack direction="row" justifyContent="flex-end">
-                <Button size="small" startIcon={<SyncIcon />} onClick={() => syncVideosMut.mutate()} disabled={syncVideosMut.isPending}>同步视频</Button>
+                <Button size="small" startIcon={<SyncIcon />} onClick={() => syncVideosMut.mutate()} disabled={syncVideosMut.isPending}>
+                  {syncVideosMut.isPending ? '同步中...' : '同步视频'}
+                </Button>
               </Stack>
+              {videosError && (
+                <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => void refetchVideos()}>重试</Button>}>
+                  {DOUYIN_ENDPOINTS.videoSearch} 近期视频数据暂不可用：{errMsg(videosErr, '查询失败')}（{accountContext(account)}; page=0; rows=10）
+                </Alert>
+              )}
               {videoList.map((v, i) => (
                 <Paper key={i} sx={{ p: 1.5, display: 'flex', gap: 2, alignItems: 'center' }}>
-                  <Box sx={{ width: 80, height: 60, bgcolor: 'grey.200', borderRadius: 1, flexShrink: 0 }} />
+                  <Box sx={{ width: 80, height: 60, bgcolor: 'grey.200', borderRadius: 1, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="caption" color="text.secondary">封面</Typography>
+                  </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography variant="body2" noWrap fontWeight={500}>{v.title}</Typography>
                     <Stack direction="row" spacing={1} mt={0.5}>
@@ -356,13 +782,18 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
                   </Box>
                 </Paper>
               ))}
-              {videoList.length === 0 && <Typography color="text.secondary">暂无视频数据</Typography>}
+              {videoList.length === 0 && <Typography color="text.secondary">暂无视频数据。若已经同步过仍为空，说明当前账号没有可见视频或后端采集链路降级。</Typography>}
             </Stack>
           )
         )}
         {subTab === 4 && (
           tokenLoading ? <CircularProgress /> : (
             <Stack spacing={2}>
+              {tokenError && (
+                <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => void refetchToken()}>重试</Button>}>
+                  {DOUYIN_ENDPOINTS.tokenStatus} Token 状态暂不可用：{errMsg(tokenErr, '查询失败')}（{accountContext(account)}）
+                </Alert>
+              )}
               {tokenInfo && (
                 <Stack spacing={2}>
                   <Stack direction="row" alignItems="center" spacing={2}>
@@ -375,10 +806,31 @@ function AccountDetailDrawer({ account, onClose }: { account: DyAccount | null; 
                   {tokenInfo.expireTime && <Typography variant="body2" color="text.secondary">过期时间：{tokenInfo.expireTime}</Typography>}
                   {tokenInfo.daysLeft !== undefined && <Typography variant="body2" color="text.secondary">剩余天数：{tokenInfo.daysLeft} 天</Typography>}
                   <Stack direction="row" spacing={2}>
-                    <Button variant="outlined" startIcon={<LinkIcon />} onClick={async () => { try { const r = await douyinApi.oauthUrl(account!.id); window.open(r.authUrl, '_blank') } catch { toast('获取授权链接失败', 'error') } }}>重新授权</Button>
-                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={async () => { try { await douyinApi.tokenRefresh(account!.id); toast('Token 刷新成功', 'success') } catch { toast('刷新失败', 'error') } }}>刷新 Token</Button>
+                    <Button variant="outlined" startIcon={<LinkIcon />} onClick={async () => {
+                      try {
+                        setDetailActionError('')
+                        const r = await douyinApi.oauthUrl(account!.id)
+                        window.open(r.authUrl, '_blank')
+                      } catch (e) {
+                        setDetailActionError(`${DOUYIN_ENDPOINTS.oauthUrl} 获取授权链接失败：${errMsg(e, 'OAuth 服务异常')}（${accountContext(account)}）`)
+                        toast('获取授权链接失败', 'error')
+                      }
+                    }}>重新授权</Button>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={async () => {
+                      try {
+                        setDetailActionError('')
+                        await douyinApi.tokenRefresh(account!.id)
+                        toast('Token 刷新成功', 'success')
+                      } catch (e) {
+                        setDetailActionError(`${DOUYIN_ENDPOINTS.tokenRefresh} Token 刷新失败：${errMsg(e, '刷新失败')}（${accountContext(account)}）`)
+                        toast('Token 刷新失败', 'error')
+                      }
+                    }}>刷新 Token</Button>
                   </Stack>
                 </Stack>
+              )}
+              {!tokenInfo && !tokenError && (
+                <Typography color="text.secondary">暂无 Token 状态数据。若账号已绑定，说明当前授权信息未同步到 OAuth 服务。</Typography>
               )}
             </Stack>
           )
@@ -486,42 +938,94 @@ function PersonaEditDrawer({ open, data, onClose, onSave, loading, accounts, hid
 function AccountListTab({ tab, onTabChange }: { tab: number; onTabChange: (v: number) => void }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const [keyword, setKeyword] = useState('')
+  const [accountName, setAccountName] = useState('')
+  const [accountIdKeyword, setAccountIdKeyword] = useState('')
   const [authStatusFilter, setAuthStatusFilter] = useState<string>('all')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(20)
   const [detailAcc, setDetailAcc] = useState<DyAccount | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<DyAccountSave>>({})
-  const [deleteId, setDeleteId] = useState<number | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<DyAccount | null>(null)
+  const [batchSyncResult, setBatchSyncResult] = useState<{ total: number; success: number; fail: number } | null>(null)
+  const [actionError, setActionError] = useState('')
 
-  const { data, isFetching } = useQuery({
-    queryKey: ['dy-accounts', keyword, authStatusFilter, page, pageSize],
+  const { data, isFetching, isError, error, refetch } = useQuery({
+    queryKey: ['dy-accounts', accountName, accountIdKeyword, page, pageSize],
     queryFn: () => douyinApi.accountList({
-      accountName: keyword || undefined,
-      authStatus: authStatusFilter === 'all' ? undefined : authStatusFilter,
+      accountName: accountName.trim() || undefined,
+      accountId: accountIdKeyword.trim() || undefined,
       page, rows: pageSize,
     }),
   })
 
   const saveMut = useMutation({
     mutationFn: (p: Partial<DyAccountSave>) => douyinApi.accountSave(p),
+    onMutate: () => setActionError(''),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['dy-accounts'] }); setEditOpen(false); toast('保存成功', 'success') },
-    onError: () => toast('保存失败', 'error'),
+    onError: (e: unknown, payload) => {
+      const message = isCommercialDenial(e) ? commercialDenialMessage(e) : errMsg(e, '保存失败')
+      setActionError(`${DOUYIN_ENDPOINTS.accountSave} 账号保存失败：${message}（${accountSaveContext(payload)}）`)
+      toast(message, 'error')
+    },
   })
   const delMut = useMutation({
-    mutationFn: (id: number) => douyinApi.accountDelete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['dy-accounts'] }); setDeleteId(null); toast('删除成功', 'success') },
-    onError: () => toast('删除失败', 'error'),
+    mutationFn: (account: DyAccount) => douyinApi.accountDelete(account.id),
+    onMutate: () => setActionError(''),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['dy-accounts'] }); setDeleteTarget(null); toast('删除成功', 'success') },
+    onError: (e: unknown, account) => {
+      setActionError(`${DOUYIN_ENDPOINTS.accountDelete} 账号删除失败：${errMsg(e, '删除失败')}（${accountContext(account)}）`)
+      toast('删除失败', 'error')
+    },
   })
   const syncMut = useMutation({
-    mutationFn: (id: number) => douyinApi.videoSync(id),
+    mutationFn: (account: DyAccount) => douyinApi.videoSync(account.id),
+    onMutate: () => setActionError(''),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['dy-accounts'] }); toast('同步完成', 'success') },
-    onError: () => toast('同步失败', 'error'),
+    onError: (e: unknown, account) => {
+      setActionError(`${DOUYIN_ENDPOINTS.videoSync} 账号视频同步失败：${errMsg(e, '同步失败')}（${accountContext(account)}）`)
+      toast('同步失败', 'error')
+    },
+  })
+  const batchSyncMut = useMutation({
+    mutationFn: async (targets: DyAccount[]) => {
+      let success = 0
+      let fail = 0
+      for (const account of targets) {
+        try {
+          await douyinApi.videoSync(account.id)
+          success += 1
+        } catch {
+          fail += 1
+        }
+      }
+      return { total: targets.length, success, fail }
+    },
+    onSuccess: (result) => {
+      setActionError('')
+      setBatchSyncResult(result)
+      qc.invalidateQueries({ queryKey: ['dy-accounts'] })
+      toast(`批量同步完成：成功 ${result.success}，失败 ${result.fail}`, result.fail > 0 ? 'warning' : 'success')
+    },
+    onError: (e) => {
+      setBatchSyncResult({ total: rows.length, success: 0, fail: rows.length })
+      setActionError(`${DOUYIN_ENDPOINTS.videoSync} 当前页批量同步失败：${errMsg(e, '同步任务异常')}（route=${DOUYIN_ROUTES.accounts}; page=${page}; rows=${pageSize}; accountCount=${rows.length}）`)
+      toast(`批量同步失败：${errMsg(e, '同步任务异常')}`, 'error')
+    },
   })
 
-  const rows = data?.list ?? (Array.isArray(data) ? data as DyAccount[] : [])
-  const total = data?.total ?? rows.length
+  const sourceRows = data?.list ?? (Array.isArray(data) ? data as DyAccount[] : [])
+  const rows = authStatusFilter === 'all'
+    ? sourceRows
+    : sourceRows.filter(row => authStatusFilter === 'unbound'
+      ? row.authStatus === 'unbound' || !row.authStatus
+      : row.authStatus === authStatusFilter)
+  const total = data?.total ?? sourceRows.length
+  const validCount = rows.filter(r => r.authStatus === 'valid').length
+  const expiredCount = rows.filter(r => r.authStatus === 'expired').length
+  const unboundCount = rows.filter(r => r.authStatus === 'unbound' || !r.authStatus).length
+  const unsyncedCount = rows.filter(r => !r.lastSyncTime).length
+  const noVideoCount = rows.filter(r => Number(r.videoCount ?? 0) === 0).length
 
   const cols: GridColDef[] = [
     {
@@ -555,20 +1059,87 @@ function AccountListTab({ tab, onTabChange }: { tab: number; onTabChange: (v: nu
       renderCell: ({ row }) => (
         <Stack direction="row" spacing={0.5} sx={{ height: '100%', alignItems: 'center' }}>
           <Tooltip title="详情"><IconButton size="small" aria-label="详情" onClick={() => setDetailAcc(row as DyAccount)}><InfoOutlinedIcon fontSize="small" /></IconButton></Tooltip>
-          <Tooltip title="同步"><IconButton size="small" aria-label="同步" onClick={() => syncMut.mutate((row as DyAccount).id)} disabled={syncMut.isPending}><SyncIcon fontSize="small" /></IconButton></Tooltip>
-          <Tooltip title="编辑"><IconButton size="small" aria-label="编辑" onClick={() => { setEditData({ id: (row as DyAccount).id, accountName: (row as DyAccount).accountName, accountId: (row as DyAccount).accountId, description: (row as DyAccount).description, status: (row as DyAccount).status }); setEditOpen(true) }}><EditIcon fontSize="small" /></IconButton></Tooltip>
-          <Tooltip title="删除"><IconButton size="small" aria-label="删除" color="error" onClick={() => setDeleteId((row as DyAccount).id)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+          <Tooltip title="同步"><IconButton size="small" aria-label="同步" onClick={() => syncMut.mutate(row as DyAccount)} disabled={syncMut.isPending}><SyncIcon fontSize="small" /></IconButton></Tooltip>
+          <Tooltip title="编辑"><IconButton size="small" aria-label="编辑" onClick={() => { setActionError(''); setEditData({ id: (row as DyAccount).id, accountName: (row as DyAccount).accountName, accountId: (row as DyAccount).accountId, description: (row as DyAccount).description, status: (row as DyAccount).status }); setEditOpen(true) }}><EditIcon fontSize="small" /></IconButton></Tooltip>
+          <Tooltip title="删除"><IconButton size="small" aria-label="删除" color="error" onClick={() => { setActionError(''); setDeleteTarget(row as DyAccount) }}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
         </Stack>
       ),
     },
   ]
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+    <Box
+      data-testid="douyin-account-list-tab"
+      data-contract-scope="douyin-account-list-server-pagination"
+      data-ready-endpoints={[
+        DOUYIN_ENDPOINTS.accountSearch,
+        DOUYIN_ENDPOINTS.accountSave,
+        DOUYIN_ENDPOINTS.accountDelete,
+        DOUYIN_ENDPOINTS.videoSync,
+      ].join('|')}
+      data-unsupported-endpoints={DOUYIN_UNSUPPORTED_ENDPOINTS}
+      data-no-local-account-fallback="true"
+      data-no-static-account-fallback="true"
+      data-server-pagination="true"
+      data-row-count={rows.length}
+      data-total-count={total}
+      data-list-error={isError ? 'true' : 'false'}
+      sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', gap: 1.5 }}
+    >
+      <Grid container spacing={1.5}>
+        {[
+          { label: '当前页账号', value: rows.length, hint: `服务端总数 ${total}` },
+          { label: '授权正常', value: validCount, hint: '可同步视频和画像' },
+          { label: 'Token异常', value: expiredCount + unboundCount, hint: `${expiredCount} 过期 / ${unboundCount} 未授权` },
+          { label: '待补数据', value: unsyncedCount + noVideoCount, hint: `${unsyncedCount} 未同步 / ${noVideoCount} 无视频` },
+        ].map(item => (
+          <Grid item xs={6} md={3} key={item.label}>
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+              <Typography variant="h5" fontWeight={700}>{item.value}</Typography>
+              <Typography variant="caption" color="text.secondary">{item.hint}</Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+      {isError && (
+        <Alert
+          data-testid="douyin-account-list-error"
+          data-no-local-account-fallback="true"
+          data-input-retained="true"
+          severity="error"
+          action={<Button color="inherit" size="small" onClick={() => void refetch()}>重试</Button>}
+        >
+          {DOUYIN_ENDPOINTS.accountSearch} 抖音账号列表加载失败：{errMsg(error, '查询失败')}（route={DOUYIN_ROUTES.accounts}; accountName={accountName.trim() || '空'}; accountId={accountIdKeyword.trim() || '空'}; page={page}; rows={pageSize}）
+        </Alert>
+      )}
+      {actionError && (
+        <Alert data-testid="douyin-account-action-error" data-input-retained="true" data-row-retained="true" data-no-local-mutation="true" severity="error">
+          {actionError}。失败不会本地移除账号、关闭关键弹窗或伪造同步成功。
+        </Alert>
+      )}
+      {!isFetching && !isError && rows.length === 0 && (
+        <Alert data-testid="douyin-account-empty" data-no-static-account-fallback="true" severity="warning">
+          当前筛选条件下没有抖音账号。请绑定账号并完成 OAuth 授权后再执行同步。
+        </Alert>
+      )}
+      {authStatusFilter !== 'all' && !isError && (
+        <Alert severity="info">
+          授权状态由前端按当前页本地筛选；后端 /douyin/account/search 当前只支持账号名称、抖音号、状态和分页。
+        </Alert>
+      )}
+      <Alert severity="info">
+        批量同步会对当前筛选页逐账号调用 `/douyin/video/sync`；后端暂未提供跨页批量任务，本页会保留成功/失败汇总。
+      </Alert>
+      {batchSyncResult && (
+        <Alert severity={batchSyncResult.fail > 0 ? 'warning' : 'success'}>
+          当前页批量同步结果：共 {batchSyncResult.total} 个账号，成功 {batchSyncResult.success} 个，失败 {batchSyncResult.fail} 个。
+        </Alert>
+      )}
       <StandardDataGrid
         sx={{ flex: 1, minHeight: 0 }}
         rows={rows} columns={cols} loading={isFetching}
-        rowCount={total} paginationMode="server"
+        rowCount={authStatusFilter === 'all' ? total : rows.length} paginationMode="server"
         paginationModel={{ page, pageSize }}
         onPaginationModelChange={m => { setPage(m.page); setPageSize(m.pageSize) }}
         getRowId={r => (r as DyAccount).id}
@@ -579,8 +1150,10 @@ function AccountListTab({ tab, onTabChange }: { tab: number; onTabChange: (v: nu
               <Tab label="账号列表" />
               <Tab label="OAuth授权" />
             </Tabs>
-            <TextField size="small" placeholder="搜索账号名称/抖音号" value={keyword}
-              onChange={e => { setKeyword(e.target.value); setPage(0) }} sx={{ width: 200 }} />
+            <TextField size="small" placeholder="搜索账号名称" value={accountName}
+              onChange={e => { setAccountName(e.target.value); setPage(0) }} sx={{ width: 180 }} />
+            <TextField size="small" placeholder="搜索抖音号" value={accountIdKeyword}
+              onChange={e => { setAccountIdKeyword(e.target.value); setPage(0) }} sx={{ width: 160 }} />
             {(['all', 'valid', 'expired', 'unbound'] as const).map(v => (
               <Chip key={v}
                 label={v === 'all' ? '全部' : v === 'valid' ? '已授权' : v === 'expired' ? 'Token过期' : '未绑定'}
@@ -594,11 +1167,20 @@ function AccountListTab({ tab, onTabChange }: { tab: number; onTabChange: (v: nu
         }
         actionSlot={
           <>
-            <Button size="small" variant="outlined" startIcon={<SyncIcon />} onClick={() => toast('批量同步已启动', 'success')}>批量同步</Button>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<SyncIcon />}
+              disabled={rows.length === 0 || batchSyncMut.isPending}
+              onClick={() => batchSyncMut.mutate(rows)}
+            >
+              {batchSyncMut.isPending ? '批量同步中...' : '批量同步'}
+            </Button>
             <Button size="small" variant="contained" startIcon={<AddIcon />}
-              onClick={() => { setEditData({}); setEditOpen(true) }}>绑定新账号</Button>
+              onClick={() => { setActionError(''); setEditData({}); setEditOpen(true) }}>绑定新账号</Button>
           </>
         }
+        slots={{ noRowsOverlay: DataGridEmptyOverlay }}
       />
       <AccountDetailDrawer account={detailAcc} onClose={() => setDetailAcc(null)} />
       <AccountEditDrawer
@@ -608,9 +1190,9 @@ function AccountListTab({ tab, onTabChange }: { tab: number; onTabChange: (v: nu
         loading={saveMut.isPending}
       />
       <ConfirmDialog
-        open={deleteId !== null} title="确认删除" content="此操作不可恢复，确认删除？"
-        onConfirm={() => deleteId !== null && delMut.mutate(deleteId)}
-        onClose={() => setDeleteId(null)}
+        open={deleteTarget !== null} title="确认删除" content={`此操作不可恢复，确认删除？endpoint=${DOUYIN_ENDPOINTS.accountDelete}; ${accountContext(deleteTarget)}。删除失败不会本地移除账号。`}
+        onConfirm={() => deleteTarget !== null && delMut.mutate(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
       />
     </Box>
   )
@@ -621,16 +1203,53 @@ function OAuthTab({ tab, onTabChange }: { tab: number; onTabChange: (v: number) 
   const qc = useQueryClient()
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(20)
+  const [batchRefreshResult, setBatchRefreshResult] = useState<{ total: number; success: number; fail: number; skipped: number } | null>(null)
+  const [oauthActionError, setOauthActionError] = useState('')
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['dy-accounts-oauth', page, pageSize],
     queryFn: () => douyinApi.accountList({ page, rows: pageSize }),
   })
 
   const revokeMut = useMutation({
-    mutationFn: (id: number) => douyinApi.oauthRevoke(id),
+    mutationFn: (account: DyAccount) => douyinApi.oauthRevoke(account.id),
+    onMutate: () => setOauthActionError(''),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['dy-accounts-oauth'] }); toast('授权已撤销', 'success') },
-    onError: () => toast('撤销失败', 'error'),
+    onError: (e: unknown, account) => {
+      setOauthActionError(`${DOUYIN_ENDPOINTS.oauthRevoke} OAuth 撤销失败：${errMsg(e, '撤销失败')}（${accountContext(account)}）`)
+      toast('撤销失败', 'error')
+    },
+  })
+  const batchRefreshMut = useMutation({
+    mutationFn: async (targets: DyAccount[]) => {
+      let success = 0
+      let fail = 0
+      let skipped = 0
+      for (const account of targets) {
+        if (account.authStatus === 'unbound' || !account.authStatus) {
+          skipped += 1
+          continue
+        }
+        try {
+          await douyinApi.tokenRefresh(account.id)
+          success += 1
+        } catch {
+          fail += 1
+        }
+      }
+      return { total: targets.length, success, fail, skipped }
+    },
+    onSuccess: (result) => {
+      setOauthActionError('')
+      setBatchRefreshResult(result)
+      qc.invalidateQueries({ queryKey: ['dy-accounts-oauth'] })
+      toast(`批量刷新完成：成功 ${result.success}，失败 ${result.fail}，跳过 ${result.skipped}`, result.fail > 0 ? 'warning' : 'success')
+    },
+    onError: (e) => {
+      setBatchRefreshResult({ total: rows.length, success: 0, fail: rows.length, skipped: 0 })
+      setOauthActionError(`${DOUYIN_ENDPOINTS.tokenRefresh} 当前页 Token 批量刷新失败：${errMsg(e, '刷新任务异常')}（route=${DOUYIN_ROUTES.accounts}; tab=OAuth授权; page=${page}; rows=${pageSize}; accountCount=${rows.length}）`)
+      toast(`批量刷新失败：${errMsg(e, '刷新任务异常')}`, 'error')
+    },
   })
 
   const rows = data?.list ?? (Array.isArray(data) ? data as DyAccount[] : [])
@@ -655,8 +1274,10 @@ function OAuthTab({ tab, onTabChange }: { tab: number; onTabChange: (v: number) 
     {
       field: 'scopes', headerName: '授权范围', width: 200,
       renderCell: () => (
-        <Stack direction="row" spacing={0.5} sx={{ overflow: 'hidden', height: '100%', alignItems: 'center' }}>
-          {['视频', '画像', '直播', '橱窗'].map(s => <Chip key={s} label={s} size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: 10 }} />)}
+        <Stack justifyContent="center" sx={{ height: '100%' }}>
+          <Typography variant="caption" color="text.secondary">
+            列表接口未返回 scope
+          </Typography>
         </Stack>
       ),
     },
@@ -665,12 +1286,12 @@ function OAuthTab({ tab, onTabChange }: { tab: number; onTabChange: (v: number) 
       renderCell: ({ row }) => {
         const acc = row as DyAccount
         const color = acc.authStatus === 'valid' ? 'primary' : acc.authStatus === 'expired' ? 'error' : 'warning'
-        const pct = acc.authStatus === 'valid' ? 80 : acc.authStatus === 'expired' ? 0 : 30
+        const pct = acc.authStatus === 'valid' ? 100 : acc.authStatus === 'expired' ? 0 : 0
         return (
           <Stack justifyContent="center" sx={{ height: '100%', width: '100%' }}>
             <LinearProgress variant="determinate" value={pct} color={color} sx={{ height: 4, borderRadius: 2 }} />
             <Typography variant="caption" color="text.secondary">
-              {acc.authStatus === 'valid' ? '有效' : acc.authStatus === 'expired' ? '已过期' : '未授权'}
+              {acc.authStatus === 'valid' ? '列表状态有效，到期进详情核验' : acc.authStatus === 'expired' ? '列表状态已过期' : '未授权'}
             </Typography>
           </Stack>
         )
@@ -682,11 +1303,17 @@ function OAuthTab({ tab, onTabChange }: { tab: number; onTabChange: (v: number) 
         <Stack direction="row" spacing={1} sx={{ height: '100%', alignItems: 'center' }}>
           <Button size="small" variant="outlined" startIcon={<LinkIcon />}
             onClick={async () => {
-              try { const r = await douyinApi.oauthUrl((row as DyAccount).id); window.open(r.authUrl, '_blank') }
-              catch { toast('获取授权链接失败', 'error') }
+              try {
+                setOauthActionError('')
+                const r = await douyinApi.oauthUrl((row as DyAccount).id)
+                window.open(r.authUrl, '_blank')
+              } catch (e) {
+                setOauthActionError(`${DOUYIN_ENDPOINTS.oauthUrl} 获取授权链接失败：${errMsg(e, 'OAuth 服务异常')}（${accountContext(row as DyAccount)}）`)
+                toast('获取授权链接失败', 'error')
+              }
             }}>重新授权</Button>
           <Button size="small" variant="outlined" color="error"
-            onClick={() => revokeMut.mutate((row as DyAccount).id)}
+            onClick={() => revokeMut.mutate(row as DyAccount)}
             disabled={revokeMut.isPending}>撤销</Button>
         </Stack>
       ),
@@ -695,12 +1322,75 @@ function OAuthTab({ tab, onTabChange }: { tab: number; onTabChange: (v: number) 
 
   const stats = {
     valid: rows.filter(r => r.authStatus === 'valid').length,
-    warning: rows.filter(r => r.authStatus === 'unbound').length,
+    unbound: rows.filter(r => r.authStatus === 'unbound' || !r.authStatus).length,
     expired: rows.filter(r => r.authStatus === 'expired').length,
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+    <Box
+      data-testid="douyin-oauth-tab"
+      data-contract-scope="douyin-oauth-current-page-actions"
+      data-ready-endpoints={[
+        DOUYIN_ENDPOINTS.accountSearch,
+        DOUYIN_ENDPOINTS.oauthUrl,
+        DOUYIN_ENDPOINTS.oauthRevoke,
+        DOUYIN_ENDPOINTS.tokenRefresh,
+        DOUYIN_ENDPOINTS.tokenStatus,
+      ].join('|')}
+      data-unsupported-endpoints={DOUYIN_UNSUPPORTED_ENDPOINTS}
+      data-no-local-token-fallback="true"
+      data-no-static-oauth-fallback="true"
+      data-server-pagination="true"
+      data-row-count={rows.length}
+      data-total-count={total}
+      data-list-error={isError ? 'true' : 'false'}
+      sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', gap: 1.5 }}
+    >
+      <Grid container spacing={1.5}>
+        {[
+          { label: 'OAuth账号', value: rows.length, hint: `服务端总数 ${total}` },
+          { label: '正常', value: stats.valid, hint: 'Token 可用' },
+          { label: '已过期', value: stats.expired, hint: '需要重新授权或刷新' },
+          { label: '未授权', value: stats.unbound, hint: '需要打开授权链接' },
+        ].map(item => (
+          <Grid item xs={6} md={3} key={item.label}>
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+              <Typography variant="h5" fontWeight={700}>{item.value}</Typography>
+              <Typography variant="caption" color="text.secondary">{item.hint}</Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+      {isError && (
+        <Alert
+          data-testid="douyin-oauth-list-error"
+          data-no-local-token-fallback="true"
+          data-input-retained="true"
+          severity="error"
+          action={<Button color="inherit" size="small" onClick={() => void refetch()}>重试</Button>}
+        >
+          {DOUYIN_ENDPOINTS.accountSearch} OAuth 账号列表加载失败：{errMsg(error, '查询失败')}（route={DOUYIN_ROUTES.accounts}; tab=OAuth授权; page={page}; rows={pageSize}）
+        </Alert>
+      )}
+      {oauthActionError && (
+        <Alert data-testid="douyin-oauth-action-error" data-row-retained="true" data-no-local-token-mutation="true" severity="error">
+          {oauthActionError}。失败不会本地改写授权状态。
+        </Alert>
+      )}
+      {!isFetching && !isError && rows.length === 0 && (
+        <Alert data-testid="douyin-oauth-empty" data-no-static-oauth-fallback="true" severity="warning">
+          暂无可管理的 OAuth 账号。请先在账号列表中绑定账号。
+        </Alert>
+      )}
+      <Alert severity="info">
+        批量刷新会对当前页已授权或过期账号逐个调用 `/douyin/oauth/token-refresh`，未授权账号跳过；Token 精确到期时间需要进入详情调用 `/douyin/oauth/token-status` 核验，导出报告基于当前页列表生成 CSV。
+      </Alert>
+      {batchRefreshResult && (
+        <Alert severity={batchRefreshResult.fail > 0 ? 'warning' : 'success'}>
+          当前页 Token 刷新结果：共 {batchRefreshResult.total} 个账号，成功 {batchRefreshResult.success} 个，失败 {batchRefreshResult.fail} 个，跳过 {batchRefreshResult.skipped} 个。
+        </Alert>
+      )}
       <StandardDataGrid
         sx={{ flex: 1, minHeight: 0 }}
         rows={rows} columns={cols} loading={isFetching}
@@ -715,16 +1405,36 @@ function OAuthTab({ tab, onTabChange }: { tab: number; onTabChange: (v: number) 
               <Tab label="OAuth授权" />
             </Tabs>
             <Chip size="small" color="success" variant="outlined" label={`正常 ${stats.valid}`} />
-            <Chip size="small" color="warning" variant="outlined" label={`30天内到期 ${stats.warning}`} />
+            <Chip size="small" color="warning" variant="outlined" label={`未授权 ${stats.unbound}`} />
             <Chip size="small" color="error" variant="outlined" label={`已过期 ${stats.expired}`} />
           </>
         }
         actionSlot={
           <>
-            <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={() => toast('批量刷新已启动', 'success')}>批量刷新</Button>
-            <Button size="small" variant="outlined" startIcon={<ContentCopyIcon />} onClick={() => toast('报告已导出', 'success')}>导出报告</Button>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              disabled={rows.length === 0 || batchRefreshMut.isPending}
+              onClick={() => batchRefreshMut.mutate(rows)}
+            >
+              {batchRefreshMut.isPending ? '批量刷新中...' : '批量刷新'}
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<FileDownloadIcon />}
+              disabled={rows.length === 0}
+              onClick={() => {
+                exportOauthReport(rows)
+                toast(`已导出当前页 ${rows.length} 个 OAuth 账号`, 'success')
+              }}
+            >
+              导出报告
+            </Button>
           </>
         }
+        slots={{ noRowsOverlay: DataGridEmptyOverlay }}
       />
     </Box>
   )
@@ -735,8 +1445,21 @@ export default function AccountsPage() {
   const [tab, setTab] = useState(0)
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>抖音账号</Typography>
+    <Box
+      data-testid="douyin-accounts-page"
+      data-contract-scope="douyin-account-oauth-persona-fan-profile-workbench"
+      data-ready-endpoints={DOUYIN_READY_ENDPOINTS}
+      data-unsupported-endpoints={DOUYIN_UNSUPPORTED_ENDPOINTS}
+      data-no-local-account-fallback="true"
+      data-no-static-account-fallback="true"
+      data-no-local-token-fallback="true"
+      sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', p: 2, gap: 2 }}
+    >
+      <PageHeader
+        title="抖音账号"
+        subtitle="账号、授权、人设、粉丝画像和近期视频都从真实接口读取；接口失败时会直接在页面上展示降级原因。"
+        breadcrumbs={[{ label: '抖音运营' }, { label: '账号工作台' }]}
+      />
       {tab === 0 && <AccountListTab tab={tab} onTabChange={setTab} />}
       {tab === 1 && <OAuthTab tab={tab} onTabChange={setTab} />}
     </Box>

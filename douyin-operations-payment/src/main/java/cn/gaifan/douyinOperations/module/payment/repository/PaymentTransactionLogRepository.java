@@ -44,4 +44,6 @@ public interface PaymentTransactionLogRepository extends JpaRepository<PaymentTr
      * 按状态分页查询
      */
     Page<PaymentTransactionLog> findByStatus(TransactionStatus status, Pageable pageable);
+
+    Long countByStatus(TransactionStatus status);
 }

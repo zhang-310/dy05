@@ -5,6 +5,7 @@ import type { LiveProduct } from '@/api/live-product'
 export interface CoreDataValue {
   session: LiveSession | null
   sessionLoading: boolean
+  dependencyIssues: string[]
   products: LiveProduct[]
   scripts: LiveScript[]
   readiness: Record<string, unknown> | null

@@ -20,6 +20,7 @@ import {
   DialogActions,
   TextField,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CancelIcon from '@mui/icons-material/Cancel'
@@ -32,8 +33,8 @@ interface EvolutionOpportunitiesPanelProps {
   opportunities: EvolutionOpportunityVO[]
   loading?: boolean
   onRefresh?: () => void
-  onApply?: (id: number) => void
-  onReject?: (id: number) => void
+  onApply?: (id: number, comment?: string) => void
+  onReject?: (id: number, reason?: string) => void
 }
 
 interface OpportunityCardProps {
@@ -70,7 +71,7 @@ function OpportunityCard({ opportunity, onApply, onReject }: OpportunityCardProp
 
   return (
     <>
-      <Card sx={{ mb: 2 }}>
+      <Card data-testid="evolution-opportunity-card" data-evolution-tone="surface" sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between' }}>
             <Box sx={{ flex: 1 }}>
@@ -94,8 +95,12 @@ function OpportunityCard({ opportunity, onApply, onReject }: OpportunityCardProp
 
               {opportunity.scriptContent && (
                 <Box
+                  data-testid="evolution-opportunity-script-preview"
+                  data-evolution-tone="script-preview"
                   sx={{
-                    backgroundColor: '#f5f5f5',
+                    backgroundColor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.14 : 0.06),
+                    border: (theme) => `1px solid ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.28 : 0.14)}`,
+                    color: 'text.primary',
                     p: 1,
                     borderRadius: 1,
                     mb: 1,
@@ -104,7 +109,11 @@ function OpportunityCard({ opportunity, onApply, onReject }: OpportunityCardProp
                     textOverflow: 'ellipsis',
                   }}
                 >
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                  <Typography
+                    data-testid="evolution-opportunity-script-preview-text"
+                    variant="caption"
+                    sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}
+                  >
                     {opportunity.scriptContent.substring(0, 200)}
                     {opportunity.scriptContent.length > 200 && '...'}
                   </Typography>
@@ -124,7 +133,13 @@ function OpportunityCard({ opportunity, onApply, onReject }: OpportunityCardProp
               </Box>
             </Box>
 
-            <IconButton size="small" onClick={() => setExpanded(!expanded)} sx={{ ml: 1 }}>
+            <IconButton
+              size="small"
+              onClick={() => setExpanded(!expanded)}
+              aria-label={expanded ? '收起机会详情' : '展开机会详情'}
+              aria-expanded={expanded}
+              sx={{ ml: 1 }}
+            >
               <ExpandMoreIcon
                 sx={{
                   transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
@@ -134,8 +149,12 @@ function OpportunityCard({ opportunity, onApply, onReject }: OpportunityCardProp
             </IconButton>
           </Box>
 
-          <Collapse in={expanded}>
-            <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #eee' }}>
+          <Collapse in={expanded} unmountOnExit>
+            <Box
+              data-testid="evolution-opportunity-details"
+              data-evolution-tone="details"
+              sx={{ mt: 2, pt: 2, borderTop: (theme) => `1px solid ${theme.palette.divider}` }}
+            >
               {opportunity.relatedScripts && opportunity.relatedScripts.length > 0 && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -265,7 +284,7 @@ export function EvolutionOpportunitiesPanel({
 
   const handleApply = (id: number, _comment?: string) => {
     if (onApply) {
-      onApply(id)
+      onApply(id, _comment)
     } else {
       toast('未配置 onApply：机会应用请接入 POST /ai/knowledge-evolution/auto-optimize 等业务接口', 'info')
     }
@@ -273,7 +292,7 @@ export function EvolutionOpportunitiesPanel({
 
   const handleReject = (id: number, _reason?: string) => {
     if (onReject) {
-      onReject(id)
+      onReject(id, _reason)
     } else {
       toast('未配置 onReject：旧版 /ai/evolution/opportunities 路径后端未实现', 'warning')
     }
@@ -289,7 +308,7 @@ export function EvolutionOpportunitiesPanel({
   )
 
   return (
-    <Paper sx={{ p: 3 }}>
+    <Paper data-testid="evolution-opportunities-panel" data-evolution-tone="surface" sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h6" sx={{ fontWeight: 600 }}>
           进化机会 ({opportunities.length})
@@ -300,7 +319,7 @@ export function EvolutionOpportunitiesPanel({
       </Box>
 
       {opportunities.length === 0 ? (
-        <Typography color="textSecondary" sx={{ textAlign: 'center', py: 4 }}>
+        <Typography data-testid="evolution-opportunities-empty" data-evolution-tone="empty" color="textSecondary" sx={{ textAlign: 'center', py: 4 }}>
           暂无进化机会
         </Typography>
       ) : (
@@ -309,7 +328,14 @@ export function EvolutionOpportunitiesPanel({
           <Grid container spacing={2} sx={{ mb: 3 }}>
             {Object.entries(opportunitiesByType).map(([type, items]) => (
               <Grid item xs={12} sm={6} md={4} key={type}>
-                <Card sx={{ backgroundColor: '#fafafa' }}>
+                <Card
+                  data-testid="evolution-opportunity-summary-card"
+                  data-evolution-tone="summary"
+                  sx={{
+                    backgroundColor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.1 : 0.04),
+                    border: (theme) => `1px solid ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.22 : 0.1)}`,
+                  }}
+                >
                   <CardContent>
                     <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
                       {items[0]?.typeLabel || type}

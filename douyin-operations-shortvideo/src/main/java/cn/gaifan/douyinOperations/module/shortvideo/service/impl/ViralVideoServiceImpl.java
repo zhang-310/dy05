@@ -12,14 +12,18 @@ import cn.gaifan.douyinOperations.module.shortvideo.entity.SvViralFavorite;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvViralVideo;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvViralFavoriteRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvViralVideoRepository;
-import cn.gaifan.douyinOperations.module.shortvideo.service.ViralVideoDeepAnalysisService;
+import cn.gaifan.douyinOperations.contract.product.FeatureCode;
+import cn.gaifan.douyinOperations.contract.product.ProductCode;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialProductChargeService;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryProduct;
+import cn.gaifan.douyinOperations.module.shortvideo.integration.VideoInsightIntegrationBridge;
 import cn.gaifan.douyinOperations.module.shortvideo.service.ViralVideoService;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.ViralCollectVO;
 import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -55,10 +59,11 @@ public class ViralVideoServiceImpl implements ViralVideoService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate;
 
-    /** 与 {@link ViralVideoDeepAnalysisServiceImpl} 同模块；Lazy 避免与 DeepAnalysis 层循环依赖 */
-    @Lazy
-    @Resource
-    private ViralVideoDeepAnalysisService viralVideoDeepAnalysisService;
+    @Autowired(required = false)
+    private VideoInsightIntegrationBridge videoInsightIntegrationBridge;
+
+    @Autowired(required = false)
+    private CommercialProductChargeService commercialProductChargeService;
 
     private static final String CACHE_KEY_PREFIX = "shortvideo:viral:recommended:";
     private static final long CACHE_TTL_MINUTES = 60;
@@ -176,14 +181,30 @@ public class ViralVideoServiceImpl implements ViralVideoService {
             }
         }
 
-        // 账号采集 / 爆款库主体：走 LF-05 深度拆解（写入 deepAnalysisResult 等），与前端「拆解」一致
-        if (viralVideoDeepAnalysisService != null) {
-            viralVideoDeepAnalysisService.startDeepAnalyze(id, userId);
+        chargeViralAnalysisIfNeeded(id);
+
+        // 账号采集 / 爆款库主体：经互调网关走 video-insight 深度拆解
+        if (videoInsightIntegrationBridge != null) {
+            videoInsightIntegrationBridge.requestDeepAnalyzeFromShortvideo(
+                    id, userId, null, "shortvideo-trigger-" + id);
             log.info("已提交短视频深度拆解: viralId={}", id);
             return;
         }
 
         analyzeViralWithLlm(viral);
+    }
+
+    private void chargeViralAnalysisIfNeeded(Long viralVideoId) {
+        if (commercialProductChargeService == null) {
+            return;
+        }
+        commercialProductChargeService.charge(
+                CommercialProductChargeService.CommercialProductChargeCommand.of(
+                        ProductCode.VIDEO_INSIGHT,
+                        FeatureCode.VIDEO_VIRAL_ANALYSIS,
+                        "爆款分析触发 viralVideoId=" + viralVideoId,
+                        DeliveryProduct.VIDEO_INSIGHT
+                ));
     }
 
     @Override

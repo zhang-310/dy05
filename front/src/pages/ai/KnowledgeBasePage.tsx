@@ -4,6 +4,7 @@ import {
   Tab, Tabs, Chip, CircularProgress, IconButton,
   LinearProgress, Pagination, Paper, Grid, Alert,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import Accordion from '@mui/material/Accordion'
 import AccordionSummary from '@mui/material/AccordionSummary'
 import AccordionDetails from '@mui/material/AccordionDetails'
@@ -16,12 +17,13 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import CloseIcon from '@mui/icons-material/Close'
 import type { GridColDef } from '@mui/x-data-grid'
-import { StandardDataGrid, FormDialog, ConfirmDialog } from '@/components/base'
+import { StandardDataGrid, FormDialog, ConfirmDialog, PageHeader } from '@/components/base'
 import { aiApi, type KnowledgeBase, type KbDocument } from '@/api/ai'
 import type { KbIndexQueueRow, EvolutionFitnessRecordVO } from '@/types/ai'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDate } from '@/utils/date'
+import MarkdownViewer from '@/components/MarkdownViewer'
 
 interface RagChunk {
   title?: string
@@ -29,6 +31,10 @@ interface RagChunk {
   content: string
   score: number
   source?: string
+  docId?: number
+  chunkId?: number
+  labels?: string[]
+  explain?: string
 }
 
 /** 后端 score 可能为 0–1 相似度或 0–100 */
@@ -44,6 +50,12 @@ function ragScoreColor(score: number): 'success' | 'warning' | 'default' {
   if (n > 0.8) return 'success'
   if (n > 0.5) return 'warning'
   return 'default'
+}
+
+function kbDocumentStatus(doc: Pick<KbDocument, 'status'>): { label: string; color: 'warning' | 'success' | 'error' } {
+  if (doc.status === 1) return { label: '已索引', color: 'success' }
+  if (doc.status === 0) return { label: '待向量同步', color: 'warning' }
+  return { label: '失败', color: 'error' }
 }
 
 interface IndexQueueItem {
@@ -74,7 +86,7 @@ function hintForIndexQueueError(errorMsg: string): string | null {
     return '无向量可写入（内容过短或 chunk 去重全部被跳过）。请加长正文或调整去重/分块配置。'
   }
   if (msg.includes('嵌入') || msg.includes('embedding') || msg.includes('生成嵌入向量')) {
-    return '嵌入服务失败：检查 `AI_EMBEDDING_*`、模型可用性及网络；查看 `application` 日志中「上传文档失败」。'
+    return '嵌入服务失败：文档会先落库并等待向量补偿；检查 `OLLAMA_URL`、`AI_EMBEDDING_*`、模型可用性及网络。'
   }
   if (msg.includes('上传文档失败') || msg.includes('批量索引')) {
     return '入库链路异常（向量/ES/库）。请同时查看运维「基础设施」中 ES、Milvus 与 PostgreSQL 状态。'
@@ -127,24 +139,33 @@ export default function KnowledgeBasePage() {
   const [ragQuery, setRagQuery] = useState('')
   const [ragResults, setRagResults] = useState<RagChunk[]>([])
   const [ragLoading, setRagLoading] = useState(false)
+  const [ragError, setRagError] = useState<string | null>(null)
   const [deleteDocId, setDeleteDocId] = useState<number | null>(null)
   const [docPage, setDocPage] = useState(0)
   const [viewDoc, setViewDoc] = useState<KbDocument | null>(null)
+  const [operationError, setOperationError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteDocError, setDeleteDocError] = useState<string | null>(null)
 
   // 切换知识库时重置文档分页
   useEffect(() => { setDocPage(0) }, [selectedKb?.id])
 
   // KB list: backend returns List<AiKnowledgeBase>
-  const { data: rawList, isFetching } = useQuery({
+  const { data: rawList, isFetching, isError: listError, error: listErr, refetch: refetchKbList } = useQuery({
     queryKey: ['knowledge-bases', search],
     queryFn: () => aiApi.kbList(search),
   })
   const list = Array.isArray(rawList)
     ? rawList.filter(kb => !search.name || (kb.kbName ?? '').includes(search.name))
     : []
+  const totalDocuments = list.reduce((sum, kb) => sum + Number(kb.totalDocuments ?? 0), 0)
+  const totalTokens = list.reduce((sum, kb) => sum + Number(kb.totalTokens ?? 0), 0)
+  const readyCount = list.filter(kb => kb.status === 1).length
+  const buildingCount = list.length - readyCount
 
   // Documents: backend returns PageResultVO<AiKbDocument>（服务端分页）
-  const { data: docListRaw, isFetching: docFetching } = useQuery({
+  const { data: docListRaw, isFetching: docFetching, isError: docListError, error: docListErr, refetch: refetchDocList } = useQuery({
     queryKey: ['kb-docs', selectedKb?.id, docPage],
     queryFn: () => aiApi.docList(selectedKb!.id, { page: docPage, rows: DOC_PAGE_SIZE }),
     enabled: selectedKb != null && drawerTab === 0,
@@ -183,32 +204,66 @@ export default function KnowledgeBasePage() {
 
   const saveMut = useMutation({
     mutationFn: (params: Partial<KnowledgeBase>) => aiApi.kbCreate({ name: params.kbName, description: params.description }),
-    onSuccess: () => { toast('保存成功', 'success'); setFormOpen(false); qc.invalidateQueries({ queryKey: ['knowledge-bases'] }) },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onSuccess: () => {
+      toast('保存成功', 'success')
+      setFormError(null)
+      setOperationError(null)
+      setFormOpen(false)
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] })
+    },
+    onError: (e: Error) => {
+      const message = `知识库保存失败（/ai/knowledge-base/create）：${e.message}`
+      setFormError(message)
+      setOperationError(message)
+      toast(e.message, 'error')
+    },
   })
   const delMut = useMutation({
     mutationFn: (id: number) => aiApi.kbDelete(id),
-    onSuccess: () => { toast('删除成功', 'success'); setDeleteId(null); qc.invalidateQueries({ queryKey: ['knowledge-bases'] }) },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onSuccess: () => {
+      toast('删除成功', 'success')
+      setDeleteError(null)
+      setOperationError(null)
+      setDeleteId(null)
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] })
+    },
+    onError: (e: Error, id: number) => {
+      const message = `知识库删除失败（DELETE /ai/knowledge-base/${id}）：${e.message}`
+      setDeleteError(message)
+      setOperationError(message)
+      toast(e.message, 'error')
+    },
   })
   const delDocMut = useMutation({
     mutationFn: (id: number) => aiApi.docDelete(id),
-    onSuccess: () => { toast('文档已删除', 'success'); setDeleteDocId(null); qc.invalidateQueries({ queryKey: ['kb-docs'] }) },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onSuccess: () => {
+      toast('文档已删除', 'success')
+      setDeleteDocError(null)
+      setOperationError(null)
+      setDeleteDocId(null)
+      qc.invalidateQueries({ queryKey: ['kb-docs'] })
+    },
+    onError: (e: Error, id: number) => {
+      const message = `文档删除失败（DELETE /ai/knowledge-base/document/${id}）：${e.message}`
+      setDeleteDocError(message)
+      setOperationError(message)
+      toast(e.message, 'error')
+    },
   })
 
-  const openAdd = useCallback(() => { setForm({}); setFormOpen(true) }, [])
-  const openEdit = useCallback((row: KnowledgeBase) => { setForm(row); setFormOpen(true) }, [])
+  const openAdd = useCallback(() => { setForm({}); setFormError(null); setFormOpen(true) }, [])
+  const openEdit = useCallback((row: KnowledgeBase) => { setForm(row); setFormError(null); setFormOpen(true) }, [])
   const openDrawer = useCallback((row: KnowledgeBase, tab = 0) => {
-    setSelectedKb(row); setDrawerTab(tab); setRagResults([])
+    setSelectedKb(row); setDrawerTab(tab); setRagResults([]); setRagError(null)
   }, [])
 
   // Search: 后端返回 List<SearchResult>（解包后为数组），非 { chunks: [] }
   const handleRagSearch = async () => {
     if (!selectedKb || !ragQuery.trim()) return
     setRagLoading(true)
+    setRagError(null)
     try {
-      const res = await aiApi.kbSearch(selectedKb.id, { query: ragQuery, topK: 5 })
+      const res = await aiApi.kbSearch(selectedKb.id, { query: ragQuery, topK: 5, queryRewrite: false })
       const hits = Array.isArray(res) ? res : []
       const chunks: RagChunk[] = hits.map(hit => {
         const score = typeof hit.score === 'number' ? hit.score : Number(hit.score)
@@ -218,11 +273,16 @@ export default function KnowledgeBasePage() {
           content: hit.content ?? '',
           score: Number.isFinite(score) ? score : 0,
           source: hit.source,
+          docId: hit.docId,
+          chunkId: hit.chunkId,
+          labels: hit.labels,
+          explain: hit.explain,
         }
       })
       setRagResults(chunks)
     } catch (e) {
       const message = e instanceof Error ? e.message : '检索失败'
+      setRagError(message)
       toast(message, 'error')
     } finally {
       setRagLoading(false)
@@ -264,7 +324,7 @@ export default function KnowledgeBasePage() {
           <Button size="small" startIcon={<LibraryBooksIcon fontSize="inherit" />}
             onClick={() => openDrawer(row, 0)}>文档</Button>
           <Button size="small" onClick={() => openEdit(row)}>编辑</Button>
-          <Button size="small" color="error" onClick={() => setDeleteId(row.id)}>删除</Button>
+          <Button size="small" color="error" onClick={() => { setDeleteError(null); setDeleteId(row.id) }}>删除</Button>
         </Stack>
       ),
     },
@@ -275,40 +335,160 @@ export default function KnowledgeBasePage() {
       <TextField label="知识库名称" size="small" value={query.name}
         onChange={e => setQuery(q => ({ ...q, name: e.target.value }))}
         sx={{ '& .MuiOutlinedInput-root': { borderRadius: 'var(--border-radius-lg)', bgcolor: 'var(--color-surface)', color: 'var(--color-text-primary)', '& fieldset': { borderColor: 'var(--color-surface-light)' }, '&:hover fieldset': { borderColor: 'var(--color-primary)' } } }} />
-      <Button variant="contained" onClick={() => setSearch({ ...query, page: 0 })} sx={{ bgcolor: 'var(--color-primary)', color: '#000', '&:hover': { bgcolor: 'var(--color-primary-dark)' } }}>查询</Button>
+      <Button
+        variant="contained"
+        onClick={() => setSearch({ ...query, page: 0 })}
+        data-testid="kb-page-search-action-surface"
+        sx={{
+          bgcolor: 'primary.main',
+          color: 'primary.contrastText',
+          '&:hover': { bgcolor: 'primary.dark' },
+        }}
+      >
+        查询
+      </Button>
       <Button onClick={() => { setQuery(q => ({ ...q, name: '' })); setSearch({ page: 0, rows: 20, name: '' }) }} sx={{ color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }} variant="outlined">重置</Button>
     </>
   )
 
   const actionSlot = (
-    <Button variant="contained" startIcon={<AddIcon />} onClick={openAdd} sx={{ bgcolor: 'var(--color-primary)', color: '#000', '&:hover': { bgcolor: 'var(--color-primary-dark)' } }}>新建知识库</Button>
+    <Button
+      variant="contained"
+      startIcon={<AddIcon />}
+      onClick={openAdd}
+      data-testid="kb-page-create-action-surface"
+      sx={{
+        bgcolor: 'primary.main',
+        color: 'primary.contrastText',
+        '&:hover': { bgcolor: 'primary.dark' },
+      }}
+    >
+      新建知识库
+    </Button>
   )
 
   return (
-    <Box sx={{ height: 'calc(100vh - 48px - 32px)', display: 'flex', flexDirection: 'column', bgcolor: 'var(--color-surface-dark)', p: 'var(--spacing-lg)' }}>
-      <Typography variant="h5" sx={{ mb: 'var(--spacing-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>知识库</Typography>
-      <StandardDataGrid rows={list} columns={columns} loading={isFetching}
-        paginationMode="client" searchSlot={searchSlot} actionSlot={actionSlot} sx={{ flex: 1 }} />
+    <Box
+      data-testid="knowledge-base-page"
+      data-ready-endpoints="/ai/knowledge-base/list,/ai/knowledge-base/create,DELETE /ai/knowledge-base/{id},/ai/knowledge-base/{kbId}/documents,/ai/knowledge-base/{kbId}/search,/ai/knowledge-base/{kbId}/index-queue/list,/ai/knowledge-base/{kbId}/evolution-fitness/list,DELETE /ai/knowledge-base/document/{docId}"
+      data-unsupported-endpoints="/ai/knowledge-base/mock,/ai/knowledge-base/local-list,/ai/knowledge-base/static-documents,/ai/knowledge-base/static-rag,/ai/knowledge-base/local-index-queue,/ai/knowledge-base/local-fitness"
+      data-no-local-kb-fallback="true"
+      data-no-static-document-fallback="true"
+      data-no-static-rag-fallback="true"
+      sx={{ height: 'calc(100vh - 48px - 32px)', display: 'flex', flexDirection: 'column', gap: 2, bgcolor: 'var(--color-surface-dark)', p: 'var(--spacing-lg)' }}
+    >
+      <PageHeader
+        title="知识库"
+        subtitle="管理知识库、文档索引、RAG 检索、索引队列和适应度记录"
+        breadcrumbs={[{ label: 'AI中心' }, { label: '知识库' }]}
+        actions={
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => { void refetchKbList() }}>
+            刷新
+          </Button>
+        }
+      />
+
+      <Grid container spacing={1.5}>
+        {[
+          ['知识库', `${list.length}`, `就绪 ${readyCount} · 构建中 ${buildingCount}`],
+          ['文档', totalDocuments.toLocaleString(), '来自 /ai/knowledge-base/list'],
+          ['Token', totalTokens > 0 ? totalTokens.toLocaleString() : '—', '用于估算知识资产规模'],
+          ['检索链路', '向量 + 全文', '失败时查看抽屉索引队列 error_msg'],
+        ].map(([title, value, helper]) => (
+          <Grid item xs={12} sm={6} md={3} key={title}>
+            <Paper
+              variant="outlined"
+              data-testid={`kb-summary-${title}`}
+              data-source-endpoint={title === '知识库' || title === '文档' ? '/ai/knowledge-base/list' : undefined}
+              sx={{ p: 1.5, borderRadius: 1, height: '100%' }}
+            >
+              <Typography variant="caption" color="text.secondary">{title}</Typography>
+              <Typography variant="h6" fontWeight={700}>{value}</Typography>
+              <Typography variant="caption" color="text.secondary">{helper}</Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Alert
+        severity="info"
+        data-testid="kb-index-pipeline-notice"
+        data-index-pipeline="postgresql-embedding-milvus-elasticsearch"
+        data-docker-ollama-diagnostic="true"
+        sx={{ py: 0.75 }}
+      >
+        文档先入 PostgreSQL，再生成嵌入向量并写入 Milvus/Elasticsearch；上传后如果显示待向量同步，请进入知识库抽屉的索引队列查看具体失败原因。
+      </Alert>
+
+      {listError && (
+        <Alert
+          severity="error"
+          data-testid="kb-list-load-error"
+          data-source-endpoint="/ai/knowledge-base/list"
+          data-no-local-kb-fallback="true"
+          action={<Button color="inherit" size="small" onClick={() => { void refetchKbList() }}>重试</Button>}
+        >
+          知识库加载失败：{listErr instanceof Error ? listErr.message : String(listErr)}
+        </Alert>
+      )}
+
+      {operationError != null && (
+        <Alert
+          severity="error"
+          data-testid="kb-operation-error"
+          data-no-local-mutation-fallback="true"
+          onClose={() => setOperationError(null)}
+        >
+          {operationError}。失败后不会本地移除知识库或文档，请修复后重试。
+        </Alert>
+      )}
+
+      <Box
+        data-testid="kb-list-grid"
+        data-source-endpoint="/ai/knowledge-base/list"
+        data-pagination-mode="client-filtered-server-list"
+        data-no-local-kb-fallback="true"
+        sx={{ flex: 1, minHeight: 0 }}
+      >
+        <StandardDataGrid rows={list} columns={columns} loading={isFetching}
+          paginationMode="client" searchSlot={searchSlot} actionSlot={actionSlot} sx={{ flex: 1 }} />
+      </Box>
 
       <FormDialog open={formOpen} title={form.id ? '编辑知识库' : '新建知识库'}
         onClose={() => setFormOpen(false)} onConfirm={() => saveMut.mutate(form)} loading={saveMut.isPending}>
-        <Stack spacing={2} sx={{ pt: 1 }}>
+        <Stack
+          spacing={2}
+          data-testid="kb-create-dialog-contract"
+          data-source-endpoint="/ai/knowledge-base/create"
+          data-preserves-form-input="true"
+          sx={{ pt: 1 }}
+        >
           <TextField label="名称" value={form.kbName ?? ''}
             onChange={e => setForm(f => ({ ...f, kbName: e.target.value }))} fullWidth
             sx={{ '& .MuiOutlinedInput-root': { borderRadius: 'var(--border-radius-lg)', bgcolor: 'var(--color-surface)', color: 'var(--color-text-primary)', '& fieldset': { borderColor: 'var(--color-surface-light)' }, '&:hover fieldset': { borderColor: 'var(--color-primary)' } } }} />
           <TextField label="描述" value={form.description ?? ''}
             onChange={e => setForm(f => ({ ...f, description: e.target.value }))} fullWidth multiline minRows={3}
             sx={{ '& .MuiOutlinedInput-root': { borderRadius: 'var(--border-radius-lg)', bgcolor: 'var(--color-surface)', color: 'var(--color-text-primary)', '& fieldset': { borderColor: 'var(--color-surface-light)' }, '&:hover fieldset': { borderColor: 'var(--color-primary)' } } }} />
+          {formError != null && (
+            <Alert
+              severity="error"
+              data-testid="kb-create-error"
+              data-source-endpoint="/ai/knowledge-base/create"
+              data-preserves-form-input="true"
+            >
+              {formError}。弹窗会保留当前名称与描述，便于确认登录态、权限或后端校验后重试。
+            </Alert>
+          )}
         </Stack>
       </FormDialog>
 
       <ConfirmDialog open={deleteId != null} title="确认删除"
-        content="删除后知识库及所有文档将无法恢复，确认删除？"
+        content={deleteError ?? '删除后知识库及所有文档将无法恢复，确认删除？'}
         onClose={() => setDeleteId(null)} onConfirm={() => deleteId != null && delMut.mutate(deleteId)}
         loading={delMut.isPending} />
 
       <ConfirmDialog open={deleteDocId != null} title="确认删除文档"
-        content="确认删除该文档？"
+        content={deleteDocError ?? '确认删除该文档？'}
         onClose={() => setDeleteDocId(null)}
         onConfirm={() => deleteDocId != null && delDocMut.mutate(deleteDocId)}
         loading={delDocMut.isPending} />
@@ -325,7 +505,13 @@ export default function KnowledgeBasePage() {
         }}
       >
         {selectedKb && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}>
+          <Box
+            data-testid="kb-detail-drawer"
+            data-ready-endpoints="/ai/knowledge-base/{kbId}/documents,/ai/knowledge-base/{kbId}/search,/ai/knowledge-base/{kbId}/index-queue/list,/ai/knowledge-base/{kbId}/evolution-fitness/list"
+            data-no-local-document-fallback="true"
+            data-no-static-rag-fallback="true"
+            sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}
+          >
             <Box sx={{ px: 2, py: 2, borderBottom: 1, borderColor: 'divider' }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
                 <Stack spacing={0.5}>
@@ -352,25 +538,57 @@ export default function KnowledgeBasePage() {
             <Box sx={{ flex: 1, overflow: 'auto', p: 2, bgcolor: 'background.default' }}>
               {/* Tab 0: 文档列表（服务端分页） */}
               {drawerTab === 0 && (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, height: '100%' }}>
+                <Box
+                  data-testid="kb-drawer-documents-panel"
+                  data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/documents`}
+                  data-pagination-mode="server"
+                  data-no-local-document-fallback="true"
+                  sx={{ display: 'flex', flexDirection: 'column', gap: 1, height: '100%' }}
+                >
                   {docFetching ? <CircularProgress size={24} /> : (
                     <>
+                      {docListError && (
+                        <Alert
+                          severity="error"
+                          data-testid="kb-drawer-documents-error"
+                          data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/documents`}
+                          data-no-local-document-fallback="true"
+                          action={<Button color="inherit" size="small" onClick={() => { void refetchDocList() }}>重试</Button>}
+                        >
+                          文档列表加载失败（/ai/knowledge-base/{selectedKb.id}/documents）：{docListErr instanceof Error ? docListErr.message : String(docListErr)}
+                        </Alert>
+                      )}
                       <Stack spacing={1} sx={{ flex: 1, overflow: 'auto' }}>
-                        {docs.length === 0 && (
-                          <Typography color="text.secondary" variant="body2">暂无文档</Typography>
+                        {!docListError && docs.length === 0 && (
+                          <Typography
+                            color="text.secondary"
+                            variant="body2"
+                            data-testid="kb-drawer-documents-empty"
+                            data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/documents`}
+                            data-no-static-document-fallback="true"
+                          >
+                            暂无文档
+                          </Typography>
                         )}
                         {docs.map(doc => {
                           const qs = doc.qualityHeuristicScore
                           const expired = doc.expiryStatus === 2
+                          const indexStatus = kbDocumentStatus(doc)
                           return (
                             <Box
                               key={doc.id}
+                              data-testid={expired ? 'kb-expired-document-row-surface' : 'kb-document-row'}
+                              data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/documents`}
+                              data-document-status={String(doc.status)}
+                              data-no-static-document-fallback="true"
                               sx={{
                                 p: 2,
                                 border: 1,
                                 borderRadius: 1,
-                                borderColor: expired ? 'error.light' : 'divider',
-                                bgcolor: expired ? 'error.50' : 'background.paper',
+                                borderColor: expired ? 'error.main' : 'divider',
+                                bgcolor: expired
+                                  ? (theme) => alpha(theme.palette.error.main, theme.palette.mode === 'dark' ? 0.1 : 0.05)
+                                  : 'background.paper',
                                 cursor: 'pointer',
                                 '&:hover': { bgcolor: 'action.hover' },
                               }}
@@ -391,8 +609,10 @@ export default function KnowledgeBasePage() {
                                         color={qs >= 80 ? 'success' : qs >= 60 ? 'warning' : 'error'}
                                         variant="outlined" />
                                     )}
-                                    <Chip label={doc.status === 1 ? '已索引' : doc.status === 0 ? '处理中' : '失败'} size="small"
-                                      color={doc.status === 1 ? 'success' : doc.status === 0 ? 'warning' : 'error'} />
+                                    <Chip label={indexStatus.label} size="small" color={indexStatus.color} />
+                                    {doc.status === 0 && (
+                                      <Chip label={`补偿 ${doc.syncRetryCount ?? 0}/3`} size="small" variant="outlined" />
+                                    )}
                                     <Typography variant="caption" color="text.secondary" component="span" sx={{ alignSelf: 'center' }}>
                                       {formatDate(doc.createTime)}
                                     </Typography>
@@ -402,7 +622,7 @@ export default function KnowledgeBasePage() {
                                   size="small"
                                   color="error"
                                   sx={{ flexShrink: 0 }}
-                                  onClick={e => { e.stopPropagation(); setDeleteDocId(doc.id) }}
+                                  onClick={e => { e.stopPropagation(); setDeleteDocError(null); setDeleteDocId(doc.id) }}
                                   aria-label="删除文档"
                                 >
                                   <DeleteIcon fontSize="small" />
@@ -434,21 +654,46 @@ export default function KnowledgeBasePage() {
 
               {/* Tab 1: RAG检索 */}
               {drawerTab === 1 && (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, height: '100%' }}>
+                <Box
+                  data-testid="kb-rag-panel"
+                  data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/search`}
+                  data-no-static-rag-fallback="true"
+                  sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, height: '100%' }}
+                >
                   <Stack direction="row" spacing={1} alignItems="flex-start">
                     <TextField size="small" placeholder="输入检索问题…" fullWidth
                       value={ragQuery} onChange={e => setRagQuery(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleRagSearch()} />
                     <Button variant="contained" startIcon={<SearchIcon />}
+                      data-testid="kb-rag-search-action"
+                      data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/search`}
                       onClick={handleRagSearch} disabled={ragLoading || !ragQuery.trim()}
                       sx={{ flexShrink: 0 }}>
                       检索
                     </Button>
                   </Stack>
                   {ragLoading && <LinearProgress />}
+                  {ragError != null && (
+                    <Alert
+                      severity="error"
+                      data-testid="kb-rag-error"
+                      data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/search`}
+                      data-no-local-rag-fallback="true"
+                      data-docker-ollama-diagnostic="true"
+                    >
+                      RAG 检索失败：{ragError}。请优先检查嵌入服务、Milvus、Elasticsearch 和该知识库索引队列。
+                    </Alert>
+                  )}
                   <Stack spacing={1.5} sx={{ flex: 1, overflow: 'auto' }}>
                     {ragResults.map((chunk, i) => (
-                      <Paper key={i} variant="outlined" sx={{ p: 0, overflow: 'hidden', borderRadius: 1 }}>
+                      <Paper
+                        key={i}
+                        variant="outlined"
+                        data-testid="kb-rag-result-card"
+                        data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/search`}
+                        data-markdown-renderer="MarkdownViewer"
+                        sx={{ p: 0, overflow: 'hidden', borderRadius: 1 }}
+                      >
                         <Box sx={{ px: 2, py: 1, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}>
                           <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
                             <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1, wordBreak: 'break-word' }}>
@@ -460,22 +705,38 @@ export default function KnowledgeBasePage() {
                               {chunk.source && (
                                 <Chip label={chunk.source} size="small" variant="outlined" />
                               )}
+                              {chunk.chunkId != null && (
+                                <Chip label={`chunk ${chunk.chunkId}`} size="small" variant="outlined" />
+                              )}
                             </Stack>
                           </Stack>
+                          {chunk.labels != null && chunk.labels.length > 0 && (
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                              {chunk.labels.map(label => <Chip key={label} label={label} size="small" variant="outlined" />)}
+                            </Stack>
+                          )}
                         </Box>
                         <Box sx={{ px: 2, py: 1.5 }}>
-                          <Typography
-                            component="div"
-                            variant="body2"
-                            sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.7, color: 'text.primary' }}
-                          >
-                            {chunk.content}
-                          </Typography>
+                          <Box data-testid="kb-rag-result-markdown" data-renderer="MarkdownViewer">
+                            <MarkdownViewer content={chunk.content} compact />
+                          </Box>
+                          {chunk.explain != null && chunk.explain !== '' && (
+                            <Alert severity="info" sx={{ mt: 1, py: 0.5 }} icon={false}>
+                              <Typography variant="caption" component="div">{chunk.explain}</Typography>
+                            </Alert>
+                          )}
                         </Box>
                       </Paper>
                     ))}
                     {ragResults.length === 0 && !ragLoading && (
-                      <Typography variant="body2" color="text.secondary">输入问题后点击检索</Typography>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        data-testid="kb-rag-empty-prompt"
+                        data-no-static-rag-fallback="true"
+                      >
+                        输入问题后点击检索
+                      </Typography>
                     )}
                   </Stack>
                 </Box>
@@ -483,7 +744,12 @@ export default function KnowledgeBasePage() {
 
               {/* Tab 2: 索引队列 */}
               {drawerTab === 2 && (
-                <Box>
+                <Box
+                  data-testid="kb-index-queue-panel"
+                  data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/index-queue/list`}
+                  data-refresh-interval-ms="5000"
+                  data-no-local-index-queue-fallback="true"
+                >
                   <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1} flexWrap="wrap" gap={1}>
                     <Typography variant="subtitle2">索引队列</Typography>
                     <Stack direction="row" alignItems="center" spacing={0.5}>
@@ -499,6 +765,9 @@ export default function KnowledgeBasePage() {
                   {indexQueueError && (
                     <Alert
                       severity="error"
+                      data-testid="kb-index-queue-error"
+                      data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/index-queue/list`}
+                      data-no-local-index-queue-fallback="true"
                       sx={{ mb: 1 }}
                       action={
                         <Button color="inherit" size="small" onClick={() => { void refetchIndexQueue() }}>
@@ -510,7 +779,13 @@ export default function KnowledgeBasePage() {
                     </Alert>
                   )}
 
-                  <Accordion disableGutters elevation={0} sx={{ mb: 1, border: 1, borderColor: 'divider', borderRadius: 1, '&:before': { display: 'none' } }}>
+                  <Accordion
+                    disableGutters
+                    elevation={0}
+                    data-testid="kb-index-queue-diagnostics"
+                    data-docker-ollama-diagnostic="true"
+                    sx={{ mb: 1, border: 1, borderColor: 'divider', borderRadius: 1, '&:before': { display: 'none' } }}
+                  >
                     <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                       <Typography variant="body2" fontWeight={600}>排查说明（常见原因）</Typography>
                     </AccordionSummary>
@@ -530,12 +805,25 @@ export default function KnowledgeBasePage() {
                   {indexFetching ? <CircularProgress size={24} /> : (
                     <Stack spacing={1}>
                       {!indexQueueError && indexQueue.length === 0 && (
-                        <Typography color="text.secondary" variant="body2">队列为空</Typography>
+                        <Typography
+                          color="text.secondary"
+                          variant="body2"
+                          data-testid="kb-index-queue-empty"
+                          data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/index-queue/list`}
+                        >
+                          队列为空
+                        </Typography>
                       )}
                       {indexQueue.map(item => {
                         const hint = item.errorMsg ? hintForIndexQueueError(item.errorMsg) : null
                         return (
-                          <Box key={item.id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
+                          <Box
+                            key={item.id}
+                            data-testid="kb-index-queue-row"
+                            data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/index-queue/list`}
+                            data-index-status={item.status}
+                            sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}
+                          >
                             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1} flexWrap="wrap">
                               <Typography variant="body2" sx={{ flex: 1, wordBreak: 'break-word', whiteSpace: 'pre-wrap', minWidth: 0 }}>
                                 {item.summary}
@@ -562,7 +850,13 @@ export default function KnowledgeBasePage() {
                                   {item.errorMsg}
                                 </Typography>
                                 {hint != null && (
-                                  <Alert severity="info" sx={{ mt: 1, py: 0.5 }} icon={false}>
+                                  <Alert
+                                    severity="info"
+                                    data-testid="kb-index-queue-error-hint"
+                                    data-docker-ollama-diagnostic={item.errorMsg?.toLowerCase().includes('embedding') || item.errorMsg?.includes('嵌入') ? 'true' : undefined}
+                                    sx={{ mt: 1, py: 0.5 }}
+                                    icon={false}
+                                  >
                                     <Typography variant="caption" component="div">{hint}</Typography>
                                   </Alert>
                                 )}
@@ -578,7 +872,11 @@ export default function KnowledgeBasePage() {
 
               {/* Tab 3: 进化适应度 */}
               {drawerTab === 3 && (
-                <Box>
+                <Box
+                  data-testid="kb-evolution-fitness-panel"
+                  data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/evolution-fitness/list`}
+                  data-no-local-fitness-fallback="true"
+                >
                   <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
                     <Typography variant="subtitle2">进化适应度</Typography>
                     <IconButton size="small" onClick={() => { void qc.invalidateQueries({ queryKey: ['kb-evolution-fitness'] }) }}>
@@ -588,10 +886,22 @@ export default function KnowledgeBasePage() {
                   {fitnessFetching ? <CircularProgress size={24} /> : (
                     <Stack spacing={1}>
                       {fitnessRows.length === 0 && (
-                        <Typography color="text.secondary" variant="body2">暂无记录（完成进化或索引入队后会出现）</Typography>
+                        <Typography
+                          color="text.secondary"
+                          variant="body2"
+                          data-testid="kb-evolution-fitness-empty"
+                          data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/evolution-fitness/list`}
+                        >
+                          暂无记录（完成进化或索引入队后会出现）
+                        </Typography>
                       )}
                       {fitnessRows.map(row => (
-                        <Box key={row.id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
+                        <Box
+                          key={row.id}
+                          data-testid="kb-evolution-fitness-row"
+                          data-source-endpoint={`/ai/knowledge-base/${selectedKb.id}/evolution-fitness/list`}
+                          sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}
+                        >
                           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1} flexWrap="wrap">
                             <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>{row.metricName}</Typography>
                             <Chip label={row.taskId} size="small" variant="outlined" sx={{ maxWidth: '100%' }} />
@@ -606,9 +916,27 @@ export default function KnowledgeBasePage() {
                             {formatDate(row.createTime ?? '')}
                           </Typography>
                           {row.payloadJson != null && row.payloadJson !== '' && (
-                            <Typography variant="caption" component="div" sx={{ mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 11 }}>
-                              {row.payloadJson.length > 400 ? `${row.payloadJson.slice(0, 400)}…` : row.payloadJson}
-                            </Typography>
+                            <Box
+                              component="pre"
+                              data-testid="kb-fitness-payload-preview"
+                              sx={(theme) => ({
+                                mt: 0.75,
+                                mb: 0,
+                                p: 1,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                fontFamily: 'Consolas, Monaco, monospace',
+                                fontSize: 11,
+                                lineHeight: 1.6,
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                borderRadius: 1,
+                                bgcolor: theme.palette.mode === 'dark' ? theme.palette.background.default : alpha(theme.palette.common.black, 0.025),
+                                color: 'text.primary',
+                              })}
+                            >
+                              {row.payloadJson.length > 400 ? `${row.payloadJson.slice(0, 400)}...` : row.payloadJson}
+                            </Box>
                           )}
                         </Box>
                       ))}
@@ -630,7 +958,12 @@ export default function KnowledgeBasePage() {
         }}
       >
         {viewDoc && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}>
+          <Box
+            data-testid="kb-document-detail-drawer"
+            data-source-endpoint="/ai/knowledge-base/{kbId}/documents"
+            data-no-static-document-fallback="true"
+            sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}
+          >
             <Box sx={{ px: 2.5, py: 2, borderBottom: 1, borderColor: 'divider' }}>
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -668,10 +1001,16 @@ export default function KnowledgeBasePage() {
                     <Grid item xs={6} sm={4}>
                       <Typography variant="caption" color="text.secondary" display="block">{`索引状态`}</Typography>
                       <Box sx={{ mt: 0.25 }}>
-                        <Chip label={viewDoc.status === 1 ? '已索引' : viewDoc.status === 0 ? '处理中' : '失败'} size="small"
-                          color={viewDoc.status === 1 ? 'success' : viewDoc.status === 0 ? 'warning' : 'error'} />
+                        <Chip label={kbDocumentStatus(viewDoc).label} size="small"
+                          color={kbDocumentStatus(viewDoc).color} />
                       </Box>
                     </Grid>
+                    {viewDoc.status === 0 && (
+                      <Grid item xs={6} sm={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">{`向量补偿`}</Typography>
+                        <Typography variant="body2" fontWeight={600}>{viewDoc.syncRetryCount ?? 0}/3</Typography>
+                      </Grid>
+                    )}
                   </Grid>
                 </Paper>
 
@@ -731,21 +1070,15 @@ export default function KnowledgeBasePage() {
                         最长展示 3000 字，超出部分已截断
                       </Typography>
                     </Box>
-                    <Box sx={{ p: 2, maxHeight: 440, overflow: 'auto' }}>
-                      <Typography
-                        component="div"
-                        variant="body2"
-                        sx={{
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          overflowWrap: 'anywhere',
-                          lineHeight: 1.75,
-                          fontSize: '0.875rem',
-                          color: 'text.primary',
-                        }}
-                      >
-                        {viewDoc.content.length > 3000 ? viewDoc.content.slice(0, 3000) + '…' : viewDoc.content}
-                      </Typography>
+                    <Box
+                      data-testid="kb-document-detail-markdown"
+                      data-renderer="MarkdownViewer"
+                      sx={{ p: 2, maxHeight: 440, overflow: 'auto' }}
+                    >
+                      <MarkdownViewer
+                        content={viewDoc.content.length > 3000 ? viewDoc.content.slice(0, 3000) + '…' : viewDoc.content}
+                        compact
+                      />
                     </Box>
                   </Paper>
                 )}
@@ -754,7 +1087,7 @@ export default function KnowledgeBasePage() {
             <Box sx={{ px: 2, py: 2, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
               <Stack direction="row" justifyContent="flex-end" spacing={1}>
                 <Button color="error" size="small" variant="outlined"
-                  onClick={() => { setDeleteDocId(viewDoc.id); setViewDoc(null) }}>删除文档</Button>
+                  onClick={() => { setDeleteDocError(null); setDeleteDocId(viewDoc.id); setViewDoc(null) }}>删除文档</Button>
                 <Button size="small" variant="contained" onClick={() => setViewDoc(null)}>关闭</Button>
               </Stack>
             </Box>

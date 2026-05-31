@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
@@ -108,7 +109,7 @@ class MessagingControllerTest {
         config.setPlatform("feishu");
         config.setAppId("test-app-id");
 
-        when(messagingPlatformService.getById(eq(1L))).thenReturn(config);
+        when(messagingPlatformService.getById(anyLong(), anyLong())).thenReturn(config);
 
         mockMvc.perform(post("/api/v1/messaging/config/get")
                         .requestAttr("userId", 1L)
@@ -136,7 +137,7 @@ class MessagingControllerTest {
         saveVO.setAppId("test-app-id");
         saveVO.setSecret("test-secret");
 
-        when(messagingPlatformService.save(any(MsgPlatformConfigSaveVO.class)))
+        when(messagingPlatformService.save(any(MsgPlatformConfigSaveVO.class), anyLong()))
                 .thenReturn(1L);
 
         mockMvc.perform(post("/api/v1/messaging/config/save")
@@ -165,7 +166,7 @@ class MessagingControllerTest {
     @Test
     @DisplayName("删除配置 - 应返回 204")
     void delete_shouldReturn204() throws Exception {
-        doNothing().when(messagingPlatformService).delete(eq(1L));
+        doNothing().when(messagingPlatformService).delete(anyLong(), anyLong());
 
         mockMvc.perform(post("/api/v1/messaging/config/delete")
                         .requestAttr("userId", 1L)

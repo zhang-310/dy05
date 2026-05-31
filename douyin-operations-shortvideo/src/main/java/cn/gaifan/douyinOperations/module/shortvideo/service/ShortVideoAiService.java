@@ -22,9 +22,19 @@ public interface ShortVideoAiService {
     String generateCopy(AiCopyGenerateVO vo, Long userId, String taskCode);
 
     /**
+     * AI 生成文案（返回官方规则引用，供前端展示溯源）
+     */
+    AiTextGenerateResultVO generateCopyRich(AiCopyGenerateVO vo, Long userId, String taskCode);
+
+    /**
      * AI 生成脚本
      */
     String generateScript(AiScriptGenerateVO vo, Long userId);
+
+    /**
+     * AI 生成脚本（返回官方规则引用，供前端展示溯源）
+     */
+    AiTextGenerateResultVO generateScriptRich(AiScriptGenerateVO vo, Long userId);
 
     /**
      * AI 生成标题
@@ -35,4 +45,9 @@ public interface ShortVideoAiService {
      * AI 生成视频方案
      */
     String generateVideoPlan(AiVideoPlanGenerateVO vo, Long userId);
+
+    /**
+     * AI 生成视频方案（返回官方规则引用，供前端展示溯源）
+     */
+    AiTextGenerateResultVO generateVideoPlanRich(AiVideoPlanGenerateVO vo, Long userId);
 }

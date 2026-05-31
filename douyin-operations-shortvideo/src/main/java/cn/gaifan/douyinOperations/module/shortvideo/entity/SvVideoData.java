@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Date;
@@ -11,9 +13,11 @@ import java.sql.Timestamp;
  * 与 sql/shortvideo/schema.sql 中 sv_video_data 一一对应
  * 注意：无 deleted 字段
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_video_data")
+@NoArgsConstructor
 public class SvVideoData {
 
     @Id

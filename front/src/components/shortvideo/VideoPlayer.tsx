@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { Box, IconButton, Slider, Typography, Tooltip } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import {
   PlayArrow,
   Pause,
@@ -12,6 +13,8 @@ import {
 } from '@mui/icons-material'
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
+const VIDEO_CONTROL_OVERLAY_OPACITY = 0.8
+const VIDEO_SPEED_MENU_OPACITY = 0.88
 
 interface VideoPlayerProps {
   src: string
@@ -173,7 +176,12 @@ export function VideoPlayer({
   }
 
   return (
-    <Box ref={containerRef} sx={{ position: 'relative', bgcolor: 'black', borderRadius: 1, overflow: 'hidden', ...sx }}>
+    <Box
+      ref={containerRef}
+      data-testid="shortvideo-video-player"
+      data-media-tone="video-stage"
+      sx={{ position: 'relative', bgcolor: 'common.black', borderRadius: 1, overflow: 'hidden', ...sx }}
+    >
       <video
         ref={videoRef}
         src={src}
@@ -190,12 +198,14 @@ export function VideoPlayer({
       />
       {controls && (
         <Box
+          data-testid="shortvideo-video-player-controls"
+          data-media-tone="control-overlay"
           sx={{
             position: 'absolute',
             bottom: 0,
             left: 0,
             right: 0,
-            background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+            background: (theme) => `linear-gradient(transparent, ${alpha(theme.palette.common.black, VIDEO_CONTROL_OVERLAY_OPACITY)})`,
             p: 1,
             display: 'flex',
             flexWrap: 'wrap',
@@ -253,12 +263,14 @@ export function VideoPlayer({
             </Tooltip>
             {speedMenuOpen && (
               <Box
+                data-testid="shortvideo-video-player-speed-menu"
+                data-media-tone="speed-menu-overlay"
                 sx={{
                   position: 'absolute',
                   bottom: '100%',
                   right: 0,
                   mb: 0.5,
-                  bgcolor: 'grey.900',
+                  bgcolor: (theme) => alpha(theme.palette.common.black, VIDEO_SPEED_MENU_OPACITY),
                   borderRadius: 1,
                   p: 0.5,
                   display: 'flex',

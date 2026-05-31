@@ -114,11 +114,12 @@ export function generateFusionStrategyPrompt(
       }
       return `按 ${styles.join(' → ')} 的顺序分段呈现话术，每段风格清晰，过渡自然流畅。`
 
-    case 'layered':
+    case 'layered': {
       // 分层融合：主风格为基础，其他风格点缀
       const primaryStyle = styles[0]
       const accentStyles = styles.slice(1)
       return `以 ${primaryStyle} 风格为主基调，在关键位置点缀 ${accentStyles.join('、')} 等风格元素。主风格贯穿全文，其他风格作为亮点出现。`
+    }
 
     case 'alternating':
       // 交替融合：多个风格交替出现

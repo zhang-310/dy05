@@ -16,7 +16,7 @@ import { test, expect } from '../fixtures/auth.fixture'
 
 test.describe('AI 模块 - 基础设施管理', () => {
   test('应该能够加载 AI 基础设施管理页面', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/infrastructure')
+    await authenticatedPage.goto('/admin/ai/admin-infra')
     await authenticatedPage.waitForLoadState('networkidle')
 
     const heading = authenticatedPage.locator('h4, h5, .page-title')
@@ -24,7 +24,7 @@ test.describe('AI 模块 - 基础设施管理', () => {
   })
 
   test('应该能够查看服务状态', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/infrastructure')
+    await authenticatedPage.goto('/admin/ai/admin-infra')
     await authenticatedPage.waitForLoadState('networkidle')
 
     // 等待状态卡片加载
@@ -33,7 +33,7 @@ test.describe('AI 模块 - 基础设施管理', () => {
   })
 
   test('应该能够查看资源使用情况', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/infrastructure')
+    await authenticatedPage.goto('/admin/ai/admin-infra')
     await authenticatedPage.waitForLoadState('networkidle')
 
     // 等待图表或统计数据加载
@@ -43,7 +43,7 @@ test.describe('AI 模块 - 基础设施管理', () => {
   })
 
   test('应该能够配置服务参数', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/infrastructure')
+    await authenticatedPage.goto('/admin/ai/admin-infra')
     await authenticatedPage.waitForLoadState('networkidle')
 
     const configButton = authenticatedPage.locator('button:has-text("配置"), button:has-text("设置")')
@@ -64,7 +64,7 @@ test.describe('AI 模块 - 基础设施管理', () => {
 
 test.describe('AI 模块 - 调用日志', () => {
   test('应该能够加载 AI 调用日志页面', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/call-logs')
+    await authenticatedPage.goto('/admin/ai/call-log')
     await authenticatedPage.waitForLoadState('networkidle')
 
     const heading = authenticatedPage.locator('h4, h5, .page-title')
@@ -72,7 +72,7 @@ test.describe('AI 模块 - 调用日志', () => {
   })
 
   test('应该能够查看调用日志列表', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/call-logs')
+    await authenticatedPage.goto('/admin/ai/call-log')
     await authenticatedPage.waitForLoadState('networkidle')
 
     // 等待表格或列表加载
@@ -81,7 +81,7 @@ test.describe('AI 模块 - 调用日志', () => {
   })
 
   test('应该能够搜索调用日志', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/call-logs')
+    await authenticatedPage.goto('/admin/ai/call-log')
     await authenticatedPage.waitForLoadState('networkidle')
 
     const searchInput = authenticatedPage.locator('input[placeholder*="搜索"], input[type="search"]')
@@ -92,7 +92,7 @@ test.describe('AI 模块 - 调用日志', () => {
   })
 
   test('应该能够筛选调用日志', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/call-logs')
+    await authenticatedPage.goto('/admin/ai/call-log')
     await authenticatedPage.waitForLoadState('networkidle')
 
     const filterButton = authenticatedPage.locator('button:has-text("筛选"), button:has-text("过滤")')
@@ -103,7 +103,7 @@ test.describe('AI 模块 - 调用日志', () => {
   })
 
   test('应该能够查看日志详情', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/call-logs')
+    await authenticatedPage.goto('/admin/ai/call-log')
     await authenticatedPage.waitForLoadState('networkidle')
 
     const detailButton = authenticatedPage.locator('button:has-text("详情"), button:has-text("查看"), [aria-label*="详情"]')
@@ -122,7 +122,7 @@ test.describe('AI 模块 - 调用日志', () => {
   })
 
   test('应该能够导出调用日志', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto('/admin/ai/call-logs')
+    await authenticatedPage.goto('/admin/ai/call-log')
     await authenticatedPage.waitForLoadState('networkidle')
 
     const exportButton = authenticatedPage.locator('button:has-text("导出"), button:has-text("下载")')

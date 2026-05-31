@@ -259,7 +259,7 @@ class CopyTemplateServiceImplTest {
                 .thenReturn(mockTemplate);
 
         // When
-        copyTemplateService.delete(1L);
+        copyTemplateService.delete(1L, 1L);
 
         // Then
         verify(copyTemplateRepository).findByIdAndDeleted(1L, 0);
@@ -270,7 +270,7 @@ class CopyTemplateServiceImplTest {
     @DisplayName("删除模板 - ID 无效应抛出异常")
     void delete_invalidId_shouldThrowException() {
         // When & Then
-        assertThatThrownBy(() -> copyTemplateService.delete(null))
+        assertThatThrownBy(() -> copyTemplateService.delete(null, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("模板 ID 无效");
     }
@@ -283,7 +283,7 @@ class CopyTemplateServiceImplTest {
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> copyTemplateService.delete(999L))
+        assertThatThrownBy(() -> copyTemplateService.delete(999L, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("模板不存在");
     }
@@ -296,7 +296,7 @@ class CopyTemplateServiceImplTest {
                 .thenReturn(Optional.of(mockTemplate));
 
         // When
-        copyTemplateService.updateStatus(1L, 0);
+        copyTemplateService.updateStatus(1L, 0, 1L);
 
         // Then
         verify(copyTemplateRepository).findByIdAndDeleted(1L, 0);
@@ -311,7 +311,7 @@ class CopyTemplateServiceImplTest {
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> copyTemplateService.updateStatus(999L, 0))
+        assertThatThrownBy(() -> copyTemplateService.updateStatus(999L, 0, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("模板不存在");
     }

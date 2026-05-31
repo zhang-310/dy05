@@ -308,6 +308,8 @@ public class DouyinScriptLearningServiceImpl implements DouyinScriptLearningServ
             var nodes = mapper.readTree(jsonArray);
             if (!nodes.isArray()) return 0;
 
+            // P2-7: 批量收集后统一保存，减少数据库往返
+            List<ScriptSaveVO> batchSaveList = new ArrayList<>();
             for (var node : nodes) {
                 String title = node.path("title").asText("抖音学习话术");
                 String content = node.path("content").asText();
@@ -322,7 +324,11 @@ public class DouyinScriptLearningServiceImpl implements DouyinScriptLearningServ
                 saveVO.setCategory(category);
                 saveVO.setSource(SOURCE_DOUYIN_LEARN);
                 saveVO.setStatus(1);
+                batchSaveList.add(saveVO);
+            }
 
+            // 批量保存
+            for (ScriptSaveVO saveVO : batchSaveList) {
                 try {
                     scriptLibraryService.save(saveVO);
                     saved++;

@@ -11,6 +11,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -27,12 +28,15 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(BusinessException.class)
-    @ResponseStatus(HttpStatus.OK)
-    public RESTResult<?> handleBusiness(BusinessException e, HttpServletRequest request) {
+    public ResponseEntity<RESTResult<?>> handleBusiness(BusinessException e, HttpServletRequest request) {
         log.warn("业务异常: uri={}, code={}, msg={}", request != null ? request.getRequestURI() : "n/a", e.getCode(), e.getMessage());
         RESTResult<?> r = RESTResult.error(e.getCode(), e.getMessage());
         r.setTraceId(MDC.get("traceId"));
-        return r;
+        HttpStatus status = (e.getCode() == ErrorCode.INSUFFICIENT_CREDITS
+                || e.getCode() == ErrorCode.ENTITLEMENT_DENIED)
+                ? HttpStatus.PAYMENT_REQUIRED
+                : HttpStatus.OK;
+        return ResponseEntity.status(status).body(r);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

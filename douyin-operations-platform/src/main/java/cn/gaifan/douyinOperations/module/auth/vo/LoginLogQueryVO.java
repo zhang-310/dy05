@@ -17,6 +17,12 @@ public class LoginLogQueryVO implements Serializable {
     /** 用户ID，管理员可选；普通用户忽略此字段 */
     private Long userId;
 
+    /** 登录用户名，管理员可选 */
+    private String username;
+
+    /** 登录状态，1=成功，0=失败 */
+    private Integer status;
+
     private int page = 0;
     private int size = 20;
 }

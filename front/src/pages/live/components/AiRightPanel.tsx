@@ -12,6 +12,7 @@ import {
   Tabs,
   Typography,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
 import { AiChatPanel, type AiChatPanelProps } from './AiChatPanel'
@@ -45,6 +46,19 @@ export interface AiRightPanelProps {
   onOptimizeSelected?: (text: string) => void
 }
 
+const AI_RIGHT_PANEL_READY_SOURCES = [
+  'chat-props',
+  'analyst-props',
+  'quality-results-props',
+]
+
+const AI_RIGHT_PANEL_UNSUPPORTED_ACTIONS = [
+  'local-quality-fallback',
+  'quality-result-mutation',
+  'assistant-network-call',
+  'analysis-network-call',
+]
+
 export const AiRightPanel = memo(function AiRightPanel({
   activeTab: controlledTab,
   onTabChange,
@@ -70,9 +84,24 @@ export const AiRightPanel = memo(function AiRightPanel({
   const failedCount = qualityResults.filter((r) => !r.passed).length
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <Box
+      data-testid="ai-right-panel-workbench"
+      data-contract-scope="live-ai-side-panel"
+      data-ready-sources={AI_RIGHT_PANEL_READY_SOURCES.join('|')}
+      data-unsupported-actions={AI_RIGHT_PANEL_UNSUPPORTED_ACTIONS.join('|')}
+      data-active-tab={tab}
+      data-chat-available={chatAvailable ? 'true' : 'false'}
+      data-analyst-available={analystAvailable ? 'true' : 'false'}
+      data-quality-count={qualityResults.length}
+      data-quality-passed-count={passedCount}
+      data-quality-failed-count={failedCount}
+      data-no-local-quality-fallback="true"
+      sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
+    >
       {/* Tab navigation */}
       <Tabs
+        data-testid="ai-right-panel-tabs"
+        data-contract-source="props-only"
         value={tab}
         onChange={handleTabChange}
         variant="fullWidth"
@@ -92,7 +121,11 @@ export const AiRightPanel = memo(function AiRightPanel({
 
       {/* Selected text optimization hint */}
       {selectedText && tab === 'assistant' && onOptimizeSelected && (
-        <Box sx={{ px: 1.5, py: 0.75, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box
+          data-testid="ai-right-selected-text-hint"
+          data-contract-source="selected-text-prop"
+          sx={{ px: 1.5, py: 0.75, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}
+        >
           <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1 }}>
             已选中: {selectedText.slice(0, 30)}{selectedText.length > 30 ? '…' : ''}
           </Typography>
@@ -107,7 +140,11 @@ export const AiRightPanel = memo(function AiRightPanel({
         {chatAvailable ? (
           <AiChatPanel {...chatProps} />
         ) : (
-          <Box sx={{ p: 2, textAlign: 'center' }}>
+          <Box
+            data-testid="ai-right-assistant-unavailable"
+            data-contract-source="chat-available-prop"
+            sx={{ p: 2, textAlign: 'center' }}
+          >
             <Typography variant="body2" color="text.secondary">请先选中话术开始编辑</Typography>
           </Box>
         )}
@@ -117,13 +154,22 @@ export const AiRightPanel = memo(function AiRightPanel({
         {analystAvailable ? (
           <AiAnalystPanel {...analystProps} />
         ) : (
-          <Box sx={{ p: 2, textAlign: 'center' }}>
+          <Box
+            data-testid="ai-right-analysis-unavailable"
+            data-contract-source="analyst-available-prop"
+            sx={{ p: 2, textAlign: 'center' }}
+          >
             <Typography variant="body2" color="text.secondary">请先选中话术进行分析</Typography>
           </Box>
         )}
       </Box>
 
-      <Box sx={{ flex: 1, overflow: 'auto', display: tab === 'quality' ? 'flex' : 'none', flexDirection: 'column', p: 1.5 }}>
+      <Box
+        data-testid="ai-right-quality-surface"
+        data-contract-source="quality-results-props"
+        data-no-local-quality-fallback="true"
+        sx={{ flex: 1, overflow: 'auto', display: tab === 'quality' ? 'flex' : 'none', flexDirection: 'column', p: 1.5 }}
+      >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
           <Typography variant="subtitle2">质量检测</Typography>
           <Button
@@ -131,13 +177,22 @@ export const AiRightPanel = memo(function AiRightPanel({
             variant="outlined"
             onClick={onRunQualityCheck}
             disabled={qualityLoading}
+            data-testid="ai-right-quality-run-button"
+            data-contract-source="onRunQualityCheck-prop"
           >
             {qualityLoading ? '检测中…' : '运行检测'}
           </Button>
         </Box>
 
         {qualityResults.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 4 }}>
+          <Typography
+            data-testid="ai-right-quality-empty-state"
+            data-contract-source="quality-results-props"
+            data-no-local-quality-fallback="true"
+            variant="body2"
+            color="text.secondary"
+            sx={{ textAlign: 'center', mt: 4 }}
+          >
             点击「运行检测」检查话术质量
           </Typography>
         ) : (
@@ -155,13 +210,23 @@ export const AiRightPanel = memo(function AiRightPanel({
             {qualityResults.map((r) => (
               <Box
                 key={r.scriptId}
-                sx={{
+                data-testid={r.passed ? 'ai-right-quality-passed-surface' : 'ai-right-quality-failed-surface'}
+                data-contract-source="quality-results-props"
+                data-script-id={r.scriptId}
+                data-passed={r.passed ? 'true' : 'false'}
+                sx={(theme) => ({
                   p: 1,
                   borderRadius: 1,
                   border: 1,
-                  borderColor: r.passed ? 'success.light' : 'error.light',
-                  bgcolor: r.passed ? 'success.50' : 'error.50',
-                }}
+                  borderColor: alpha(
+                    r.passed ? theme.palette.success.main : theme.palette.error.main,
+                    theme.palette.mode === 'dark' ? 0.45 : 0.28,
+                  ),
+                  bgcolor: alpha(
+                    r.passed ? theme.palette.success.main : theme.palette.error.main,
+                    theme.palette.mode === 'dark' ? 0.16 : 0.1,
+                  ),
+                })}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   {r.passed ? <CheckCircleIcon fontSize="small" color="success" /> : <ErrorIcon fontSize="small" color="error" />}

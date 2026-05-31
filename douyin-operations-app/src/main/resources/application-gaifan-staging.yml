@@ -1,0 +1,33 @@
+# Gaifan staging/demo：强制积分扣费 + 合规默认关闭采集
+server:
+  port: ${SERVER_PORT:18082}
+
+spring:
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+app:
+  credit:
+    enforce: true
+  gaifan:
+    allow-header-identity: true
+  ai:
+    default-provider: ${AI_DEFAULT_PROVIDER:mock}
+    retail-markup: 1.5
+    evolve:
+      enabled: false
+    kb:
+      store: ${KB_STORE:pgvector}
+      stub-embedding: true
+    hybrid:
+      fallback-to-es-only: true
+      fallback-to-milvus-only: true
+  collector:
+    enabled: false
+  benchmark:
+    cookie-enabled: false
+  viral-collector:
+    enabled: false

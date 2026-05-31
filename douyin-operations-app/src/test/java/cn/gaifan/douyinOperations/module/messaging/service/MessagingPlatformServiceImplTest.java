@@ -105,31 +105,31 @@ class MessagingPlatformServiceImplTest {
     @DisplayName("获取配置详情 - 应返回配置信息")
     void getById_shouldReturnConfig() {
         // Given
-        when(repository.findByIdAndDeleted(1L, 0))
+        when(repository.findById(anyLong()))
                 .thenReturn(Optional.of(mockConfig));
 
         // When
-        MsgPlatformConfigVO result = messagingPlatformService.getById(1L);
+        MsgPlatformConfigVO result = messagingPlatformService.getById(1L, ownerId);
 
         // Then
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getPlatform()).isEqualTo("wecom");
-        verify(repository).findByIdAndDeleted(1L, 0);
+        verify(repository).findById(anyLong());
     }
 
     @Test
     @DisplayName("获取配置详情 - 配置不存在应抛出异常")
     void getById_notFound_shouldThrowException() {
         // Given
-        when(repository.findByIdAndDeleted(999L, 0))
+        when(repository.findById(anyLong()))
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> messagingPlatformService.getById(999L))
+        assertThatThrownBy(() -> messagingPlatformService.getById(999L, ownerId))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("配置不存在");
-        verify(repository).findByIdAndDeleted(999L, 0);
+        verify(repository).findById(anyLong());
     }
 
     @Test
@@ -150,7 +150,7 @@ class MessagingPlatformServiceImplTest {
                 .thenReturn(mockConfig);
 
         // When
-        long result = messagingPlatformService.save(saveVO);
+        long result = messagingPlatformService.save(saveVO, ownerId);
 
         // Then
         assertThat(result).isEqualTo(1L);
@@ -172,17 +172,17 @@ class MessagingPlatformServiceImplTest {
         saveVO.setCallbackEncodingAesKey("updated-aes-key");
         saveVO.setAgentId(1002L);
 
-        when(repository.findByIdAndDeleted(1L, 0))
+        when(repository.findById(anyLong()))
                 .thenReturn(Optional.of(mockConfig));
         when(repository.save(any(MsgPlatformConfig.class)))
                 .thenReturn(mockConfig);
 
         // When
-        long result = messagingPlatformService.save(saveVO);
+        long result = messagingPlatformService.save(saveVO, ownerId);
 
         // Then
         assertThat(result).isEqualTo(1L);
-        verify(repository).findByIdAndDeleted(1L, 0);
+        verify(repository).findById(anyLong());
         verify(repository).save(any(MsgPlatformConfig.class));
     }
 
@@ -201,14 +201,14 @@ class MessagingPlatformServiceImplTest {
         saveVO.setCallbackEncodingAesKey("aes-key");
         saveVO.setAgentId(1003L);
 
-        when(repository.findByIdAndDeleted(999L, 0))
+        when(repository.findById(anyLong()))
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> messagingPlatformService.save(saveVO))
+        assertThatThrownBy(() -> messagingPlatformService.save(saveVO, ownerId))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("配置不存在");
-        verify(repository).findByIdAndDeleted(999L, 0);
+        verify(repository).findById(anyLong());
         verify(repository, never()).save(any(MsgPlatformConfig.class));
     }
 
@@ -216,16 +216,16 @@ class MessagingPlatformServiceImplTest {
     @DisplayName("删除配置 - 应标记为已删除")
     void delete_shouldMarkAsDeleted() {
         // Given
-        when(repository.findByIdAndDeleted(1L, 0))
+        when(repository.findById(anyLong()))
                 .thenReturn(Optional.of(mockConfig));
         when(repository.save(any(MsgPlatformConfig.class)))
                 .thenReturn(mockConfig);
 
         // When
-        messagingPlatformService.delete(1L);
+        messagingPlatformService.delete(1L, ownerId);
 
         // Then
-        verify(repository).findByIdAndDeleted(1L, 0);
+        verify(repository).findById(anyLong());
         verify(repository).save(argThat(config -> config.getDeleted() == 1));
     }
 
@@ -233,14 +233,14 @@ class MessagingPlatformServiceImplTest {
     @DisplayName("删除配置 - 配置不存在应抛出异常")
     void delete_notFound_shouldThrowException() {
         // Given
-        when(repository.findByIdAndDeleted(999L, 0))
+        when(repository.findById(999L))
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> messagingPlatformService.delete(999L))
+        assertThatThrownBy(() -> messagingPlatformService.delete(999L, ownerId))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("配置不存在");
-        verify(repository).findByIdAndDeleted(999L, 0);
+        verify(repository).findById(999L);
         verify(repository, never()).save(any(MsgPlatformConfig.class));
     }
 
@@ -248,7 +248,7 @@ class MessagingPlatformServiceImplTest {
     @DisplayName("根据平台和 Token 获取配置 - 应返回配置")
     void getByPlatformAndToken_shouldReturnConfig() {
         // Given
-        when(repository.findByPlatformAndCallbackTokenAndDeleted("wecom", "test-token", 0))
+        when(repository.findByPlatformAndCallbackToken("wecom", "test-token"))
                 .thenReturn(Optional.of(mockConfig));
 
         // When
@@ -257,14 +257,14 @@ class MessagingPlatformServiceImplTest {
         // Then
         assertThat(result).isNotNull();
         assertThat(result.getPlatform()).isEqualTo("wecom");
-        verify(repository).findByPlatformAndCallbackTokenAndDeleted("wecom", "test-token", 0);
+        verify(repository).findByPlatformAndCallbackToken("wecom", "test-token");
     }
 
     @Test
     @DisplayName("根据平台和 Token 获取配置 - 配置不存在应返回 null")
     void getByPlatformAndToken_notFound_shouldReturnNull() {
         // Given
-        when(repository.findByPlatformAndCallbackTokenAndDeleted("wecom", "invalid-token", 0))
+        when(repository.findByPlatformAndCallbackToken("wecom", "invalid-token"))
                 .thenReturn(Optional.empty());
 
         // When
@@ -272,7 +272,7 @@ class MessagingPlatformServiceImplTest {
 
         // Then
         assertThat(result).isNull();
-        verify(repository).findByPlatformAndCallbackTokenAndDeleted("wecom", "invalid-token", 0);
+        verify(repository).findByPlatformAndCallbackToken("wecom", "invalid-token");
     }
 
     @Test
@@ -283,7 +283,7 @@ class MessagingPlatformServiceImplTest {
 
         // Then
         assertThat(result).isNull();
-        verify(repository, never()).findByPlatformAndCallbackTokenAndDeleted(anyString(), anyString(), anyInt());
+        verify(repository, never()).findByPlatformAndCallbackToken(anyString(), anyString());
     }
 
     @Test
@@ -294,7 +294,7 @@ class MessagingPlatformServiceImplTest {
 
         // Then
         assertThat(result).isNull();
-        verify(repository, never()).findByPlatformAndCallbackTokenAndDeleted(anyString(), anyString(), anyInt());
+        verify(repository, never()).findByPlatformAndCallbackToken(anyString(), anyString());
     }
 
     @Test
@@ -305,6 +305,6 @@ class MessagingPlatformServiceImplTest {
 
         // Then
         assertThat(result).isNull();
-        verify(repository, never()).findByPlatformAndCallbackTokenAndDeleted(anyString(), anyString(), anyInt());
+        verify(repository, never()).findByPlatformAndCallbackToken(anyString(), anyString());
     }
 }

@@ -23,6 +23,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -123,7 +124,68 @@ public class VideoGenerationTaskServiceImpl implements VideoGenerationTaskServic
         m.put("shotListId", t.getShotListId());
         m.put("createTime", t.getCreateTime() != null ? t.getCreateTime().toString() : "");
         m.put("errorMessage", t.getErrorMessage());
+        List<Map<String, Object>> videos = parseTaskVideos(t.getResultJson());
+        if (!videos.isEmpty()) {
+            m.put("videos", videos);
+            m.put("videoCount", videos.size());
+            videos.stream()
+                    .map(v -> v.get("videoUrl"))
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .filter(StringUtils::hasText)
+                    .findFirst()
+                    .ifPresent(outputUrl -> m.put("outputUrl", outputUrl));
+        }
         return m;
+    }
+
+    private List<Map<String, Object>> parseTaskVideos(String resultJson) {
+        if (!StringUtils.hasText(resultJson)) {
+            return List.of();
+        }
+        try {
+            List<ShortVideoMaterialService.VideoResult> videos = objectMapper.readValue(
+                    resultJson, new TypeReference<List<ShortVideoMaterialService.VideoResult>>() {});
+            return videos.stream().map(this::toVideoResultMap).toList();
+        } catch (Exception ignored) {
+            try {
+                List<Map<String, Object>> raw = objectMapper.readValue(
+                        resultJson, new TypeReference<List<Map<String, Object>>>() {});
+                return raw.stream().map(this::normalizeVideoResultMap).filter(v -> !v.isEmpty()).toList();
+            } catch (Exception ignoredAgain) {
+                return List.of();
+            }
+        }
+    }
+
+    private Map<String, Object> toVideoResultMap(ShortVideoMaterialService.VideoResult video) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (video.shotId() != null) m.put("shotId", video.shotId());
+        if (video.shotNumber() != null) m.put("shotNumber", video.shotNumber());
+        if (StringUtils.hasText(video.videoUrl())) m.put("videoUrl", video.videoUrl());
+        if (StringUtils.hasText(video.bosKey())) m.put("bosKey", video.bosKey());
+        if (video.duration() != null) m.put("duration", video.duration());
+        return m;
+    }
+
+    private Map<String, Object> normalizeVideoResultMap(Map<String, Object> raw) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        copyIfPresent(raw, m, "shotId");
+        copyIfPresent(raw, m, "shotNumber");
+        copyIfPresent(raw, m, "videoUrl");
+        copyIfPresent(raw, m, "bosKey");
+        copyIfPresent(raw, m, "duration");
+        return m;
+    }
+
+    private void copyIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
+        Object value = source.get(key);
+        if (value instanceof String s && !StringUtils.hasText(s)) {
+            return;
+        }
+        if (value != null) {
+            target.put(key, value);
+        }
     }
 
     @Override
@@ -139,7 +201,9 @@ public class VideoGenerationTaskServiceImpl implements VideoGenerationTaskServic
         if (task.getResultJson() != null && !task.getResultJson().isEmpty()) {
             try {
                 videos = objectMapper.readValue(task.getResultJson(), new TypeReference<List<ShortVideoMaterialService.VideoResult>>() {});
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // JSON反序列化失败，返回null
+            }
         }
 
         String message = task.getStatus();

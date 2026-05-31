@@ -20,7 +20,11 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { shortvideoApi, type ViralVideo } from '@/api/shortvideo'
+import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import { useToast } from '@/contexts/ToastContext'
+import { useGaifanEntitlementGate } from '@/hooks/useGaifanEntitlementGate'
+import { PageHeader } from '@/components/base'
+import { getErrorMessage } from '@/utils/errorHandler'
 
 /** 无数据时显示 —，避免与真实 0 混淆 */
 function formatCount(n: number | null | undefined): string {
@@ -409,8 +413,42 @@ function viralShareCount(v: ViralVideo): number | undefined {
   return Number.isFinite(x) ? x : undefined
 }
 
+const VIRAL_ENDPOINTS = {
+  list: '/short-video/viral/list',
+  get: '/short-video/viral/get',
+  collect: '/short-video/viral/collect',
+  analyze: '/short-video/viral/analyze',
+} as const
+const VIRAL_READY_ENDPOINTS = Object.values(VIRAL_ENDPOINTS).join('|')
+const VIRAL_UNSUPPORTED_ENDPOINTS = [
+  '/short-video/viral/mock',
+  '/short-video/viral/local-list',
+  '/short-video/viral/local-detail',
+  '/short-video/viral/local-collect',
+  '/short-video/viral/local-analyze',
+  '/short-video/viral/local-cover',
+  '/short-video/viral/local-keyframes',
+  '/short-video/viral/browser-scrape',
+  '/short-video/viral/template-analysis',
+  '/short-video/viral/export',
+].join('|')
+const VIRAL_READY_ROUTES = [
+  shortvideoRoutes.viralVideos,
+  `${shortvideoRoutes.viralVideos}?videoId=:id`,
+].join('|')
+const VIRAL_SUPPORTED_ACTIONS = [
+  'refresh-viral-list',
+  'server-filter-viral-list',
+  'open-viral-detail',
+  'refresh-viral-detail',
+  'collect-viral-video',
+  'analyze-viral-video',
+  'copy-transcript',
+].join('|')
+
 export default function ViralVideoPage() {
   const toast = useToast()
+  const gate = useGaifanEntitlementGate()
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [keyword, setKeyword] = useState('')
@@ -418,6 +456,11 @@ export default function ViralVideoPage() {
   const [minPlay, setMinPlay] = useState<number | ''>('')
   const [detail, setDetail] = useState<ViralVideo | null>(null)
   const [page, setPage] = useState(0)
+  const [viralActionError, setViralActionError] = useState<{
+    action: 'collect' | 'analyze'
+    videoId: number
+    message: string
+  } | null>(null)
   const rows = 20
 
   /** 从账号详情等页面深链：?videoId=123 → 打开详情抽屉并移除 query，避免刷新重复弹出 */
@@ -432,7 +475,13 @@ export default function ViralVideoPage() {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
-  const { data, isFetching } = useQuery({
+  const {
+    data,
+    isFetching,
+    isError: listIsError,
+    error: listError,
+    refetch: refetchList,
+  } = useQuery({
     queryKey: ['viral-videos', searchKw, minPlay, page],
     queryFn: () => shortvideoApi.viralList({
       page, rows, keyword: searchKw || undefined,
@@ -441,7 +490,13 @@ export default function ViralVideoPage() {
   })
 
   const detailId = detail?.id ?? null
-  const { data: detailFromApi, isFetching: detailLoading, refetch: refetchDetail } = useQuery({
+  const {
+    data: detailFromApi,
+    isFetching: detailLoading,
+    isError: detailIsError,
+    error: detailError,
+    refetch: refetchDetail,
+  } = useQuery({
     queryKey: ['viral-video-detail', detailId],
     queryFn: () => shortvideoApi.viralGet(detailId!),
     enabled: detailId != null,
@@ -455,23 +510,44 @@ export default function ViralVideoPage() {
 
   const favMut = useMutation({
     mutationFn: (id: number) => shortvideoApi.viralCollect(id),
+    onMutate: () => {
+      setViralActionError(null)
+    },
     onSuccess: () => {
       toast('已收藏', 'success')
+      setViralActionError(null)
       void qc.invalidateQueries({ queryKey: ['viral-videos'] })
       void qc.invalidateQueries({ queryKey: ['viral-video-detail'] })
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e, id) => {
+      const message = getErrorMessage(e)
+      setViralActionError({ action: 'collect', videoId: id, message })
+      toast(`收藏失败：${message}`, 'error')
+    },
   })
 
   const analyzeMut = useMutation({
-    mutationFn: shortvideoApi.viralAnalyze,
+    mutationFn: (id: number) => shortvideoApi.viralAnalyze(id),
+    onMutate: () => {
+      setViralActionError(null)
+    },
     onSuccess: (_, id) => {
       toast('分析任务已提交；详情抽屉打开时将自动轮询直至完成', 'success')
+      setViralActionError(null)
       void qc.invalidateQueries({ queryKey: ['viral-videos'] })
       void qc.invalidateQueries({ queryKey: ['viral-video-detail', id] })
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e, id) => {
+      const message = getErrorMessage(e)
+      setViralActionError({ action: 'analyze', videoId: id, message })
+      toast(`拆解分析失败：${message}`, 'error')
+    },
   })
+
+  const handleAnalyze = async (id: number) => {
+    if (!(await gate('video-insight', 'video-insight.breakdown'))) return
+    analyzeMut.mutate(id)
+  }
 
   const handleSearch = () => { setSearchKw(keyword); setPage(0) }
 
@@ -502,8 +578,47 @@ export default function ViralVideoPage() {
   )
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ rowGap: 1 }}>
+    <Box
+      data-testid="viral-video-page"
+      data-ready-endpoints={VIRAL_READY_ENDPOINTS}
+      data-ready-routes={VIRAL_READY_ROUTES}
+      data-supported-actions={VIRAL_SUPPORTED_ACTIONS}
+      data-unsupported-endpoints={VIRAL_UNSUPPORTED_ENDPOINTS}
+      data-no-local-viral-fallback="true"
+      data-no-local-cover-fallback="true"
+      data-no-browser-direct-scrape="true"
+      sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+    >
+      <PageHeader
+        title="爆款视频库"
+        breadcrumbs={[{ label: '短视频' }, { label: '爆款视频库' }]}
+        subtitle="对齐 `/short-video/viral/list|get|collect|analyze`；采集缺封面、缺互动或深拆未完成时在页面内展示真实状态。"
+        actions={
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => void refetchList()}
+            disabled={isFetching}
+            data-testid="viral-video-refresh-list-button"
+            data-source-endpoint={VIRAL_ENDPOINTS.list}
+          >
+            刷新列表
+          </Button>
+        }
+      />
+
+      <Stack
+        direction="row"
+        spacing={1.5}
+        alignItems="center"
+        flexWrap="wrap"
+        useFlexGap
+        data-testid="viral-video-search-contract"
+        data-source-endpoint={VIRAL_ENDPOINTS.list}
+        data-server-filter-payload="true"
+        data-supported-actions={VIRAL_SUPPORTED_ACTIONS}
+        sx={{ rowGap: 1 }}
+      >
         <TextField size="small" placeholder="搜索关键词/作者" value={keyword}
           onChange={e => setKeyword(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -512,26 +627,57 @@ export default function ViralVideoPage() {
         <TextField size="small" placeholder="播放量≥(可选)" type="number" value={minPlay}
           onChange={e => setMinPlay(e.target.value ? Number(e.target.value) : '')}
           sx={{ width: 140 }} />
-        <Button variant="contained" size="small" onClick={handleSearch}>搜索</Button>
+        <Button
+          variant="contained"
+          size="small"
+          onClick={handleSearch}
+          data-testid="viral-video-search-button"
+          data-source-endpoint={VIRAL_ENDPOINTS.list}
+        >
+          搜索
+        </Button>
         <Typography variant="body2" color="text.secondary" sx={{ ml: { xs: 0, sm: 'auto' } }}>
           共 {list.length} 条{list.length >= rows ? '（可载入更多）' : ''}
         </Typography>
       </Stack>
 
-      <Typography variant="caption" color="text.secondary" display="block">
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        display="block"
+        data-testid="viral-video-source-boundary"
+        data-no-browser-direct-scrape="true"
+        data-no-local-metric-synthesis="true"
+      >
         互动数据：已绑定抖音 Open API 并走授权账号采集时，一般有播放/点赞/评论/分享/收藏；仅 Playwright 网页采集时多为链接与封面，统计常为「—」，需授权后重新同步或走官方接口。
       </Typography>
 
-      {isFetching ? (
+      {listIsError ? (
+        <Alert
+          severity="error"
+          data-testid="viral-video-list-error"
+          data-no-local-viral-fallback="true"
+          action={<Button color="inherit" size="small" onClick={() => void refetchList()}>重试</Button>}
+        >
+          爆款列表加载失败（POST {VIRAL_ENDPOINTS.list}）：{getErrorMessage(listError)}。请检查登录态、账号采集任务和爆款表数据；页面不会补本地爆款。
+        </Alert>
+      ) : isFetching ? (
         <Typography color="text.secondary" textAlign="center" py={4}>加载中...</Typography>
       ) : list.length === 0 ? (
-        <Typography color="text.secondary" textAlign="center" py={4}>暂无数据</Typography>
+        <Alert severity="info" data-testid="viral-video-empty" data-no-local-viral-fallback="true" data-no-browser-direct-scrape="true">
+          暂无爆款视频。请先在账号采集页完成账号或关键词采集；如果只采集了账号但没有视频，请检查 Playwright/Cookie、抖音风控和 `/short-video/account-collect/videos` 入库结果。
+        </Alert>
       ) : (
-        <Grid container spacing={2.5}>
-          {list.map(v => (
+        <Grid container spacing={2.5} data-testid="viral-video-grid-contract" data-source-endpoint={VIRAL_ENDPOINTS.list} data-no-detail-prefetch="true">
+          {list.map(v => {
+            const coverUrl = v.coverUrl || v.coverBosUrl
+            return (
             <Grid item xs={12} sm={6} md={4} lg={2} key={v.id}>
               <Card
                 variant="outlined"
+                data-testid="viral-video-card"
+                data-source-endpoint={VIRAL_ENDPOINTS.list}
+                data-no-local-cover-fallback="true"
                 sx={{
                   height: '100%',
                   display: 'flex',
@@ -550,18 +696,32 @@ export default function ViralVideoPage() {
                     cursor: 'pointer',
                   }}
                 >
-                  <CardMedia
-                    component="img"
-                    image={v.coverUrl || `https://picsum.photos/seed/${v.id}/360/640`}
-                    alt={v.title ?? ''}
-                    sx={{
-                      position: 'absolute',
-                      inset: 0,
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                    }}
-                  />
+                  {coverUrl ? (
+                    <CardMedia
+                      component="img"
+                      image={normalizeMediaUrl(coverUrl)}
+                      alt={v.title ?? ''}
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
+                    />
+                  ) : (
+                    <Stack
+                      alignItems="center"
+                      justifyContent="center"
+                      spacing={0.5}
+                      sx={{ position: 'absolute', inset: 0, p: 2, textAlign: 'center' }}
+                    >
+                      <Typography variant="subtitle2" color="text.secondary">无封面</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        采集未返回 coverUrl / coverBosUrl
+                      </Typography>
+                    </Stack>
+                  )}
                 </Box>
                 <CardContent sx={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', pt: 1.5, pb: 1 }}>
                   <Typography
@@ -620,6 +780,18 @@ export default function ViralVideoPage() {
                       sx={{ '& .MuiChip-label': { px: 0.75 } }}
                     />
                   </Stack>
+                  {viralActionError?.videoId === v.id && detailId !== v.id ? (
+                    <Alert
+                      severity="error"
+                      data-testid="viral-video-action-error"
+                      data-no-local-viral-mutation="true"
+                      sx={{ mt: 1, py: 0 }}
+                    >
+                      {viralActionError.action === 'collect'
+                        ? `收藏失败（POST ${VIRAL_ENDPOINTS.collect}）：${viralActionError.message}`
+                        : `拆解分析失败（POST ${VIRAL_ENDPOINTS.analyze}）：${viralActionError.message}`}
+                    </Alert>
+                  ) : null}
                 </CardContent>
                 <CardActions
                   sx={{
@@ -634,16 +806,39 @@ export default function ViralVideoPage() {
                   }}
                 >
                   <Tooltip title="收藏">
-                    <IconButton size="small" onClick={() => favMut.mutate(v.id)} aria-label="收藏">
+                    <IconButton
+                      size="small"
+                      onClick={() => favMut.mutate(v.id)}
+                      disabled={favMut.isPending}
+                      aria-label="收藏"
+                      data-testid="viral-video-collect-button"
+                      data-source-endpoint={VIRAL_ENDPOINTS.collect}
+                    >
                       <FavoriteBorderIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  <Button size="small" onClick={() => analyzeMut.mutate(v.id)}>拆解分析</Button>
-                  <Button size="small" onClick={() => setDetail(v)}>详情</Button>
+                  <Button
+                    size="small"
+                    onClick={() => handleAnalyze(v.id)}
+                    disabled={analyzeMut.isPending}
+                    data-testid="viral-video-analyze-button"
+                    data-source-endpoint={VIRAL_ENDPOINTS.analyze}
+                  >
+                    拆解分析
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => setDetail(v)}
+                    data-testid="viral-video-open-detail-button"
+                    data-target-route={`${shortvideoRoutes.viralVideos}?videoId=${v.id}`}
+                  >
+                    详情
+                  </Button>
                 </CardActions>
               </Card>
             </Grid>
-          ))}
+            )
+          })}
         </Grid>
       )}
 
@@ -662,31 +857,63 @@ export default function ViralVideoPage() {
             <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap>
               <Typography variant="h6">爆款详情</Typography>
               <Stack direction="row" spacing={1} alignItems="center">
-                <Button size="small" variant="outlined" onClick={() => void refetchDetail()}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => void refetchDetail()}
+                  disabled={detailLoading}
+                  data-testid="viral-video-refresh-detail-button"
+                  data-source-endpoint={VIRAL_ENDPOINTS.get}
+                >
                   刷新详情
                 </Button>
                 <IconButton onClick={() => setDetail(null)}><CloseIcon /></IconButton>
               </Stack>
             </Stack>
             {detailLoading && <LinearProgress />}
+            {detailIsError ? (
+              <Alert
+                severity="error"
+                data-testid="viral-video-detail-error"
+                data-no-local-detail-fallback="true"
+                action={<Button color="inherit" size="small" onClick={() => void refetchDetail()}>重试</Button>}
+              >
+                爆款详情加载失败（POST {VIRAL_ENDPOINTS.get}）：{getErrorMessage(detailError)}。列表卡片字段可能不含完整拆解结果，当前抽屉上下文已保留。
+              </Alert>
+            ) : null}
+            {viralActionError?.videoId === showDetail.id ? (
+              <Alert severity="error" data-testid="viral-video-detail-action-error" data-no-local-viral-mutation="true">
+                {viralActionError.action === 'collect'
+                  ? `收藏失败（POST ${VIRAL_ENDPOINTS.collect}）：${viralActionError.message}`
+                  : `拆解分析失败（POST ${VIRAL_ENDPOINTS.analyze}）：${viralActionError.message}`}
+              </Alert>
+            ) : null}
             {isDeepAnalyzing ? (
-              <Alert severity="info" sx={{ py: 0.5 }}>
+              <Alert severity="info" data-testid="viral-video-processing-downgrade" data-no-local-analysis-result="true" sx={{ py: 0.5 }}>
                 深度分析进行中（约每 4 秒自动拉取一次）。完成后此处会出现 <strong>缓存视频（BOS）</strong>与<strong>关键帧</strong>；若一直为空请点「刷新详情」或检查服务端 BOS 是否已配置且上传成功。
               </Alert>
             ) : null}
             {deepStatus === 'completed'
               && (!showDetail.videoBosUrl || String(showDetail.videoBosUrl).trim() === '')
               && keyframeList.length === 0 ? (
-                <Alert severity="warning" sx={{ py: 0.5 }}>
+                <Alert severity="warning" data-testid="viral-video-missing-media-downgrade" data-no-local-keyframe-fallback="true" data-no-local-video-fallback="true" sx={{ py: 0.5 }}>
                   分析已完成，但未返回 BOS 视频地址与关键帧：多为未开启 BOS、上传失败或仅走了推演未落库素材。请查看下方「状态说明」中的 download / scene / bos 步骤；仍异常时查服务端日志「BOS上传」。
                 </Alert>
               ) : null}
-            <Box
-              component="img"
-              src={showDetail.coverUrl || showDetail.coverBosUrl}
-              alt={showDetail.title}
-              sx={{ width: '100%', borderRadius: 1, maxHeight: 240, objectFit: 'cover' }}
-            />
+            {showDetail.coverUrl || showDetail.coverBosUrl ? (
+              <Box
+                component="img"
+                src={normalizeMediaUrl(showDetail.coverUrl || showDetail.coverBosUrl || '')}
+                alt={showDetail.title}
+                sx={{ width: '100%', borderRadius: 1, maxHeight: 240, objectFit: 'cover' }}
+              />
+            ) : (
+              <Paper variant="outlined" data-testid="viral-video-cover-missing" data-no-local-cover-fallback="true" sx={{ p: 2, textAlign: 'center', bgcolor: 'action.hover' }}>
+                <Typography variant="body2" color="text.secondary">
+                  无封面地址：当前详情未返回 coverUrl / coverBosUrl，页面不会使用随机图片替代真实素材。
+                </Typography>
+              </Paper>
+            )}
             <Divider />
             <Box><Typography variant="caption" color="text.secondary">标题</Typography>
               <Typography fontWeight={500}>{showDetail.title}</Typography></Box>
@@ -938,8 +1165,8 @@ export default function ViralVideoPage() {
               >
                 刷新详情
               </Button>
-              <Button variant="contained" size="small" onClick={() => analyzeMut.mutate(showDetail.id)}>拆解分析</Button>
-              <Button variant="outlined" size="small" onClick={() => favMut.mutate(showDetail.id)}>收藏</Button>
+              <Button variant="contained" size="small" onClick={() => handleAnalyze(showDetail.id)} disabled={analyzeMut.isPending}>拆解分析</Button>
+              <Button variant="outlined" size="small" onClick={() => favMut.mutate(showDetail.id)} disabled={favMut.isPending}>收藏</Button>
             </Stack>
           </Stack>
         )}

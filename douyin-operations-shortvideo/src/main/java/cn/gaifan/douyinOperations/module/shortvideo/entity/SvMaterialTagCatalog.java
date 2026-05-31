@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.sql.Timestamp;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 素材标签字典（A-2），与 sv_material.tags 逗号串配合使用。
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_material_tag_catalog")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvMaterialTagCatalog {
 
     @Id

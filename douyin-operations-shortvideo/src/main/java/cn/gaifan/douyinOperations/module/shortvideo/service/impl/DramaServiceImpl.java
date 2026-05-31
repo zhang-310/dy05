@@ -343,10 +343,8 @@ public class DramaServiceImpl implements DramaService {
             }
         }
 
-        return "【AI 剧本生成】短剧《" + drama.getTitle() + "》" + (drama.getTotalEpisodes() != null ? drama.getTotalEpisodes() : 1) + "集"
-                + (StringUtils.hasText(theme) ? "，题材：" + theme : "")
-                + (StringUtils.hasText(style) ? "，风格：" + style : "")
-                + "。请配置 LLM 以启用完整剧本生成。";
+        throw new BusinessException(ErrorCode.AI_TASK_MODEL_NOT_CONFIGURED,
+                "短剧剧本生成未配置可用 LLM 模型，请先配置 short_video_script 任务模型");
     }
 
     @Override

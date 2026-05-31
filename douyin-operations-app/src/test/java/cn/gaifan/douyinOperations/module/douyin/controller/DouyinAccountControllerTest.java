@@ -54,7 +54,7 @@ class DouyinAccountControllerTest {
 
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(1L);
+        accountVO.setOwnerId(1L);
         accountVO.setAccountName("测试账号");
 
         PageResultVO<DouyinAccountVO> pageResult = new PageResultVO<>();
@@ -113,7 +113,7 @@ class DouyinAccountControllerTest {
     void get_shouldReturn200() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(1L);
+        accountVO.setOwnerId(1L);
         accountVO.setAccountName("测试账号");
 
         when(douyinAccountService.getAccount(eq(1L)))
@@ -133,7 +133,7 @@ class DouyinAccountControllerTest {
     void get_adminAccessOthers_shouldReturn200() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(2L);
+        accountVO.setOwnerId(2L);
         accountVO.setAccountName("他人账号");
 
         when(douyinAccountService.getAccount(eq(1L)))
@@ -152,7 +152,7 @@ class DouyinAccountControllerTest {
     void get_nonAdminAccessOthers_shouldReturn2002() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(2L);
+        accountVO.setOwnerId(2L);
 
         when(douyinAccountService.getAccount(eq(1L)))
                 .thenReturn(accountVO);
@@ -212,7 +212,7 @@ class DouyinAccountControllerTest {
     void delete_shouldReturn200() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(1L);
+        accountVO.setOwnerId(1L);
 
         when(douyinAccountService.getAccount(eq(1L)))
                 .thenReturn(accountVO);
@@ -231,7 +231,7 @@ class DouyinAccountControllerTest {
     void delete_adminDeleteOthers_shouldReturn200() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(2L);
+        accountVO.setOwnerId(2L);
 
         when(douyinAccountService.getAccount(eq(1L)))
                 .thenReturn(accountVO);
@@ -250,7 +250,7 @@ class DouyinAccountControllerTest {
     void delete_nonAdminDeleteOthers_shouldReturn2002() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(2L);
+        accountVO.setOwnerId(2L);
 
         when(douyinAccountService.getAccount(eq(1L)))
                 .thenReturn(accountVO);
@@ -277,7 +277,7 @@ class DouyinAccountControllerTest {
     void statistics_shouldReturn200() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(1L);
+        accountVO.setOwnerId(1L);
 
         DouyinAccountStatisticsVO statisticsVO = new DouyinAccountStatisticsVO();
         statisticsVO.setTotalVideos(50L);
@@ -302,7 +302,7 @@ class DouyinAccountControllerTest {
     void statistics_adminAccessOthers_shouldReturn200() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(2L);
+        accountVO.setOwnerId(2L);
 
         DouyinAccountStatisticsVO statisticsVO = new DouyinAccountStatisticsVO();
         statisticsVO.setTotalVideos(50L);
@@ -325,7 +325,7 @@ class DouyinAccountControllerTest {
     void statistics_nonAdminAccessOthers_shouldReturn2002() throws Exception {
         DouyinAccountVO accountVO = new DouyinAccountVO();
         accountVO.setId(1L);
-        accountVO.setUserId(2L);
+        accountVO.setOwnerId(2L);
 
         when(douyinAccountService.getAccount(eq(1L)))
                 .thenReturn(accountVO);

@@ -13,7 +13,14 @@ public interface ViralVideoDeepAnalysisService {
     /**
      * 提交异步深度分析任务，立即返回 taskId（与 viralVideoId 相同）与状态。
      */
-    Map<String, Object> startDeepAnalyze(Long viralVideoId, Long userId);
+    default Map<String, Object> startDeepAnalyze(Long viralVideoId, Long userId) {
+        return startDeepAnalyze(viralVideoId, userId, false);
+    }
+
+    /**
+     * @param skipCommercialCharge true 时跳过本服务内扣费（已由 ProductIntegration 互调扣过）
+     */
+    Map<String, Object> startDeepAnalyze(Long viralVideoId, Long userId, boolean skipCommercialCharge);
 
     /**
      * 提交异步深度分析并通过 SSE 推送 {@code progress} / {@code done} / {@code error}（路径须含 {@code -stream}）。

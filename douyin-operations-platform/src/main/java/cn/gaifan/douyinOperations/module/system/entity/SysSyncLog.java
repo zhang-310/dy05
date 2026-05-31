@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.system.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 数据同步日志表，与 sql/system/schema.sql 中 sys_sync_log 一一对应
  * 注意：无 deleted 字段，日志通过定时任务物理清理
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sys_sync_log")
+@NoArgsConstructor
 public class SysSyncLog {
 
     @Id

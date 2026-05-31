@@ -15,11 +15,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   TextField,
+  Stack,
 } from '@mui/material'
 import WhatshotIcon from '@mui/icons-material/Whatshot'
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
@@ -30,7 +27,8 @@ import { useRolePrefix } from '@/hooks/useRolePrefix'
 import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import { fetchHotTopicPool } from '@/api/viral-analysis'
 import { useToast } from '@/contexts/ToastContext'
-import request from '@/utils/request'
+import { generateHotspotFused } from '@/api/viral-analysis'
+import { getErrorMessage } from '@/utils/errorHandler'
 
 interface HotTopic {
   id: number
@@ -41,6 +39,31 @@ interface HotTopic {
 }
 
 type TierLabel = '黄金' | '白银' | '青铜' | '过时'
+const HOT_TOPIC_POOL_ENDPOINT = '/short-video/cross/hot-topic-pool'
+const HOTSPOT_FUSION_ENDPOINT = '/short-video/persona-fusion/generate-hotspot-fused'
+const HOT_TOPIC_READY_ENDPOINTS = [
+  HOT_TOPIC_POOL_ENDPOINT,
+  HOTSPOT_FUSION_ENDPOINT,
+].join('|')
+const HOT_TOPIC_CREATION_READY_ROUTES = [
+  shortvideoRoutes.hotTopicCreate,
+  shortvideoRoutes.quickGenerate,
+  shortvideoRoutes.scriptPlanning,
+].join('|')
+const HOT_TOPIC_CREATION_SUPPORTED_ACTIONS = [
+  'refresh-hot-topic-pool',
+  'navigate-quick-generate',
+  'generate-hotspot-fused-script',
+  'write-fused-script-to-script-planning',
+].join('|')
+const HOT_TOPIC_UNSUPPORTED_ENDPOINTS = [
+  '/short-video/cross/hot-topic-mock',
+  '/short-video/cross/local-hot-topic-pool',
+  '/short-video/persona-fusion/local-generate-hotspot-fused',
+  '/short-video/persona-fusion/mock-hotspot-fused',
+  '/short-video/hot-topic/local-template',
+  '/short-video/hot-topic/export',
+].join('|')
 
 function classifyTier(createdAt?: string): { label: TierLabel; color: 'error' | 'warning' | 'info' | 'default' } {
   if (!createdAt) return { label: '青铜', color: 'info' }
@@ -49,6 +72,15 @@ function classifyTier(createdAt?: string): { label: TierLabel; color: 'error' | 
   if (hours <= 72) return { label: '白银', color: 'warning' }
   if (hours <= 168) return { label: '青铜', color: 'info' }
   return { label: '过时', color: 'default' }
+}
+
+function normalizeTopics(raw: unknown): HotTopic[] {
+  if (Array.isArray(raw)) return raw as HotTopic[]
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>
+    return normalizeTopics(obj.hotTopics ?? obj.list ?? obj.records ?? obj.items ?? obj.rows ?? obj.content ?? obj.data)
+  }
+  return []
 }
 
 export function HotTopicCreationPage() {
@@ -60,18 +92,20 @@ export function HotTopicCreationPage() {
   const [error, setError] = useState<string | null>(null)
   const [fusionOpen, setFusionOpen] = useState(false)
   const [fusionTopic, setFusionTopic] = useState<HotTopic | null>(null)
-  const [fusionPersonaCode, setFusionPersonaCode] = useState('')
+  const [fusionPersonaId, setFusionPersonaId] = useState('')
+  const [fusionProductId, setFusionProductId] = useState('')
   const [fusionResult, setFusionResult] = useState<string | null>(null)
   const [fusionLoading, setFusionLoading] = useState(false)
+  const [fusionError, setFusionError] = useState('')
 
   const loadTopics = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const res = await fetchHotTopicPool(50)
-      setTopics(res?.hotTopics ?? [])
-    } catch {
-      setError('加载热点话题失败')
+      setTopics(normalizeTopics(res))
+    } catch (e) {
+      setError(`加载热点话题失败（POST ${HOT_TOPIC_POOL_ENDPOINT}）：${getErrorMessage(e)}。页面不会使用本地模拟热榜，请检查热点同步任务和 sv_hot_topic。`)
     } finally {
       setLoading(false)
     }
@@ -89,25 +123,28 @@ export function HotTopicCreationPage() {
   const handleOpenFusion = (topic: HotTopic) => {
     setFusionTopic(topic)
     setFusionResult(null)
+    setFusionError('')
     setFusionOpen(true)
   }
 
   const handleFusion = async () => {
     if (!fusionTopic) return
+    const personaId = Number(fusionPersonaId)
+    const productId = fusionProductId.trim() ? Number(fusionProductId) : undefined
+    if (!Number.isFinite(personaId) || personaId <= 0) {
+      toast('请填写有效 personaId', 'warning')
+      return
+    }
     setFusionLoading(true)
+    setFusionError('')
     try {
-      const res = await request.post<{ script?: string; fusedScript?: string }>(
-        '/short-video/persona-fusion/generate-hotspot-fused',
-        {
-          hotTopicId: fusionTopic.id,
-          hotTopic: fusionTopic.topic,
-          personaCode: fusionPersonaCode || undefined,
-        }
-      )
-      setFusionResult((res as Record<string, string>)?.fusedScript ?? (res as Record<string, string>)?.script ?? '生成完成')
+      const res = await generateHotspotFused(fusionTopic.id, personaId, productId)
+      setFusionResult(String(res.fusedScript ?? res.script ?? res.content ?? JSON.stringify(res, null, 2)))
       toast('热点三要素融合完成！', 'success')
-    } catch {
-      toast('融合生成失败', 'error')
+    } catch (e) {
+      const message = getErrorMessage(e)
+      setFusionError(message)
+      toast(`融合生成失败：${message}`, 'error')
     } finally {
       setFusionLoading(false)
     }
@@ -128,10 +165,18 @@ export function HotTopicCreationPage() {
   }
 
   return (
-    <Box>
+    <Box
+      data-testid="hot-topic-creation-page"
+      data-ready-endpoints={HOT_TOPIC_READY_ENDPOINTS}
+      data-ready-routes={HOT_TOPIC_CREATION_READY_ROUTES}
+      data-supported-actions={HOT_TOPIC_CREATION_SUPPORTED_ACTIONS}
+      data-unsupported-endpoints={HOT_TOPIC_UNSUPPORTED_ENDPOINTS}
+      data-no-local-hot-topic-fallback="true"
+      data-no-local-fusion-template="true"
+    >
       <PageHeader
         title="热点借势"
-        subtitle="抓住当前热搜话题，快速创作爆款内容"
+        subtitle={`抓住当前热搜话题，通过 POST ${HOTSPOT_FUSION_ENDPOINT} 生成差异化脚本。`}
         breadcrumbs={[
           { label: '短视频', href: prefix === '/admin' ? shortvideoRoutes.dashboard : `${prefix}/shortvideo` },
           { label: '热点借势' },
@@ -143,14 +188,34 @@ export function HotTopicCreationPage() {
             onClick={handleRefresh}
             disabled={loading}
             size="small"
+            data-testid="hot-topic-creation-refresh-button"
+            data-source-endpoint={HOT_TOPIC_POOL_ENDPOINT}
           >
             刷新
           </Button>
         }
       />
+      <Alert
+        severity="info"
+        variant="outlined"
+        data-testid="hot-topic-creation-boundary-contract"
+        data-no-local-hot-topic-fallback="true"
+        data-no-local-fusion-template="true"
+        data-script-prefill-navigation-only="true"
+        data-supported-actions={HOT_TOPIC_CREATION_SUPPORTED_ACTIONS}
+        sx={{ mb: 2 }}
+      >
+        热点列表来自 POST {HOT_TOPIC_POOL_ENDPOINT}；热点三要素融合走 POST {HOTSPOT_FUSION_ENDPOINT}，后端必填 hotTopicId 和 personaId，productId 可选。
+      </Alert>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert
+          severity="error"
+          data-testid="hot-topic-pool-error"
+          data-no-local-hot-topic-fallback="true"
+          data-no-mock-hot-topic-card="true"
+          sx={{ mb: 2 }}
+        >
           {error}
         </Alert>
       )}
@@ -164,7 +229,7 @@ export function HotTopicCreationPage() {
           ))}
         </Grid>
       ) : topics.length === 0 ? (
-        <Card>
+        <Card data-testid="hot-topic-empty" data-no-mock-hot-topic-card="true">
           <CardContent sx={{ textAlign: 'center', py: 6 }}>
             <WhatshotIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
             <Typography color="text.secondary">
@@ -179,6 +244,8 @@ export function HotTopicCreationPage() {
             return (
               <Grid item xs={12} sm={6} md={4} key={topic.id}>
                 <Card
+                  data-testid="hot-topic-card"
+                  data-no-local-tier-source="client-time-only"
                   sx={{
                     height: '100%',
                     display: 'flex',
@@ -221,6 +288,9 @@ export function HotTopicCreationPage() {
                       size="small"
                       fullWidth
                       startIcon={<RocketLaunchIcon />}
+                      data-testid="hot-topic-quick-generate-link"
+                      data-navigation-only="true"
+                      data-target-route={shortvideoRoutes.quickGenerate}
                       onClick={() => handleQuickGenerate(topic)}
                     >
                       一键创作
@@ -248,26 +318,43 @@ export function HotTopicCreationPage() {
           <PsychologyIcon color="primary" />
           热点三要素融合创作
         </DialogTitle>
-        <DialogContent>
+        <DialogContent data-testid="hot-topic-fusion-dialog" data-input-retained="true" data-no-local-fusion-template="true">
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             将热点话题「{fusionTopic?.topic}」与主播人设、产品卖点三要素融合，生成差异化爆款脚本。
           </Typography>
-          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-            <InputLabel>选择主播人设</InputLabel>
-            <Select
-              value={fusionPersonaCode}
-              label="选择主播人设"
-              onChange={(e) => setFusionPersonaCode(e.target.value)}
+          <Stack spacing={2} sx={{ mb: 2 }}>
+            <TextField
+              label="Persona ID"
+              size="small"
+              type="number"
+              required
+              value={fusionPersonaId}
+              onChange={(e) => setFusionPersonaId(e.target.value)}
+              helperText="后端按 personaId 查询人设，不支持 personaCode。"
+            />
+            <TextField
+              label="Product ID（可选）"
+              size="small"
+              type="number"
+              value={fusionProductId}
+              onChange={(e) => setFusionProductId(e.target.value)}
+              helperText="未填写时只做热点 × 人设融合。"
+            />
+          </Stack>
+          {fusionError && (
+            <Alert
+              severity="error"
+              data-testid="hot-topic-fusion-error"
+              data-input-retained="true"
+              data-no-local-fusion-template="true"
+              sx={{ mb: 2 }}
             >
-              <MenuItem value="">通用（不指定人设）</MenuItem>
-              <MenuItem value="professional">专业达人</MenuItem>
-              <MenuItem value="everyday">素人真实</MenuItem>
-              <MenuItem value="celebrity">明星感</MenuItem>
-              <MenuItem value="local">地方特色</MenuItem>
-            </Select>
-          </FormControl>
+              融合生成失败（POST {HOTSPOT_FUSION_ENDPOINT}）：{fusionError}。请检查热点池、人设 ID、产品 ID；当前热点和输入会保留，不生成本地模板脚本。
+            </Alert>
+          )}
           {fusionResult && (
             <TextField
+              data-testid="hot-topic-fusion-result"
               multiline
               rows={6}
               fullWidth
@@ -283,8 +370,10 @@ export function HotTopicCreationPage() {
           <Button
             variant="contained"
             onClick={handleFusion}
-            disabled={fusionLoading}
+            disabled={fusionLoading || !fusionPersonaId}
             startIcon={fusionLoading ? <CircularProgress size={16} /> : <PsychologyIcon />}
+            data-testid="hot-topic-fusion-confirm-button"
+            data-source-endpoint={HOTSPOT_FUSION_ENDPOINT}
           >
             {fusionLoading ? '融合中...' : '开始融合'}
           </Button>
@@ -292,6 +381,8 @@ export function HotTopicCreationPage() {
             <Button
               variant="outlined"
               color="success"
+              data-testid="hot-topic-write-to-script-link"
+              data-navigation-only="true"
               onClick={handleWriteToScript}
             >
               写入脚本策划 →

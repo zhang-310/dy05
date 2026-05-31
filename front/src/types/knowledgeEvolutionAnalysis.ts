@@ -88,4 +88,45 @@ export interface KnowledgeEvolutionAutoOptimizeResult {
   results?: Record<string, { count?: number; scriptIds?: number[] }>
   summary?: Record<string, unknown>
   executedAt?: string
+  degraded?: boolean
+}
+
+export interface KnowledgeEvolutionReportOverview {
+  totalScriptsInLibrary?: number
+  newAddedCount?: number
+  archivedCount?: number
+  deduplicatedCount?: number
+  averageScore?: number
+}
+
+export interface KnowledgeEvolutionTopScript {
+  rank?: number
+  scriptId?: number
+  title?: string
+  score?: number
+  usageCount?: number
+  adoptionRate?: number
+}
+
+export interface KnowledgeEvolutionStyleAnalysis {
+  count?: number
+  averageScore?: number
+  trend?: string
+}
+
+export interface KnowledgeEvolutionRecommendation {
+  type?: string
+  description?: string
+  priority?: string
+}
+
+/** POST /ai/knowledge-evolution/report 响应（data 解包后） */
+export interface KnowledgeEvolutionReportVO {
+  reportId?: string
+  period?: string
+  overview?: KnowledgeEvolutionReportOverview
+  topScripts?: KnowledgeEvolutionTopScript[]
+  styleAnalysis?: Record<string, KnowledgeEvolutionStyleAnalysis>
+  recommendations?: KnowledgeEvolutionRecommendation[]
+  generatedAt?: string
 }

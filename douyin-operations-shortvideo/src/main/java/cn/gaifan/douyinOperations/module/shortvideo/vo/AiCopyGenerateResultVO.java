@@ -20,6 +20,9 @@ public class AiCopyGenerateResultVO {
     /** IndustryComplianceService.checkCompliance 原文 */
     private List<Map<String, Object>> industryCompliance;
 
+    /** douyin / douyin_weigui 官方学习中心引用 */
+    private List<DouyinOfficialReferenceVO> officialReferences = new ArrayList<>();
+
     /** 合并后的简短建议（供前端展示） */
     private List<String> suggestions = new ArrayList<>();
 

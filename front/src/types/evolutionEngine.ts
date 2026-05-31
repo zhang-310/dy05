@@ -6,6 +6,9 @@ export interface EvolutionReviewStats {
   approvedCount?: number
   rejected?: number
   rejectedCount?: number
+  revised?: number
+  revisedCount?: number
+  approvalRate7d?: number
 }
 export interface EvolveRoiPayload {
   newKnowledge?: number

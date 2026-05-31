@@ -18,6 +18,9 @@ public class LiveAiResultVO {
     /** RAG 参考来源（用于展示与反馈归因） */
     private List<RagRefVO> ragRefs;
 
+    /** 抖音官方规则/学习中心引用（用于前端明确展示官方依据） */
+    private List<OfficialReferenceVO> officialReferences;
+
     /** 引用的 chunk ID 列表（用于 AI 溯源） */
     private String referencedChunkIds;
 
@@ -47,11 +50,29 @@ public class LiveAiResultVO {
         private boolean passed;
         private int violationCount;
         private List<String> violations;
+        private List<OfficialReferenceVO> officialReferences;
+        private Boolean officialReferenceRequired;
+        private Boolean officialReferenceSatisfied;
+        private String officialReferenceStatus;
     }
 
     /** RAG 参考来源单项：文档 ID、chunk ID、标题、内容预览、相关度，便于前端展示与提交反馈 */
     @Data
     public static class RagRefVO {
+        private Long docId;
+        private Long chunkId;
+        private String title;
+        private String contentPreview;
+        private Double score;
+        private String source;
+        private List<String> labels;
+    }
+
+    /** 抖音学习中心官方引用：douyin 为官方学习资料，douyin_weigui 为违规规则 */
+    @Data
+    public static class OfficialReferenceVO {
+        private String kbName;
+        private String refType;
         private Long docId;
         private Long chunkId;
         private String title;

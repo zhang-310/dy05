@@ -9,12 +9,14 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import HistoryIcon from '@mui/icons-material/History'
 import type { GridColDef } from '@mui/x-data-grid'
-import { StandardDataGrid } from '@/components/base'
+import { ConfirmDialog, ErrorAlert, StandardDataGrid } from '@/components/base'
 import { workflowApi, type AgentWorkflow, type WorkflowExecution } from '@/api/agent'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { formatDate } from '@/utils/date'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { normalizeArray } from '@/utils/response-normalize'
 
 const STATUS_MAP: Record<number, { label: string; color: 'success' | 'warning' | 'error' | 'default' }> = {
   0: { label: '草稿', color: 'default' },
@@ -29,29 +31,60 @@ const EXEC_STATUS_MAP: Record<number, { label: string; color: 'info' | 'success'
   3: { label: '已取消', color: 'default' },
 }
 
+const WORKFLOW_LIST_READY_ENDPOINTS = [
+  '/agent/workflow/list',
+  '/agent/workflow/delete',
+  '/agent/workflow/execute',
+  '/agent/workflow/execution/list',
+].join('|')
+
+const WORKFLOW_LIST_UNSUPPORTED_ENDPOINTS = [
+  '/agent/workflow/mock',
+  '/agent/workflow/local-delete',
+  '/agent/workflow/local-execute',
+  '/agent/workflow/export',
+  '/agent/workflow/import-local',
+  '/agent/workflow/execution/local-list',
+  '/agent/workflow/execution/get',
+  '/agent/workflow/execution/local-detail',
+].join('|')
+
 function WorkflowListTab() {
   const navigate = useNavigate()
   const toast = useToast()
   const queryClient = useQueryClient()
+  const [deleteTarget, setDeleteTarget] = useState<AgentWorkflow | null>(null)
+  const [actionError, setActionError] = useState('')
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workflow', 'list'],
-    queryFn: () => workflowApi.list(0, 100).then(r => r.list),
+    queryFn: () => workflowApi.list(0, 100).then(r => normalizeArray<AgentWorkflow>(r)),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => workflowApi.delete(id),
     onSuccess: () => {
       toast('删除成功', 'success')
+      setDeleteTarget(null)
+      setActionError('')
       queryClient.invalidateQueries({ queryKey: ['workflow', 'list'] })
     },
-    onError: () => toast('删除失败', 'error'),
+    onError: (error) => {
+      setActionError(`删除工作流失败：${getErrorMessage(error)}。来源：/agent/workflow/delete，页面已保留当前工作流行。`)
+      toast('删除失败', 'error')
+    },
   })
 
   const executeMutation = useMutation({
     mutationFn: (id: number) => workflowApi.execute(id, ''),
-    onSuccess: () => toast('工作流已启动', 'success'),
-    onError: () => toast('启动失败', 'error'),
+    onSuccess: () => {
+      setActionError('')
+      toast('工作流已启动', 'success')
+    },
+    onError: (error) => {
+      setActionError(`启动工作流失败：${getErrorMessage(error)}。来源：/agent/workflow/execute，页面不会伪造执行记录。`)
+      toast('启动失败', 'error')
+    },
   })
 
   const columns: GridColDef<AgentWorkflow>[] = [
@@ -81,12 +114,17 @@ function WorkflowListTab() {
       renderCell: ({ row }) => (
         <Stack direction="row" spacing={0.5}>
           <Tooltip title="编辑">
-            <IconButton size="small" onClick={() => navigate(`/ai/agent/workflow/edit/${row.id}`)}>
+            <IconButton
+              size="small"
+              aria-label={`编辑工作流 ${row.name}`}
+              onClick={() => navigate(`/admin/ai/agent/workflow/edit/${row.id}`)}
+            >
               <VisibilityIcon fontSize="small" />
             </IconButton>
           </Tooltip>
           <Tooltip title="执行">
             <IconButton size="small" color="primary"
+              aria-label={`执行工作流 ${row.name}`}
               onClick={() => executeMutation.mutate(row.id)}
               disabled={executeMutation.isPending}>
               <PlayArrowIcon fontSize="small" />
@@ -94,7 +132,8 @@ function WorkflowListTab() {
           </Tooltip>
           <Tooltip title="删除">
             <IconButton size="small" color="error"
-              onClick={() => deleteMutation.mutate(row.id)}>
+              aria-label={`删除工作流 ${row.name}`}
+              onClick={() => setDeleteTarget(row)}>
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -104,15 +143,58 @@ function WorkflowListTab() {
   ]
 
   return (
-    <Box>
+    <Box
+      data-testid="agent-workflow-list-tab"
+      data-source-endpoint="/agent/workflow/list"
+      data-no-local-workflow-fallback="true"
+      data-no-local-delete-mutation="true"
+      data-no-local-execution-record="true"
+    >
+      {isError && (
+        <Box
+          data-testid="agent-workflow-list-error"
+          data-source-endpoint="/agent/workflow/list"
+          data-no-local-workflow-fallback="true"
+        >
+          <ErrorAlert
+            title="工作流列表加载失败"
+            message={`${getErrorMessage(error)}。请检查 /agent/workflow/list、登录态和数据权限。`}
+            onRetry={() => refetch()}
+          />
+        </Box>
+      )}
+      {actionError && (
+        <Box
+          sx={{ mb: 2 }}
+          data-testid="agent-workflow-list-action-error"
+          data-no-local-delete-mutation="true"
+          data-no-local-execution-record="true"
+        >
+          <ErrorAlert title="工作流操作失败" message={actionError} onRetry={() => refetch()} />
+        </Box>
+      )}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
         <Button variant="contained" startIcon={<AddIcon />}
-          onClick={() => navigate('/ai/agent/workflow/edit')}>
+          onClick={() => navigate('/admin/ai/agent/workflow/edit')}>
           新建工作流
         </Button>
       </Box>
-      <StandardDataGrid rows={rows} columns={columns} loading={isLoading}
-        getRowId={row => row.id} density="compact" />
+      <Box
+        data-testid="agent-workflow-list-grid-contract"
+        data-source-endpoint="/agent/workflow/list"
+        data-no-local-workflow-fallback="true"
+      >
+        <StandardDataGrid rows={rows} columns={columns} loading={isLoading}
+          getRowId={row => row.id} density="compact" />
+      </Box>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="确认删除工作流"
+        content={`确定要删除「${deleteTarget?.name ?? ''}」吗？删除后无法继续执行该工作流。`}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+        loading={deleteMutation.isPending}
+      />
     </Box>
   )
 }
@@ -121,9 +203,9 @@ function ExecutionHistoryTab() {
   const [selectedExecution, setSelectedExecution] = useState<WorkflowExecution | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['workflow', 'execution', 'list'],
-    queryFn: () => workflowApi.executionList(0, 100).then(r => r.list),
+    queryFn: () => workflowApi.executionList(0, 100).then(r => normalizeArray<WorkflowExecution>(r)),
   })
 
   const columns: GridColDef<WorkflowExecution>[] = [
@@ -160,7 +242,7 @@ function ExecutionHistoryTab() {
       field: 'actions', headerName: '操作', width: 80, sortable: false,
       renderCell: ({ row }) => (
         <Tooltip title="查看详情">
-          <IconButton size="small" onClick={() => {
+          <IconButton size="small" aria-label={`查看执行详情 ${row.workflowName ?? row.workflowId}`} onClick={() => {
             setSelectedExecution(row)
             setDetailOpen(true)
           }}>
@@ -172,15 +254,39 @@ function ExecutionHistoryTab() {
   ]
 
   return (
-    <>
-      <StandardDataGrid rows={rows} columns={columns} loading={isLoading}
-        getRowId={row => row.id} density="compact" />
+    <Box
+      data-testid="agent-workflow-execution-history-tab"
+      data-source-endpoint="/agent/workflow/execution/list"
+      data-no-local-execution-fallback="true"
+      data-no-execution-detail-fetch="true"
+    >
+      {isError && (
+        <Box
+          data-testid="agent-workflow-execution-list-error"
+          data-source-endpoint="/agent/workflow/execution/list"
+          data-no-local-execution-fallback="true"
+        >
+          <ErrorAlert
+            title="执行历史加载失败"
+            message={`${getErrorMessage(error)}。请检查 /agent/workflow/execution/list 与工作流执行表。`}
+            onRetry={() => refetch()}
+          />
+        </Box>
+      )}
+      <Box
+        data-testid="agent-workflow-execution-grid-contract"
+        data-source-endpoint="/agent/workflow/execution/list"
+        data-no-execution-detail-fetch="true"
+      >
+        <StandardDataGrid rows={rows} columns={columns} loading={isLoading}
+          getRowId={row => row.id} density="compact" />
+      </Box>
       <ExecutionDetailDialog
         open={detailOpen}
         execution={selectedExecution}
         onClose={() => setDetailOpen(false)}
       />
-    </>
+    </Box>
   )
 }
 
@@ -194,7 +300,14 @@ function ExecutionDetailDialog({
   if (!execution) return null
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      data-testid="agent-workflow-execution-detail-dialog"
+      data-no-execution-detail-fetch="true"
+    >
       <DialogTitle>执行详情 — {execution.workflowName}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={1.5} sx={{ pt: 1 }}>
@@ -269,7 +382,20 @@ export default function AgentWorkflowListPage() {
   const [tab, setTab] = useState(0)
 
   return (
-    <Box>
+    <Box
+      data-testid="agent-workflow-list-page"
+      data-ready-endpoints={WORKFLOW_LIST_READY_ENDPOINTS}
+      data-unsupported-endpoints={WORKFLOW_LIST_UNSUPPORTED_ENDPOINTS}
+      data-no-local-delete-mutation="true"
+      data-no-local-execution-record="true"
+      data-no-execution-detail-fetch="true"
+    >
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary" data-testid="agent-workflow-list-boundary-contract">
+          工作流列表只调用 <code>/agent/workflow/list</code>、<code>/agent/workflow/delete</code>、<code>/agent/workflow/execute</code>；
+          执行历史只读取 <code>/agent/workflow/execution/list</code>，详情弹窗复用列表行数据，不额外请求执行详情。
+        </Typography>
+      </Box>
       <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
           <Tab label="工作流列表" />

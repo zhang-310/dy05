@@ -21,6 +21,6 @@ public interface QualityDashboardService {
     /** 运镜效果排名 (camera_type → 平均分) */
     List<Map<String, Object>> getCameraRanking(Long ownerId, int days);
 
-    /** 本周 AI 反思/改进建议 (占位) */
+    /** 本周 AI 反思/改进建议：基于真实生成日志聚合生成 */
     List<String> getAiReflections(Long ownerId);
 }

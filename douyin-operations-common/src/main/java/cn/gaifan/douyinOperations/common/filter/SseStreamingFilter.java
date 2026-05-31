@@ -23,10 +23,8 @@ public class SseStreamingFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String uri = request.getRequestURI();
         if (uri != null && isSseStreamingPath(uri)) {
-            response.setBufferSize(1);  // 强制每次写入后立即刷新
             response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
             response.setHeader("X-Accel-Buffering", "no");
-            response.setHeader("Connection", "keep-alive");
         }
         filterChain.doFilter(request, response);
     }

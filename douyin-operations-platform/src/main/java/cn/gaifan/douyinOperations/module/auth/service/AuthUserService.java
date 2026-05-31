@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.auth.service;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.auth.vo.AuthUserVO;
 import cn.gaifan.douyinOperations.module.auth.vo.AuthUserSearchVO;
+import cn.gaifan.douyinOperations.module.auth.vo.LoginLogQueryVO;
 import cn.gaifan.douyinOperations.module.auth.vo.LoginLogVO;
 import cn.gaifan.douyinOperations.module.auth.vo.OnlineUserVO;
 import cn.gaifan.douyinOperations.module.auth.vo.ProfileVO;
@@ -53,8 +54,8 @@ public interface AuthUserService {
      */
     void deleteById(Long id, Long callerOrganizationId, boolean callerIsAdmin);
 
-    /** @param userId 用户ID，为 null 时返回全部（仅管理员） */
-    List<LoginLogVO> getLoginLogs(Long userId, int page, int size);
+    /** 登录日志分页查询；管理员可按 userId/username/status 筛选，普通用户仅能查自己 */
+    PageResultVO<LoginLogVO> getLoginLogs(LoginLogQueryVO vo);
 
     /**
      * 在线用户列表（最近一段时间内有登录记录的用户，按最后登录时间倒序；首版基于 auth_login_log）

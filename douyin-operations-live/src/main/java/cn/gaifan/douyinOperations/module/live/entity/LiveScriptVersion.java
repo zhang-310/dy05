@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -12,10 +14,12 @@ import java.sql.Timestamp;
  * 与 sql/live/schema.sql 中 live_script_version 一一对应
  * 用于版本管理、对比、推荐等功能
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_script_version")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveScriptVersion {
 
     @Id

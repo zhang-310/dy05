@@ -16,7 +16,7 @@ import type { PageResult } from '@/types/common'
  *   sortName: 'versionNumber',
  *   sortOrder: 'desc'
  * })
- * console.log(result.data) // 版本列表
+ * renderVersionRows(result.data)
  */
 export function searchScriptVersions<T = Record<string, unknown>>(data?: Record<string, unknown>) {
   return request.post<PageResult<T>>('/live/script-version/search', data || {})
@@ -68,8 +68,7 @@ export function getScriptVersion(scriptId: number, versionNumber: number) {
  *   version1: 1,
  *   version2: 2
  * })
- * console.log(diff.data.added)    // 新增内容
- * console.log(diff.data.removed)  // 删除内容
+ * renderDiff(diff.data.added, diff.data.removed)
  */
 export function diffScriptVersions(data: Record<string, unknown>) {
   return request.post<Record<string, unknown>>('/live/script-version/diff', data)
@@ -87,7 +86,7 @@ export function diffScriptVersions(data: Record<string, unknown>) {
  *   scriptId: 123,
  *   targetVersion: 1
  * })
- * console.log('已回滚到版本 1')
+ * refreshVersionHistory()
  */
 export function rollbackScriptVersion(data: Record<string, unknown>) {
   return request.post<void>('/live/script-version/rollback', data)

@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -10,9 +12,11 @@ import java.sql.Timestamp;
  * 场景-运镜推荐映射 (Phase 5 运镜知识库)
  * 表: sv_scene_camera_mapping
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_scene_camera_mapping")
+@NoArgsConstructor
 public class SvSceneCameraMapping {
 
     @Id

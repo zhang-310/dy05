@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.douyin.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 抖音人设表，与 sql/douyin/schema.sql 中 dy_persona 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "dy_persona")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class DyPersona {
 
     @Id

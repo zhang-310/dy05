@@ -22,7 +22,10 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  alpha,
+  useTheme,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import CompareIcon from '@mui/icons-material/Compare';
@@ -35,26 +38,67 @@ interface RegeneratedScriptPreviewProps {
   isLoading?: boolean;
 }
 
+type PreviewTone = 'primary' | 'success' | 'warning' | 'error' | 'info';
+type SimilarityStatus = 'excellent' | 'good' | 'fair' | 'poor';
+
+function semanticColor(theme: Theme, tone: PreviewTone) {
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main;
+}
+
+function surfaceColor(theme: Theme, tone: PreviewTone) {
+  return alpha(semanticColor(theme, tone), theme.palette.mode === 'dark' ? 0.18 : 0.1);
+}
+
+function borderColor(theme: Theme, tone: PreviewTone) {
+  return alpha(semanticColor(theme, tone), theme.palette.mode === 'dark' ? 0.45 : 0.28);
+}
+
+function getSimilarityTone(status: SimilarityStatus): PreviewTone {
+  if (status === 'excellent') return 'success';
+  if (status === 'good') return 'primary';
+  if (status === 'fair') return 'warning';
+  return 'error';
+}
+
 /**
  * 差异高亮文本
  */
 function DifferenceHighlight({ original, modified }: { original: string; modified: string }) {
+  const theme = useTheme();
+  const originalColor = semanticColor(theme, 'error');
+  const modifiedColor = semanticColor(theme, 'success');
+
   // 简单的差异展示：展示原文和新文
   return (
-    <Box sx={{ display: 'flex', gap: 2 }}>
+    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2 }}>
       {/* 原文 */}
       <Box sx={{ flex: 1 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: '#f44336', mb: 1 }}>
+        <Typography
+          data-testid="regenerated-diff-title-surface"
+          data-diff-tone="error"
+          data-diff-color={originalColor}
+          variant="subtitle2"
+          sx={{ fontWeight: 'bold', color: originalColor, mb: 1 }}
+        >
           原文本
         </Typography>
-        <Paper sx={{ p: 2, backgroundColor: '#ffebee', borderLeft: '4px solid #f44336' }}>
+        <Paper
+          data-testid="regenerated-diff-original-surface"
+          data-diff-tone="error"
+          data-diff-color={originalColor}
+          sx={{
+            p: 2,
+            backgroundColor: surfaceColor(theme, 'error'),
+            borderLeft: `4px solid ${originalColor}`,
+          }}
+        >
           <Typography
             variant="body2"
             sx={{
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
               lineHeight: 1.6,
-              color: '#c62828',
+              color: originalColor,
             }}
           >
             {original}
@@ -64,17 +108,32 @@ function DifferenceHighlight({ original, modified }: { original: string; modifie
 
       {/* 新文 */}
       <Box sx={{ flex: 1 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: '#4caf50', mb: 1 }}>
+        <Typography
+          data-testid="regenerated-diff-title-surface"
+          data-diff-tone="success"
+          data-diff-color={modifiedColor}
+          variant="subtitle2"
+          sx={{ fontWeight: 'bold', color: modifiedColor, mb: 1 }}
+        >
           重生成文本
         </Typography>
-        <Paper sx={{ p: 2, backgroundColor: '#e8f5e9', borderLeft: '4px solid #4caf50' }}>
+        <Paper
+          data-testid="regenerated-diff-modified-surface"
+          data-diff-tone="success"
+          data-diff-color={modifiedColor}
+          sx={{
+            p: 2,
+            backgroundColor: surfaceColor(theme, 'success'),
+            borderLeft: `4px solid ${modifiedColor}`,
+          }}
+        >
           <Typography
             variant="body2"
             sx={{
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
               lineHeight: 1.6,
-              color: '#2e7d32',
+              color: modifiedColor,
             }}
           >
             {modified}
@@ -91,6 +150,7 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
   onReject,
   isLoading = false,
 }) => {
+  const theme = useTheme();
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [actionInProgress, setActionInProgress] = useState(false);
@@ -123,22 +183,31 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
     }
   };
 
-  const getSimilarityStatus = (similarity: number): 'excellent' | 'good' | 'fair' | 'poor' => {
+  const getSimilarityStatus = (similarity: number): SimilarityStatus => {
     if (similarity >= 80) return 'excellent';
     if (similarity >= 60) return 'good';
     if (similarity >= 40) return 'fair';
     return 'poor';
   };
 
-  const statusColor = {
-    excellent: { bg: '#e8f5e9', text: '#2e7d32' },
-    good: { bg: '#e3f2fd', text: '#1565c0' },
-    fair: { bg: '#fff3e0', text: '#e65100' },
-    poor: { bg: '#ffebee', text: '#c62828' },
+  const contentDifference = regenerated.contentDifference ?? {
+    originalContent: '',
+    regeneratedContent: regenerated.regeneratedContent,
+    differenceSummary: '后端未返回逐句差异明细，本页展示重新生成内容。',
+    changes: [],
+    similarityScore: 0,
   };
-
-  const similarity = regenerated.contentDifference.similarityScore;
+  const appliedSuggestionCount = regenerated.appliedSuggestionCount ?? (regenerated.suggestionId ? 1 : 0);
+  const estimatedImprovementScore = regenerated.estimatedImprovementScore ?? Number(regenerated.aiQualityScore ?? 0);
+  const approvalStatus = String(regenerated.approvalStatus ?? 'pending').toLowerCase();
+  const similarity = contentDifference.similarityScore;
   const similarityStatus = getSimilarityStatus(similarity);
+  const similarityTone = getSimilarityTone(similarityStatus);
+  const similarityColor = semanticColor(theme, similarityTone);
+  const appliedCountColor = semanticColor(theme, 'primary');
+  const improvementColor = semanticColor(theme, 'success');
+  const summarySurface = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.07 : 0.035);
+  const changeSurface = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.07 : 0.04);
 
   return (
     <Box>
@@ -150,40 +219,56 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
             <Grid item xs={12} md={5}>
               <Stack spacing={2}>
                 <Box>
-                  <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 0.5 }}>
                     应用的建议数
                   </Typography>
-                  <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#2196f3' }}>
-                    {regenerated.appliedSuggestionCount}
+                  <Typography
+                    data-testid="regenerated-applied-count-surface"
+                    data-preview-tone="primary"
+                    data-preview-color={appliedCountColor}
+                    variant="h5"
+                    sx={{ fontWeight: 'bold', color: appliedCountColor }}
+                  >
+                    {appliedSuggestionCount}
                   </Typography>
                 </Box>
 
                 <Box>
-                  <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 0.5 }}>
                     预期改进分数
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="h5" sx={{ fontWeight: 'bold', color: '#4caf50' }}>
-                      +{regenerated.estimatedImprovementScore.toFixed(1)}
+                    <Typography
+                      data-testid="regenerated-improvement-score-surface"
+                      data-preview-tone="success"
+                      data-preview-color={improvementColor}
+                      variant="h5"
+                      sx={{ fontWeight: 'bold', color: improvementColor }}
+                    >
+                      +{estimatedImprovementScore.toFixed(1)}
                     </Typography>
                     <Chip label="分" size="small" />
                   </Box>
                 </Box>
 
                 <Box>
-                  <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 0.5 }}>
                     内容相似度
                   </Typography>
                   <Box
+                    data-testid="regenerated-similarity-surface"
+                    data-similarity-tone={similarityTone}
+                    data-similarity-color={similarityColor}
                     sx={{
                       p: 1.5,
-                      backgroundColor: statusColor[similarityStatus].bg,
+                      backgroundColor: surfaceColor(theme, similarityTone),
+                      border: `1px solid ${borderColor(theme, similarityTone)}`,
                       borderRadius: 1,
                     }}
                   >
                     <Typography
                       variant="body2"
-                      sx={{ color: statusColor[similarityStatus].text, fontWeight: 'bold' }}
+                      sx={{ color: similarityColor, fontWeight: 'bold' }}
                     >
                       {similarity.toFixed(1)}%
                     </Typography>
@@ -191,21 +276,21 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
                 </Box>
 
                 <Box>
-                  <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 0.5 }}>
                     审批状态
                   </Typography>
                   <Chip
                     label={
-                      regenerated.approvalStatus === 'pending'
+                      approvalStatus === 'pending'
                         ? '待审批'
-                        : regenerated.approvalStatus === 'approved'
+                        : approvalStatus === 'approved'
                           ? '已批准'
                           : '已拒绝'
                     }
                     color={
-                      regenerated.approvalStatus === 'pending'
+                      approvalStatus === 'pending'
                         ? 'warning'
-                        : regenerated.approvalStatus === 'approved'
+                        : approvalStatus === 'approved'
                           ? 'success'
                           : 'error'
                     }
@@ -220,9 +305,12 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
                 <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
                   改动摘要
                 </Typography>
-                <Paper sx={{ p: 2, backgroundColor: '#f9f9f9' }}>
-                  <Typography variant="body2" sx={{ lineHeight: 1.6, color: '#666' }}>
-                    {regenerated.contentDifference.differenceSummary}
+                <Paper
+                  data-testid="regenerated-summary-surface"
+                  sx={{ p: 2, backgroundColor: summarySurface, border: `1px solid ${theme.palette.divider}` }}
+                >
+                  <Typography variant="body2" sx={{ lineHeight: 1.6, color: 'text.secondary' }}>
+                    {contentDifference.differenceSummary}
                   </Typography>
                 </Paper>
               </Box>
@@ -230,7 +318,7 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
           </Grid>
 
           {/* 操作按钮 */}
-          {regenerated.approvalStatus === 'pending' && (
+          {approvalStatus === 'pending' && (
             <Stack direction="row" spacing={2} sx={{ mt: 3 }}>
               <Button
                 variant="contained"
@@ -273,19 +361,23 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
           <Stack spacing={2}>
             {/* 差异展示 */}
             <DifferenceHighlight
-              original={regenerated.contentDifference.originalContent}
-              modified={regenerated.contentDifference.regeneratedContent}
+              original={contentDifference.originalContent}
+              modified={contentDifference.regeneratedContent}
             />
 
             {/* 具体改变 */}
-            {regenerated.contentDifference.changes.length > 0 && (
+            {contentDifference.changes.length > 0 && (
               <Box>
                 <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-                  具体改变 ({regenerated.contentDifference.changes.length} 项)
+                  具体改变 ({contentDifference.changes.length} 项)
                 </Typography>
                 <Stack spacing={1}>
-                  {regenerated.contentDifference.changes.map((change, idx) => (
-                    <Paper key={idx} sx={{ p: 1.5, backgroundColor: '#f5f5f5' }}>
+                  {contentDifference.changes.map((change, idx) => (
+                    <Paper
+                      key={idx}
+                      data-testid="regenerated-change-item-surface"
+                      sx={{ p: 1.5, backgroundColor: changeSurface, border: `1px solid ${theme.palette.divider}` }}
+                    >
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                         <Chip
                           label={
@@ -304,17 +396,17 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
                                 : 'warning'
                           }
                         />
-                        <Typography variant="caption" sx={{ color: '#999' }}>
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                           位置: {change.position}
                         </Typography>
                       </Box>
-                      <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>
-                        <strong>原:</strong> "{change.original}"
+                      <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.5 }}>
+                        <strong>原:</strong> &quot;{change.original}&quot;
                       </Typography>
-                      <Typography variant="body2" sx={{ color: '#666', mb: 0.5 }}>
-                        <strong>新:</strong> "{change.modified}"
+                      <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.5 }}>
+                        <strong>新:</strong> &quot;{change.modified}&quot;
                       </Typography>
-                      <Typography variant="caption" sx={{ color: '#999' }}>
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                         {change.reason}
                       </Typography>
                     </Paper>
@@ -337,7 +429,7 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDetailDialogOpen(false)}>关闭</Button>
-          {regenerated.approvalStatus === 'pending' && onReject && (
+          {approvalStatus === 'pending' && onReject && (
             <Button
               onClick={handleReject}
               color="error"
@@ -346,7 +438,7 @@ export const RegeneratedScriptPreview: React.FC<RegeneratedScriptPreviewProps> =
               拒绝
             </Button>
           )}
-          {regenerated.approvalStatus === 'pending' && onApply && (
+          {approvalStatus === 'pending' && onApply && (
             <Button
               onClick={handleApply}
               color="success"

@@ -64,6 +64,7 @@ class LiveAiServiceImplTest {
     @Mock private AiModelRepository aiModelRepository;
     @Mock private LiveScriptService liveScriptService;
     @Mock private LivePromptBuilder promptBuilder;
+    @Mock private LiveAiModelHelper modelHelper;
     @Mock private KnowledgeBaseService knowledgeBaseService;
     @Mock private cn.gaifan.douyinOperations.module.live.service.impl.LiveKnowledgeBaseAccessResolver knowledgeBaseAccessResolver;
     @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
@@ -129,6 +130,7 @@ class LiveAiServiceImplTest {
         noViolation.setViolations(java.util.Collections.emptyList());
         when(violationWordService.check(anyString(), anyString(), anyLong()))
                 .thenReturn(noViolation);
+        when(modelHelper.findAvailableModel(any())).thenReturn(null);
     }
 
     // ==================== 开场话术生成测试 ====================
@@ -350,4 +352,3 @@ class LiveAiServiceImplTest {
         assertThat(result).isNotNull();
     }
 }
-

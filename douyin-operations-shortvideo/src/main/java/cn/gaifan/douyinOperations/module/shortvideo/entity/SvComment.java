@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * 视频评论表
  * 与 sql/shortvideo/schema.sql 中 sv_comment 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_comment")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvComment {
 
     @Id

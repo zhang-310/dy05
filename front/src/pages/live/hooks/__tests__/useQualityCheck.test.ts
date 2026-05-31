@@ -9,18 +9,21 @@ vi.mock('@/hooks/useDebouncedCallback', () => ({
 }))
 vi.mock('@/api/live', () => ({
   batchChatForScript: vi.fn(),
-  batchSaveLiveScripts: vi.fn(),
   checkSimilarity: vi.fn(),
   generateSkeletonStream: vi.fn(),
   refineScriptStream: vi.fn(),
   deleteLiveScript: vi.fn(),
   saveLiveScript: vi.fn(),
 }))
+vi.mock('@/api/live-script', () => ({
+  batchSaveLiveScripts: vi.fn(),
+}))
 
 import { useQualityCheck } from '../useQualityCheck'
 import type { UseQualityCheckDeps } from '../useQualityCheck'
 import type { LiveScript } from '@/api/live'
 import * as api from '@/api/live'
+import * as liveScriptApi from '@/api/live-script'
 
 function makeScript(overrides?: Partial<LiveScript>): LiveScript {
   return {
@@ -93,7 +96,7 @@ describe('useQualityCheck', () => {
 
   it('handleBatchApply skips locked scripts', async () => {
     vi.mocked(api.batchChatForScript).mockResolvedValue({ 2: 'updated' })
-    vi.mocked(api.batchSaveLiveScripts).mockResolvedValue([makeScript({ id: 2, scriptContent: 'updated' })])
+    vi.mocked(liveScriptApi.batchSaveLiveScripts).mockResolvedValue([makeScript({ id: 2, scriptContent: 'updated' })])
 
     const { result } = renderHook(() => useQualityCheck(makeDeps()))
 

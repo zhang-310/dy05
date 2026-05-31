@@ -10,6 +10,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -27,6 +29,8 @@ import java.util.stream.Collectors;
 @Tag(name = "短视频素材", description = "关键帧、配音、图生视频")
 public class ShortVideoMaterialController {
 
+    private static final Logger log = LoggerFactory.getLogger(ShortVideoMaterialController.class);
+
     @Resource
     private ShortVideoMaterialService materialService;
     @Resource
@@ -43,7 +47,7 @@ public class ShortVideoMaterialController {
     public SseEmitter generateKeyframesStream(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "short-video-keyframes-auth-error");
             err.completeWithError(new RuntimeException("未登录"));
             return err;
         }
@@ -54,7 +58,7 @@ public class ShortVideoMaterialController {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> shotsList = (List<Map<String, Object>>) body.get("shots");
         if (shotsList == null || shotsList.isEmpty()) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "short-video-keyframes-validation-error");
             err.completeWithError(new RuntimeException("shots 不能为空"));
             return err;
         }
@@ -67,7 +71,7 @@ public class ShortVideoMaterialController {
                         characterRef, sceneRef))
                 .collect(Collectors.toList());
 
-        SseEmitter emitter = new SseEmitter(300_000L); // 5 分钟超时
+        SseEmitter emitter = createSseEmitter(300_000L, "short-video-keyframes"); // 5 分钟超时
         try {
             List<ShortVideoMaterialService.KeyframeResult> keyframes = materialService.generateKeyframesWithProgress(
                     projectId, shotListId, inputs, userId,
@@ -82,7 +86,9 @@ public class ShortVideoMaterialController {
                             try {
                                 Map<String, Object> err = Map.of("error", e.getMessage() != null ? e.getMessage() : "进度推送失败");
                                 emitter.send(SseEmitter.event().name("error").data(err, MediaType.APPLICATION_JSON));
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                                // SSE错误消息发送失败，客户端已断开
+                            }
                             emitter.complete();
                         }
                     });
@@ -103,7 +109,9 @@ public class ShortVideoMaterialController {
                 if (msg == null || msg.isBlank()) msg = "图像生成失败，请确认 Stable Diffusion 服务已启动 (http://localhost:7860) 或 ComfyUI 已配置";
                 Map<String, Object> err = Map.of("error", msg);
                 emitter.send(SseEmitter.event().name("error").data(err, MediaType.APPLICATION_JSON));
-            } catch (Exception ignored) {}
+            } catch (Exception ex) {
+                log.debug("SSE error事件发送失败: {}", ex.getMessage());
+            }
             emitter.complete();
         } finally {
             emitter.complete();
@@ -166,7 +174,7 @@ public class ShortVideoMaterialController {
     public SseEmitter img2videoBatchStream(@RequestBody Map<String, Object> body, HttpServletRequest request) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "short-video-img2video-auth-error");
             err.completeWithError(new RuntimeException("未登录"));
             return err;
         }
@@ -175,7 +183,7 @@ public class ShortVideoMaterialController {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> keyframesList = (List<Map<String, Object>>) body.get("keyframes");
         if (keyframesList == null || keyframesList.isEmpty()) {
-            SseEmitter err = new SseEmitter(1000L);
+            SseEmitter err = createSseEmitter(1000L, "short-video-img2video-validation-error");
             err.completeWithError(new RuntimeException("keyframes 不能为空"));
             return err;
         }
@@ -195,7 +203,7 @@ public class ShortVideoMaterialController {
                         m.get("action") instanceof String s ? s : null))
                 .collect(Collectors.toList());
 
-        SseEmitter emitter = new SseEmitter(600_000L); // 10 分钟超时（视频生成较慢）
+        SseEmitter emitter = createSseEmitter(600_000L, "short-video-img2video"); // 10 分钟超时（视频生成较慢）
         try {
             List<ShortVideoMaterialService.VideoResult> videos = materialService.img2videoBatchWithProgress(
                     projectId, shotListId, inputs, userId,
@@ -210,7 +218,9 @@ public class ShortVideoMaterialController {
                             try {
                                 Map<String, Object> err = Map.of("error", e.getMessage() != null ? e.getMessage() : "进度推送失败");
                                 emitter.send(SseEmitter.event().name("error").data(err, MediaType.APPLICATION_JSON));
-                            } catch (Exception ignored) {}
+                            } catch (Exception ignored) {
+                                // SSE错误消息发送失败，客户端已断开
+                            }
                             emitter.complete();
                         }
                     });
@@ -229,11 +239,21 @@ public class ShortVideoMaterialController {
                 if (msg == null || msg.isBlank()) msg = "图生视频失败";
                 Map<String, Object> err = Map.of("error", msg);
                 emitter.send(SseEmitter.event().name("error").data(err, MediaType.APPLICATION_JSON));
-            } catch (Exception ignored) {}
+            } catch (Exception ex) {
+                log.debug("SSE error事件发送失败: {}", ex.getMessage());
+            }
             emitter.complete();
         } finally {
             emitter.complete();
         }
+        return emitter;
+    }
+
+    private SseEmitter createSseEmitter(long timeoutMs, String streamName) {
+        SseEmitter emitter = new SseEmitter(timeoutMs);
+        emitter.onCompletion(() -> log.debug("SSE completed: {}", streamName));
+        emitter.onTimeout(() -> log.debug("SSE timeout: {}", streamName));
+        emitter.onError(error -> log.debug("SSE error: {}, {}", streamName, error.getMessage()));
         return emitter;
     }
 

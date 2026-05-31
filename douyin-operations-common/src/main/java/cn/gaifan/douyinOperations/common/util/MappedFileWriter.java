@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
 import java.lang.reflect.Method;
 
@@ -63,7 +64,7 @@ public class MappedFileWriter {
             if (charsetString != null && !charsetString.isEmpty()) {
                 bs = content.getBytes(charsetString);
             } else {
-                bs = content.getBytes();
+                bs = content.getBytes(StandardCharsets.UTF_8);
             }
             write(to, bs);
         } catch (Exception e) {
@@ -90,7 +91,7 @@ public class MappedFileWriter {
             if (charset != null) {
                 bs = content.getBytes(charset);
             } else {
-                bs = content.getBytes();
+                bs = content.getBytes(StandardCharsets.UTF_8);
             }
             write(to, bs);
         } catch (Exception e) {

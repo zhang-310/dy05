@@ -22,7 +22,7 @@ import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.util.List;
 
-@RestController
+@RestController("liveProductController")
 @RequestMapping("/api/v1/product")
 @Tag(name = "商品管理 / Product", description = "商品库管理（需登录）")
 public class ProductController {

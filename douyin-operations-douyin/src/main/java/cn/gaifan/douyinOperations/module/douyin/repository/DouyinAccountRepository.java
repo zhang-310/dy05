@@ -18,6 +18,11 @@ public interface DouyinAccountRepository extends JpaRepository<DouyinAccount, Lo
 
     Page<DouyinAccount> findByOwnerIdAndDeleted(Long ownerId, Integer deleted, Pageable pageable);
 
+    // Alias method for backward compatibility with test code
+    default Page<DouyinAccount> findByUserIdAndDeleted(Long userId, Integer deleted, Pageable pageable) {
+        return findByOwnerIdAndDeleted(userId, deleted, pageable);
+    }
+
     Optional<DouyinAccount> findByIdAndDeleted(Long id, Integer deleted);
 
     Page<DouyinAccount> findByStatusAndDeleted(Integer status, Integer deleted, Pageable pageable);

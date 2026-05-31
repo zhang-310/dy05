@@ -5,8 +5,16 @@ import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.ai.service.VideoAnalysisService;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvViralVideo;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvViralVideoRepository;
+import cn.gaifan.douyinOperations.common.id.Ids;
+import cn.gaifan.douyinOperations.contract.credit.CreditConsumeRequest;
+import cn.gaifan.douyinOperations.contract.product.FeatureCode;
+import cn.gaifan.douyinOperations.contract.product.ProductCode;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialProductChargeService;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryProduct;
 import cn.gaifan.douyinOperations.module.shortvideo.service.ViralVideoDeepAnalysisService;
 import cn.gaifan.douyinOperations.module.shortvideo.service.ViralVideoService;
+import cn.gaifan.douyinOperations.common.config.RequestIdentityHolder;
+import cn.gaifan.douyinOperations.contract.identity.IdentityContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -43,9 +52,15 @@ public class ViralVideoDeepAnalysisServiceImpl implements ViralVideoDeepAnalysis
     @Autowired(required = false)
     private VideoAnalysisService videoAnalysisService;
 
+    @Autowired(required = false)
+    private CommercialProductChargeService commercialProductChargeService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> startDeepAnalyze(Long viralVideoId, Long userId) {
+    public Map<String, Object> startDeepAnalyze(Long viralVideoId, Long userId, boolean skipCommercialCharge) {
+        if (!skipCommercialCharge) {
+            chargeVideoInsightIfNeeded(viralVideoId, userId);
+        }
         SvViralVideo viral = viralVideoService.getViralVideo(viralVideoId, userId);
         if (StringUtils.hasText(viral.getVideoUrl()) && videoAnalysisService == null) {
             log.info("LF-05 深度分析提交：未启用本机视频解析，将仅基于标题与元数据由 LLM 推演口播/分镜 viralId={}", viralVideoId);
@@ -75,6 +90,7 @@ public class ViralVideoDeepAnalysisServiceImpl implements ViralVideoDeepAnalysis
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void startDeepAnalyzeStream(Long viralVideoId, Long userId, SseEmitter emitter) {
+        chargeVideoInsightIfNeeded(viralVideoId, userId);
         SvViralVideo viral = viralVideoService.getViralVideo(viralVideoId, userId);
         if (StringUtils.hasText(viral.getVideoUrl()) && videoAnalysisService == null) {
             log.info("LF-05 深度分析 SSE：未启用本机视频解析 viralId={}", viralVideoId);
@@ -147,7 +163,7 @@ public class ViralVideoDeepAnalysisServiceImpl implements ViralVideoDeepAnalysis
                 continue;
             }
             try {
-                out.add(startDeepAnalyze(id, userId));
+                out.add(startDeepAnalyze(id, userId, false));
             } catch (Exception e) {
                 Map<String, Object> err = new LinkedHashMap<>();
                 err.put("taskId", id);
@@ -296,5 +312,18 @@ public class ViralVideoDeepAnalysisServiceImpl implements ViralVideoDeepAnalysis
             case "missing" -> "缺失";
             default -> "未标注";
         };
+    }
+
+    private void chargeVideoInsightIfNeeded(Long viralVideoId, Long userId) {
+        if (commercialProductChargeService == null) {
+            return;
+        }
+        commercialProductChargeService.charge(
+                CommercialProductChargeService.CommercialProductChargeCommand.of(
+                        ProductCode.VIDEO_INSIGHT,
+                        FeatureCode.VIDEO_BREAKDOWN,
+                        "爆款拆解 viralVideoId=" + viralVideoId,
+                        DeliveryProduct.VIDEO_INSIGHT
+                ));
     }
 }

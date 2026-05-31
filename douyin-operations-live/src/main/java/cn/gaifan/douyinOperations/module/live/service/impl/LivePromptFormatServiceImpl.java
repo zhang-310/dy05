@@ -342,6 +342,8 @@ public class LivePromptFormatServiceImpl implements LivePromptFormatService {
             case "joke" -> "【素材融入：搞笑段子】请在话术中自然穿插幽默段子或梗，让观众轻松愉悦，提升互动";
             case "chicken_soup" -> "【素材融入：鸡汤金句】请在话术中融入正能量金句或人生感悟，引发情感共鸣";
             case "quote" -> "【素材融入：名言警句】请在话术中引用名人名言或经典语录，提升格调和说服力";
+            case "jingle", "rhyme_jingle", "shunkouliu" -> "【素材融入：顺口溜】请从话术库/TianAPI 顺口溜素材中提炼押韵表达，改写成直播口播记忆点，不要照搬整段";
+            case "proverb", "xiehouyu" -> "【素材融入：歇后语/俗语】请融入接地气的俗语、歇后语或类比，增强互动和记忆点";
             case "interactive_game" -> "【素材融入：互动游戏】请在话术中设计互动环节（猜价格/选A选B/接龙/评论区互动），活跃气氛";
             default -> "";
         };

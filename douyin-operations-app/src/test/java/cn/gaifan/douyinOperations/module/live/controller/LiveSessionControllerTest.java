@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.live.controller;
 
 import cn.gaifan.douyinOperations.contract.auth.DataScopeResolver;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
+import cn.gaifan.douyinOperations.module.live.service.LiveSessionShortVideoExportService;
 import cn.gaifan.douyinOperations.module.live.service.LiveSessionService;
 import cn.gaifan.douyinOperations.module.live.vo.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +45,9 @@ class LiveSessionControllerTest {
 
     @MockBean
     private LiveSessionService liveSessionService;
+
+    @MockBean
+    private LiveSessionShortVideoExportService liveSessionShortVideoExportService;
 
     @MockBean
     private DataScopeResolver dataScopeService;
@@ -131,8 +135,8 @@ class LiveSessionControllerTest {
     }
 
     @Test
-    @DisplayName("删除直播场次 - 204")
-    void delete_shouldReturn204() throws Exception {
+    @DisplayName("删除直播场次 - 200")
+    void delete_shouldReturn200() throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("id", 1L);
 
@@ -142,7 +146,8 @@ class LiveSessionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("删除成功"));
     }
 
     @Test
@@ -191,8 +196,8 @@ class LiveSessionControllerTest {
     }
 
     @Test
-    @DisplayName("更新直播场次状态 - 204")
-    void updateStatus_shouldReturn204() throws Exception {
+    @DisplayName("更新直播场次状态 - 200")
+    void updateStatus_shouldReturn200() throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("id", 1L);
         body.put("status", 1);
@@ -203,12 +208,13 @@ class LiveSessionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("修改成功"));
     }
 
     @Test
-    @DisplayName("更新观看人数 - 204")
-    void updateViewers_shouldReturn204() throws Exception {
+    @DisplayName("更新观看人数 - 200")
+    void updateViewers_shouldReturn200() throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("id", 1L);
         body.put("viewers", 5000);
@@ -219,12 +225,13 @@ class LiveSessionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("修改成功"));
     }
 
     @Test
-    @DisplayName("更新点赞数 - 204")
-    void updateLikes_shouldReturn204() throws Exception {
+    @DisplayName("更新点赞数 - 200")
+    void updateLikes_shouldReturn200() throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("id", 1L);
         body.put("likes", 10000L);
@@ -235,7 +242,8 @@ class LiveSessionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("修改成功"));
     }
 
     @Test
@@ -283,19 +291,22 @@ class LiveSessionControllerTest {
     @Test
     @DisplayName("场次导出短视频 - 200")
     void exportToShortVideo_shouldReturn200() throws Exception {
-        when(liveSessionService.exportToShortVideo(eq(1L), eq(1L))).thenReturn(100L);
+        when(liveSessionShortVideoExportService.exportToShortVideoProject(eq(1L), eq(1L), eq("viral")))
+                .thenReturn(new LiveSessionExportToShortVideoResultVO(10L, 100L));
 
         Map<String, Object> body = new HashMap<>();
         body.put("sessionId", 1L);
+        body.put("style", "viral");
 
         mockMvc.perform(post("/api/v1/live/session/export-to-short-video")
                         .requestAttr("userId", 1L)
                         .requestAttr("roleCode", "ADMIN")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(body)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data").value(100));
+                .andExpect(jsonPath("$.data.scriptId").value(10))
+                .andExpect(jsonPath("$.data.projectId").value(100));
     }
 
     @Test

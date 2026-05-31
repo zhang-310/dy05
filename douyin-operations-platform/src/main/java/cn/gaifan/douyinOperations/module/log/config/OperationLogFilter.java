@@ -52,6 +52,10 @@ public class OperationLogFilter implements Filter {
             chain.doFilter(request, response);
             return;
         }
+        if (isSseRequest(req, path)) {
+            chain.doFilter(request, response);
+            return;
+        }
 
         long start = System.currentTimeMillis();
         ContentCachingRequestWrapper cachingRequest = new ContentCachingRequestWrapper(req);
@@ -109,5 +113,14 @@ public class OperationLogFilter implements Filter {
             return path.substring(last + 1);
         }
         return "request";
+    }
+
+    private static boolean isSseRequest(HttpServletRequest request, String path) {
+        String accept = request.getHeader("Accept");
+        return (accept != null && accept.contains("text/event-stream"))
+                || path.contains("chat-stream")
+                || path.contains("chat-sse")
+                || path.contains("-sse")
+                || path.contains("/stream");
     }
 }

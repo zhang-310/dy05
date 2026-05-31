@@ -38,6 +38,7 @@ vi.mock('@/api/auth', () => ({
     orgInvite: vi.fn(),
     orgRemove: vi.fn(),
     orgInvitations: vi.fn(),
+    orgSearchTalents: vi.fn(),
   },
 }))
 
@@ -222,9 +223,9 @@ describe('Auth API 集成测试', () => {
   it('应该正确调用用户封禁 API', async () => {
     vi.mocked(authApi.ban).mockResolvedValue(undefined)
 
-    await authApi.ban(1, 0)
+    await authApi.ban({ userId: 1, ban: true, reason: '违规登录' })
 
-    expect(authApi.ban).toHaveBeenCalledWith(1, 0)
+    expect(authApi.ban).toHaveBeenCalledWith({ userId: 1, ban: true, reason: '违规登录' })
   })
 
   it('应该正确调用登录日志 API', async () => {

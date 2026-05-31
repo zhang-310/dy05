@@ -8,6 +8,7 @@ import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.ai.service.KnowledgeBaseService;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.ai.service.SceneDetectionService;
 import cn.gaifan.douyinOperations.module.ai.service.VideoAnalysisService;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvComment;
@@ -171,6 +172,12 @@ public class ViralDeepAnalyzeExecutor {
 
     @Autowired(required = false)
     private KnowledgeBaseService knowledgeBaseService;
+
+    @Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
+
+    @Autowired(required = false)
+    private ViralPatternKnowledgeFormatter viralPatternKnowledgeFormatter;
 
     /** 与 app.ai.kb.shared-owner-id 一致：系统/共享知识库在 ai_knowledge_base.user_id 上的归属（非视频 owner） */
     @Value("${app.ai.kb.shared-owner-id:0}")
@@ -679,7 +686,9 @@ public class ViralDeepAnalyzeExecutor {
             if (meta.hashtags() != null && !meta.hashtags().isEmpty()) {
                 try {
                     viral.setHashtags(JSON.writeValueAsString(meta.hashtags()));
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // JSON序列化失败，跳过hashtags
+                }
             }
             if (meta.coverUrl() != null && (viral.getCoverUrl() == null || viral.getCoverUrl().isBlank())) {
                 viral.setCoverUrl(meta.coverUrl());
@@ -1757,11 +1766,32 @@ public class ViralDeepAnalyzeExecutor {
                     content,
                     5,
                     targetKbId);
+            writeViralPatternKnowledge(viral, content);
 
             log.info("[深度分析] 已入队知识库: viralId={}, queueId={}, targetKbId={}, contentLength={}",
                     viral.getId(), queueId, targetKbId, content.length());
         } catch (Exception e) {
             log.warn("[深度分析] 知识库入队失败 viralId={}: {}", viral.getId(), e.getMessage());
+        }
+    }
+
+    private void writeViralPatternKnowledge(SvViralVideo viral, String content) {
+        if (operationalStrategyKnowledgeService == null || viralPatternKnowledgeFormatter == null
+                || viral == null || viral.getOwnerId() == null
+                || viral.getOwnerId() <= 0 || !StringUtils.hasText(content)) {
+            return;
+        }
+        try {
+            ViralPatternKnowledgeFormatter.PatternDocument doc = viralPatternKnowledgeFormatter.build(
+                    viral, "viral_deep_analyze", content);
+            operationalStrategyKnowledgeService.writeViralPatternKnowledge(
+                    viral.getOwnerId(),
+                    doc.title(),
+                    doc.content(),
+                    doc.metadata()
+            );
+        } catch (Exception e) {
+            log.debug("[深度分析] 爆款模式知识库沉淀跳过 viralId={}, err={}", viral.getId(), e.getMessage());
         }
     }
 

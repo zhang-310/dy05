@@ -12,6 +12,7 @@ import jakarta.annotation.Resource;
 import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -41,8 +42,14 @@ public class ViralVideoCollectorScheduler {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private DouyinVideoRepository douyinVideoRepository;
 
+    @Value("${app.viral-collector.enabled:true}")
+    private boolean collectorEnabled;
+
     @Scheduled(cron = "${app.viral-collector.cron:0 0 4 * * ?}")
     public void collectViralFromHotTopics() {
+        if (isDisabled("热点话题爆款采集")) {
+            return;
+        }
         log.info("[ViralCollector] 开始从热点话题采集爆款");
         try {
             ShortVideoBusinessConfig.ViralThreshold threshold = shortVideoBusinessConfig.getViral();
@@ -106,6 +113,9 @@ public class ViralVideoCollectorScheduler {
      */
     @Scheduled(cron = "${app.viral-collector.video-cron:0 30 4 * * ?}")
     public void collectViralFromDouyinVideos() {
+        if (isDisabled("douyin_video 爆款采集")) {
+            return;
+        }
         if (douyinVideoRepository == null) {
             log.debug("[ViralCollector] DouyinVideoRepository 未注入，跳过视频爆款采集");
             return;
@@ -163,6 +173,9 @@ public class ViralVideoCollectorScheduler {
      */
     @Scheduled(cron = "${app.viral-collector.vertical-cron:0 0 5 * * ?}")
     public void collectVerticalVirals() {
+        if (isDisabled("垂类爆款采集")) {
+            return;
+        }
         log.info("[垂类采集] 开始");
         try {
             if (verticalCollectorProperties == null) {
@@ -303,5 +316,13 @@ public class ViralVideoCollectorScheduler {
                 && likeRate >= t.getMinLikeRate()
                 && completionRate >= t.getMinCompletionRate()
                 && shareRate >= t.getMinShareRate();
+    }
+
+    private boolean isDisabled(String taskName) {
+        if (collectorEnabled) {
+            return false;
+        }
+        log.debug("[ViralCollector] 定时任务已禁用，跳过 {}", taskName);
+        return true;
     }
 }

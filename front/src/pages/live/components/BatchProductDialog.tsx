@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, Box, Typography, Checkbox, Chip,
-  IconButton, Tooltip, CircularProgress, InputAdornment, Badge,
+  IconButton, Tooltip, CircularProgress, InputAdornment, Badge, Alert,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import DeleteIcon from '@mui/icons-material/Delete'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import SearchIcon from '@mui/icons-material/Search'
@@ -39,6 +40,14 @@ interface BatchProductDialogProps {
 }
 
 const PAGE_SIZE = 50
+const BATCH_PRODUCT_READY_ENDPOINTS = ['/product/search', '/live/product/batch-add']
+const BATCH_PRODUCT_UNSUPPORTED_ACTIONS = [
+  'local-product-library-fallback',
+  'direct-live-product-write',
+  'local-batch-add-fallback',
+  'product-mutation',
+  'script-mutation',
+]
 
 function ProductRow({
   product, checked, isExisting, onToggle,
@@ -46,6 +55,11 @@ function ProductRow({
   const imgSrc = cdnThumb(product.mainImage, 80, 80)
   return (
     <Box
+      data-testid="batch-product-library-row"
+      data-contract-source="/product/search"
+      data-product-id={product.id}
+      data-selected={checked ? 'true' : 'false'}
+      data-existing-product={isExisting ? 'true' : 'false'}
       onClick={isExisting ? undefined : onToggle}
       sx={{
         display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1,
@@ -55,12 +69,37 @@ function ProductRow({
         borderBottom: '1px solid', borderColor: 'divider',
       }}
     >
-      <Checkbox size="small" checked={checked || isExisting} disabled={isExisting} sx={{ p: 0.5 }} />
+      <Checkbox
+        size="small"
+        checked={checked || isExisting}
+        disabled={isExisting}
+        inputProps={{
+          'data-testid': 'batch-product-row-checkbox',
+          'data-contract-source': '/product/search',
+        } as React.InputHTMLAttributes<HTMLInputElement>}
+        sx={{ p: 0.5 }}
+      />
       {imgSrc ? (
         <Box component="img" src={imgSrc} alt={product.productName}
           sx={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 1, flexShrink: 0 }} />
       ) : (
-        <Box sx={{ width: 44, height: 44, bgcolor: 'grey.100', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 1, flexShrink: 0 }}>
+        <Box
+          data-testid="batch-product-image-placeholder-surface"
+          sx={(theme) => ({
+            width: 44,
+            height: 44,
+            bgcolor: theme.palette.mode === 'dark'
+              ? alpha(theme.palette.common.white, 0.06)
+              : theme.palette.action.hover,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            flexShrink: 0,
+          })}
+        >
           <ImageNotSupportedOutlinedIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
         </Box>
       )}
@@ -81,12 +120,31 @@ function SelectedRow({
 }: { item: BatchSelectedProduct; onRemove: () => void; onTypeChange: (t: string) => void }) {
   const imgSrc = cdnThumb(item.imageUrl, 80, 80)
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+    <Box
+      data-testid="batch-product-selected-row"
+      data-contract-source="/live/product/batch-add"
+      data-product-id={item.productId}
+      data-product-type={item.productType}
+      sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}
+    >
       {imgSrc ? (
         <Box component="img" src={imgSrc} alt={item.productName}
           sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 1, flexShrink: 0 }} />
       ) : (
-        <Box sx={{ width: 40, height: 40, bgcolor: 'grey.100', borderRadius: 1, flexShrink: 0 }} />
+        <Box
+          data-testid="batch-product-selected-placeholder-surface"
+          sx={(theme) => ({
+            width: 40,
+            height: 40,
+            bgcolor: theme.palette.mode === 'dark'
+              ? alpha(theme.palette.common.white, 0.06)
+              : theme.palette.action.hover,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            flexShrink: 0,
+          })}
+        />
       )}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="body2" noWrap fontWeight={500}>{item.productName}</Typography>
@@ -94,6 +152,9 @@ function SelectedRow({
           {PRODUCT_TYPE_OPTIONS.map(opt => (
             <Chip
               key={opt.value}
+              data-testid="batch-product-selected-type-chip"
+              data-contract-source="/live/product/batch-add"
+              data-contract-product-type={opt.value}
               label={opt.label}
               size="small"
               color={item.productType === opt.value ? opt.color : 'default'}
@@ -105,7 +166,14 @@ function SelectedRow({
         </Box>
       </Box>
       <Tooltip title="移除">
-        <IconButton size="small" onClick={onRemove}><DeleteIcon fontSize="small" /></IconButton>
+        <IconButton
+          size="small"
+          onClick={onRemove}
+          data-testid="batch-product-selected-remove-button"
+          data-contract-source="/live/product/batch-add"
+        >
+          <DeleteIcon fontSize="small" />
+        </IconButton>
       </Tooltip>
     </Box>
   )
@@ -118,9 +186,11 @@ export function BatchProductDialog({ open, onClose, onConfirm, existingProductId
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState<BatchSelectedProduct[]>([])
   const [bulkType, setBulkType] = useState('flat')
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const loadProducts = useCallback(async (reset = false) => {
     setLoading(true)
+    setLoadError(null)
     try {
       const currentPage = reset ? 0 : page
       const result = await productApi.list({ page: currentPage, rows: PAGE_SIZE, productName: keyword || undefined })
@@ -140,8 +210,14 @@ export function BatchProductDialog({ open, onClose, onConfirm, existingProductId
         setPage(p => p + 1)
       }
       setHasMore(list.length === PAGE_SIZE)
-    } catch {
-      // ignore
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '商品库加载失败'
+      setLoadError(`/product/search 商品库加载失败：${message}`)
+      if (reset) {
+        setProducts([])
+        setPage(0)
+      }
+      setHasMore(false)
     } finally {
       setLoading(false)
     }
@@ -199,27 +275,81 @@ export function BatchProductDialog({ open, onClose, onConfirm, existingProductId
   const allSelected = availableProducts.length > 0 && availableProducts.every(p => selectedIds.has(p.id))
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: { height: '80vh' } }}>
-      <DialogTitle sx={{ pb: 1 }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      data-testid="live-select-batch-product-dialog"
+      data-contract-scope="live-batch-product-library-dialog"
+      data-contract-source={BATCH_PRODUCT_READY_ENDPOINTS.join('|')}
+      data-ready-endpoints={BATCH_PRODUCT_READY_ENDPOINTS.join('|')}
+      data-unsupported-actions={BATCH_PRODUCT_UNSUPPORTED_ACTIONS.join('|')}
+      data-selected-count={selected.length}
+      data-existing-count={existingProductIds.size}
+      data-product-count={products.length}
+      data-available-count={availableProducts.length}
+      data-page={page}
+      data-keyword={keyword}
+      data-loading={loading ? 'true' : 'false'}
+      data-has-more={hasMore ? 'true' : 'false'}
+      data-load-state={loadError ? 'error' : (loading ? 'loading' : 'ready')}
+      data-no-local-product-library-fallback="true"
+      PaperProps={{ sx: { height: '80vh' } }}
+    >
+      <DialogTitle sx={{ pb: 1 }} data-testid="batch-product-title" data-contract-source="/product/search|/live/product/batch-add">
         批量添加商品
         <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>从商品库选择添加到本场直播</Typography>
       </DialogTitle>
-      <DialogContent sx={{ display: 'flex', gap: 2, p: 0, overflow: 'hidden' }}>
+      <DialogContent data-testid="batch-product-content" data-contract-source="/product/search|/live/product/batch-add" sx={{ display: 'flex', gap: 2, p: 0, overflow: 'hidden' }}>
         {/* 左侧：商品库 */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid', borderColor: 'divider', minWidth: 0 }}>
           <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
             <TextField
               size="small" fullWidth placeholder="搜索商品名称..."
               value={keyword} onChange={e => setKeyword(e.target.value)}
+              data-testid="batch-product-search-input"
+              inputProps={{ 'data-contract-source': '/product/search' }}
               InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
             />
           </Box>
-          <Box sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Checkbox size="small" checked={allSelected} indeterminate={selected.length > 0 && !allSelected} onChange={handleSelectAll} sx={{ p: 0.5 }} />
+          {loadError && (
+            <Alert
+              severity="error"
+              data-testid="batch-product-search-error"
+              data-contract-source="/product/search"
+              data-no-local-product-library-fallback="true"
+              sx={{ borderRadius: 0 }}
+            >
+              {loadError}
+            </Alert>
+          )}
+          <Box
+            data-testid="batch-product-library-toolbar"
+            data-contract-source="/product/search"
+            data-available-count={availableProducts.length}
+            sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}
+          >
+            <Checkbox
+              size="small"
+              checked={allSelected}
+              indeterminate={selected.length > 0 && !allSelected}
+              onChange={handleSelectAll}
+              inputProps={{
+                'data-testid': 'batch-product-select-all-checkbox',
+                'data-contract-source': '/product/search|/live/product/batch-add',
+              } as React.InputHTMLAttributes<HTMLInputElement>}
+              sx={{ p: 0.5 }}
+            />
             <Typography variant="caption" color="text.secondary">全选当前页 ({availableProducts.length})</Typography>
             {loading && <CircularProgress size={14} sx={{ ml: 'auto' }} />}
           </Box>
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
+          <Box
+            data-testid="batch-product-library-list"
+            data-contract-source="/product/search"
+            data-no-local-product-library-fallback="true"
+            sx={{ flex: 1, overflow: 'auto' }}
+          >
             {availableProducts.map(p => (
               <ProductRow
                 key={p.id} product={p}
@@ -230,14 +360,29 @@ export function BatchProductDialog({ open, onClose, onConfirm, existingProductId
             ))}
             {hasMore && !loading && (
               <Box sx={{ p: 1.5, textAlign: 'center' }}>
-                <Button size="small" onClick={() => loadProducts(false)}>加载更多</Button>
+                <Button size="small" onClick={() => loadProducts(false)} data-testid="batch-product-load-more-button" data-contract-source="/product/search">加载更多</Button>
+              </Box>
+            )}
+            {!loading && !loadError && availableProducts.length === 0 && (
+              <Box
+                data-testid="batch-product-library-empty-state"
+                data-contract-source="/product/search"
+                data-no-local-product-library-fallback="true"
+                sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}
+              >
+                <Typography variant="body2">商品库暂无可添加商品</Typography>
               </Box>
             )}
           </Box>
         </Box>
 
         {/* 右侧：已选 */}
-        <Box sx={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+        <Box
+          data-testid="batch-product-selected-panel"
+          data-selected-count={selected.length}
+          data-contract-source="/live/product/batch-add"
+          sx={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column' }}
+        >
           <Box sx={{ px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
             <Badge badgeContent={selected.length} color="primary">
               <ShoppingCartOutlinedIcon fontSize="small" />
@@ -248,6 +393,9 @@ export function BatchProductDialog({ open, onClose, onConfirm, existingProductId
             <Box sx={{ display: 'flex', gap: 0.5 }}>
               {PRODUCT_TYPE_OPTIONS.slice(0, 3).map(opt => (
                 <Chip key={opt.value} label={opt.label} size="small"
+                  data-testid="batch-product-default-type-chip"
+                  data-contract-source="/live/product/batch-add"
+                  data-contract-product-type={opt.value}
                   color={bulkType === opt.value ? opt.color : 'default'}
                   variant={bulkType === opt.value ? 'filled' : 'outlined'}
                   onClick={() => setBulkType(opt.value)}
@@ -264,7 +412,11 @@ export function BatchProductDialog({ open, onClose, onConfirm, existingProductId
               />
             ))}
             {selected.length === 0 && (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 6, gap: 1 }}>
+              <Box
+                data-testid="batch-product-selected-empty-state"
+                data-contract-source="/live/product/batch-add"
+                sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 6, gap: 1 }}
+              >
                 <ShoppingCartOutlinedIcon sx={{ fontSize: 40, color: 'text.disabled' }} />
                 <Typography variant="body2" color="text.secondary">从左侧勾选商品</Typography>
                 <Typography variant="caption" color="text.disabled">支持单选、全选，添加后可设置商品类型</Typography>
@@ -274,8 +426,15 @@ export function BatchProductDialog({ open, onClose, onConfirm, existingProductId
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 1.5 }}>
-        <Button onClick={onClose}>取消</Button>
-        <Button variant="contained" onClick={() => onConfirm(selected)} disabled={selected.length === 0}>
+        <Button onClick={onClose} data-testid="batch-product-cancel-button" data-contract-source="onClose-prop">取消</Button>
+        <Button
+          variant="contained"
+          onClick={() => onConfirm(selected)}
+          disabled={selected.length === 0}
+          data-testid="batch-product-confirm-button"
+          data-contract-source="/live/product/batch-add|onConfirm-prop"
+          data-disabled-reason={selected.length === 0 ? 'empty-selection' : 'ready'}
+        >
           添加 {selected.length} 个商品
         </Button>
       </DialogActions>

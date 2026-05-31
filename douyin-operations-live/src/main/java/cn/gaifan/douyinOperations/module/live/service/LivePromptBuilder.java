@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.live.service;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
+import cn.gaifan.douyinOperations.module.live.config.LivePromptConfig;
 import cn.gaifan.douyinOperations.module.live.entity.LiveProduct;
 import cn.gaifan.douyinOperations.module.live.entity.LiveSession;
 import cn.gaifan.douyinOperations.module.live.vo.EmotionalScriptGenerateVO;
@@ -14,7 +15,9 @@ import cn.gaifan.douyinOperations.module.live.repository.LiveSessionRepository;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +35,8 @@ public class LivePromptBuilder {
     private LiveProductRepository liveProductRepository;
     @Resource
     private LiveSessionRepository sessionRepository;
+    @Resource
+    private LivePromptConfig promptConfig;
 
     /** 全局话术生成系统提示 */
     public static final String SYSTEM_PROMPT = """
@@ -62,7 +67,9 @@ public class LivePromptBuilder {
         String reqDesc = vo.getRequirement() != null && !vo.getRequirement().isBlank()
                 ? "本段需求/意图：" + vo.getRequirement() : "";
         String durationDesc = vo.getDurationLimitSec() != null && vo.getDurationLimitSec() > 0
-                ? String.format("时长限制：%d秒以内（约%d字）", vo.getDurationLimitSec(), vo.getDurationLimitSec() * 3)
+                ? String.format("硬性时长限制：控制在%d秒左右，最多不超过%d秒；按主播口播每秒3-4字估算，正文约%d-%d字，必须围绕这个长度生成。",
+                vo.getDurationLimitSec(), vo.getDurationLimitSec(),
+                Math.max(20, vo.getDurationLimitSec() * 3), Math.max(30, vo.getDurationLimitSec() * 4))
                 : "";
 
         return switch (scriptType) {
@@ -84,7 +91,7 @@ public class LivePromptBuilder {
                         ? buildDurationHintForProductType(vo.getProductType())
                         : (vo.getProductId() != null ? getProductTypeHintForPrompt(vo.getProductId(), session.getId()) : "");
                 String durationForProduct = (vo.getProductType() != null && !vo.getProductType().isBlank())
-                        ? "" : durationDesc;
+                        ? durationDesc : durationDesc;
                 yield String.format("""
                         生成产品话术，商品：%s
                         描述：%s | 价格：%s元
@@ -340,45 +347,69 @@ public class LivePromptBuilder {
 
     public String getProductTypePromptHint(String productType) {
         if (productType == null || productType.isBlank()) return "";
-        Set<String> types = new HashSet<>(Arrays.asList(productType.split(",")));
-        List<String> hints = new java.util.ArrayList<>();
-        if (types.contains("hot")) hints.add("爆品强调限时抢购、库存紧张、深度讲解2-5分钟");
-        if (types.contains("profit")) hints.add("利润品强调品质、价值感");
-        if (types.contains("loss")) hints.add("亏品强调引流、福利回馈");
-        if (types.contains("flat")) hints.add("平价品强调性价比");
-        if (types.contains("control")) hints.add("控单产品：吊胃口、控单规则、分批放单、催促抢购");
+        Set<String> types = normalizeProductTypes(productType);
+        List<String> hints = new ArrayList<>();
+        if (types.contains("hot")) hints.add("爆品：主推承接流量，默认约4分钟，讲清痛点、卖点、证据、价格锚点和下单动作");
+        if (types.contains("control")) hints.add("控单产品：默认约3分钟，吊胃口、讲规则、分批放单、制造稀缺和评论互动");
+        if (types.contains("profit")) hints.add("利润品：默认约2分钟，强调品质、成分、价值感、信任背书和客单理由");
+        if (types.contains("loss")) hints.add("亏品：默认约45秒，快速引流、报价算账、福利回馈，避免拖长");
+        if (types.contains("flat")) hints.add("平价品：默认约60秒，突出性价比、适用人群、闭眼入理由");
         return String.join("；", hints);
     }
 
     public String buildDurationHintForProductType(String productType) {
         if (productType == null || productType.isBlank()) return "";
-        Set<String> types = new HashSet<>(Arrays.asList(productType.split(",")));
-        int wordCountMin, wordCountMax;
-        String durationHint;
-        if (types.contains("hot")) {
-            wordCountMin = 900;
-            wordCountMax = 1500;
-            durationHint = "请生成深度讲解话术，分为 3-5 段：第1段产品介绍(60秒) 第2段成分功效(90秒) 第3段使用体验(60秒) 第4段对比优势(60秒) 第5段限时促销(30秒)";
-        } else if (types.contains("control")) {
-            wordCountMin = 600;
-            wordCountMax = 1200;
-            durationHint = "请生成控单话术，包含：吊胃口（30秒）、产品讲解（40秒）、控单规则（20秒）、分批放单引导";
-        } else if (types.contains("profit")) {
-            wordCountMin = 450;
-            wordCountMax = 600;
-            durationHint = "请生成重点推介话术，强调品质、成分、效果，60-90秒";
-        } else if (types.contains("loss")) {
-            wordCountMin = 200;
-            wordCountMax = 300;
-            durationHint = "请生成快速引流话术，直接报价、算账、强调福利，30-60秒";
-        } else {
-            wordCountMin = 300;
-            wordCountMax = 450;
-            durationHint = "请生成性价比导向话术，朴实真诚，45-75秒";
-        }
-        return String.format("产品分类：%s\n话术时长要求：%s\n字数范围：%d-%d 字\n",
-                formatProductTypeLabel(productType), durationHint, wordCountMin, wordCountMax);
+        ProductTypeDurationPlan plan = resolveDurationPlanForProductType(productType);
+        int wordCountMin = Math.max(20, plan.minSec() * 3);
+        int wordCountMax = Math.max(wordCountMin + 10, plan.maxSec() * 4);
+        String durationHint = switch (plan.primaryType()) {
+            case "hot" -> "爆品主推：按完整成交链路生成，痛点/卖点/证据/价格锚点/行动号召都要有";
+            case "control" -> "控单产品：吊胃口、控单规则、分批放单、评论互动和催促抢购";
+            case "profit" -> "利润品：强调品质、成分、效果、信任背书和高客单价理由";
+            case "loss" -> "亏品引流：直接报价、算账、强调福利，短促有冲击力";
+            default -> "平价品/常规品：突出性价比、适用人群、核心卖点和下单理由";
+        };
+        return String.format("产品分类：%s\n默认讲解时长：%d-%d秒，建议按约%d秒生成\n话术时长要求：%s\n字数范围：%d-%d字（按每秒3-4字估算）\n",
+                formatProductTypeLabel(productType), plan.minSec(), plan.maxSec(), plan.defaultSec(),
+                durationHint, wordCountMin, wordCountMax);
     }
+
+    public Integer resolveDefaultDurationSecForProductType(String productType) {
+        if (productType == null || productType.isBlank()) return null;
+        return resolveDurationPlanForProductType(productType).defaultSec();
+    }
+
+    private ProductTypeDurationPlan resolveDurationPlanForProductType(String productType) {
+        Set<String> types = normalizeProductTypes(productType);
+        String primary = List.of("hot", "control", "profit", "loss", "flat", "backup").stream()
+                .filter(types::contains)
+                .findFirst()
+                .orElse(types.stream().findFirst().orElse("flat"));
+        LivePromptConfig.ProductTypeDuration configured = promptConfig != null ? promptConfig.getDuration(primary) : null;
+        if (configured != null) {
+            int min = Math.max(1, configured.getMin());
+            int max = Math.max(min, configured.getMax());
+            return new ProductTypeDurationPlan(primary, min, max, Math.max(min, Math.min(max, (min + max) / 2)));
+        }
+        return switch (primary) {
+            case "hot" -> new ProductTypeDurationPlan(primary, 180, 300, 240);
+            case "control" -> new ProductTypeDurationPlan(primary, 120, 240, 180);
+            case "profit" -> new ProductTypeDurationPlan(primary, 90, 150, 120);
+            case "loss" -> new ProductTypeDurationPlan(primary, 30, 60, 45);
+            case "backup" -> new ProductTypeDurationPlan(primary, 45, 75, 60);
+            default -> new ProductTypeDurationPlan(primary, 45, 75, 60);
+        };
+    }
+
+    private Set<String> normalizeProductTypes(String productType) {
+        if (productType == null || productType.isBlank()) return Set.of();
+        return Arrays.stream(productType.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+    }
+
+    private record ProductTypeDurationPlan(String primaryType, int minSec, int maxSec, int defaultSec) {}
 
     private String buildOpeningTemplate(LiveSession session, String personaName, String extra) {
         StringBuilder sb = new StringBuilder();

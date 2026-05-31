@@ -99,12 +99,17 @@ public class LiveRealtimePanelController {
         // 处理超时和完成事件
         emitter.onTimeout(() -> {
             log.info("SSE 连接超时: sessionId={}, subscriberId={}", sessionId, subscriberId);
-            subscribers.getOrDefault(sessionId, new ConcurrentHashMap<>()).remove(subscriberId);
+            removeSubscriber(sessionId, subscriberId);
         });
 
         emitter.onCompletion(() -> {
             log.info("SSE 连接完成: sessionId={}, subscriberId={}", sessionId, subscriberId);
-            subscribers.getOrDefault(sessionId, new ConcurrentHashMap<>()).remove(subscriberId);
+            removeSubscriber(sessionId, subscriberId);
+        });
+
+        emitter.onError(error -> {
+            log.info("SSE 连接错误: sessionId={}, subscriberId={}, error={}", sessionId, subscriberId, error.getMessage());
+            removeSubscriber(sessionId, subscriberId);
         });
 
         // 发送初始连接成功消息
@@ -116,7 +121,7 @@ public class LiveRealtimePanelController {
                     .build());
         } catch (IOException e) {
             log.error("SSE 初始消息发送失败: sessionId={}", sessionId, e);
-            subscribers.getOrDefault(sessionId, new ConcurrentHashMap<>()).remove(subscriberId);
+            removeSubscriber(sessionId, subscriberId);
         }
 
         return emitter;
@@ -339,7 +344,7 @@ public class LiveRealtimePanelController {
                         .build());
             } catch (IOException e) {
                 log.warn("SSE 推送话术变化失败: sessionId={}, subscriberId={}", sessionId, subscriberId);
-                emitters.remove(subscriberId);
+                removeSubscriber(sessionId, subscriberId);
             }
         });
     }
@@ -367,7 +372,7 @@ public class LiveRealtimePanelController {
                         .build());
             } catch (IOException e) {
                 log.warn("SSE 推送完成事件失败: sessionId={}, subscriberId={}", sessionId, subscriberId);
-                emitters.remove(subscriberId);
+                removeSubscriber(sessionId, subscriberId);
             }
         });
     }
@@ -402,9 +407,20 @@ public class LiveRealtimePanelController {
                         .build());
             } catch (IOException e) {
                 log.warn("SSE 推送数据更新失败: sessionId={}, subscriberId={}", sessionId, subscriberId);
-                emitters.remove(subscriberId);
+                removeSubscriber(sessionId, subscriberId);
             }
         });
+    }
+
+    private void removeSubscriber(Long sessionId, String subscriberId) {
+        ConcurrentHashMap<String, SseEmitter> emitters = subscribers.get(sessionId);
+        if (emitters == null) {
+            return;
+        }
+        emitters.remove(subscriberId);
+        if (emitters.isEmpty()) {
+            subscribers.remove(sessionId, emitters);
+        }
     }
 
     /**

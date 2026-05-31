@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.shortvideo.controller;
 import cn.gaifan.douyinOperations.common.config.AuthTokenFilter;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
+import cn.gaifan.douyinOperations.contract.auth.DataScopeResolver;
 import cn.gaifan.douyinOperations.module.shortvideo.service.DouyinSeoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,7 +18,7 @@ import java.util.Map;
 /**
  * 抖音 SEO 建议 Controller
  * API 路径：/api/v1/short-video/seo
- * 替代 DouyinSeoServiceImpl 占位实现，提供 HTTP 入口
+ * 提供标题 A/B 变体、话题标签、封面、发布时间建议入口
  */
 @RestController
 @RequestMapping("/api/v1/short-video/seo")
@@ -26,6 +27,9 @@ public class ShortVideoSeoController {
 
     @Resource
     private DouyinSeoService douyinSeoService;
+
+    @Resource
+    private DataScopeResolver dataScopeService;
 
     /**
      * 标签推荐
@@ -56,7 +60,9 @@ public class ShortVideoSeoController {
                                                        HttpServletRequest request) {
         if (AuthTokenFilter.getUserId(request) == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long accountId = body != null && body.get("accountId") instanceof Number n ? n.longValue() : null;
-        RESTResult<List<String>> r = RESTResult.getSuccess(douyinSeoService.suggestPublishTime(accountId));
+        String roleCode = AuthTokenFilter.getRoleCode(request);
+        List<Long> visibleIds = dataScopeService.getVisibleUserIds(AuthTokenFilter.getUserId(request), roleCode);
+        RESTResult<List<String>> r = RESTResult.getSuccess(douyinSeoService.suggestPublishTime(accountId, visibleIds));
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

@@ -56,4 +56,13 @@ public interface LiveMonitorRepository extends JpaRepository<LiveMonitor, Long> 
     /** GMV 对账：获取场次监控数据中最高 GMV 值 */
     @Query("SELECT MAX(m.gmv) FROM LiveMonitor m WHERE m.sessionId = :sessionId")
     java.math.BigDecimal findMaxGmvBySessionId(@Param("sessionId") Long sessionId);
+
+    @Query("SELECT COALESCE(MAX(m.gmv), 0) FROM LiveMonitor m WHERE m.deleted = 0")
+    java.math.BigDecimal findGlobalMaxGmv();
+
+    @Query("SELECT AVG(m.viewers) FROM LiveMonitor m WHERE m.deleted = 0")
+    Double findGlobalAvgViewers();
+
+    @Query("SELECT COUNT(m) FROM LiveMonitor m WHERE m.deleted = 0")
+    long countActiveRecords();
 }

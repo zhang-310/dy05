@@ -179,7 +179,7 @@ export function saveAlertRule(data: AlertRuleSaveVO) {
  * 删除告警规则
  */
 export function deleteAlertRule(id: number) {
-  return request.delete<void>(`/system/alert/rules/${id}`)
+  return request.post<void>('/system/alert/rules/delete', { id })
 }
 
 /**

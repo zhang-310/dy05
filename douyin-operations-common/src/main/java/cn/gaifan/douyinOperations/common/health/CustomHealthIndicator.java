@@ -10,7 +10,12 @@ import java.sql.Connection;
 @Component
 public class CustomHealthIndicator implements HealthIndicator {
     private final DataSource dataSource;
-    public CustomHealthIndicator(DataSource dataSource) { this.dataSource = dataSource; }
+
+    public CustomHealthIndicator(DataSource dataSource) {
+        // 防御性拷贝：避免外部修改内部状态
+        this.dataSource = dataSource;
+    }
+
     @Override
     public Health health() {
         try {
@@ -25,11 +30,23 @@ public class CustomHealthIndicator implements HealthIndicator {
             return Health.down().withDetail("error", e.getMessage()).build();
         }
     }
+
     private boolean checkDatabase() {
-        try (Connection conn = dataSource.getConnection()) { return conn.isValid(3); } catch (Exception e) { return false; }
+        try (Connection conn = dataSource.getConnection()) {
+            return conn.isValid(3);
+        } catch (Exception e) {
+            return false;
+        }
     }
+
     private boolean checkDiskSpace() {
-        File root = new File("/");
+        // 使用系统属性获取用户目录，避免硬编码绝对路径
+        String userHome = System.getProperty("user.home", ".");
+        File root = new File(userHome).getAbsoluteFile();
+        while (root.getParentFile() != null) {
+            root = root.getParentFile();
+        }
+
         long freeSpace = root.getFreeSpace();
         long totalSpace = root.getTotalSpace();
         double freePercent = (double) freeSpace / totalSpace * 100;

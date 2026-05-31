@@ -158,6 +158,24 @@ describe('useScriptEditor', () => {
     expect(result2.current.draftRecoveryId).toBe(10)
   })
 
+  it('does not write the removed global live edit store key', () => {
+    const deps = makeDeps()
+    const { result } = renderHook(() => useScriptEditor(deps))
+
+    act(() => {
+      result.current.handleStartEdit(10, 'original')
+    })
+    act(() => {
+      result.current.handleEditContentChange('hook-owned draft')
+    })
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+
+    expect(localStorage.getItem('live-edit-storage')).toBeNull()
+    expect(localStorage.getItem('live-script-draft-1-10')).not.toBeNull()
+  })
+
   it('discardDraftRecovery restores original content', () => {
     // Pre-set a draft
     localStorage.setItem('live-script-draft-1-20', JSON.stringify({ content: 'draft', savedAt: Date.now() }))

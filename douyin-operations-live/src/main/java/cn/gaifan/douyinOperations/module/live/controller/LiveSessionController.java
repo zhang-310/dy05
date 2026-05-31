@@ -6,6 +6,7 @@ import cn.gaifan.douyinOperations.contract.auth.DataScopeResolver;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.live.service.LiveSessionService;
+import cn.gaifan.douyinOperations.module.live.service.LiveSessionShortVideoExportService;
 import cn.gaifan.douyinOperations.module.live.vo.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -30,6 +31,8 @@ public class LiveSessionController {
 
     @Resource
     private LiveSessionService liveSessionService;
+    @Resource
+    private LiveSessionShortVideoExportService liveSessionShortVideoExportService;
     @Resource
     private DataScopeResolver dataScopeService;
 
@@ -133,7 +136,7 @@ public class LiveSessionController {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         liveSessionService.delete(id);
-        RESTResult<Void> r = RESTResult.deleteSuccess(null);
+        RESTResult<Void> r = RESTResult.success("删除成功", null);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -197,7 +200,7 @@ public class LiveSessionController {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         liveSessionService.updateStatus(id, status);
-        RESTResult<Void> r = RESTResult.updateSuccess(null);
+        RESTResult<Void> r = RESTResult.success("修改成功", null);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -221,7 +224,7 @@ public class LiveSessionController {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         liveSessionService.updateViewers(id, viewers);
-        RESTResult<Void> r = RESTResult.updateSuccess(null);
+        RESTResult<Void> r = RESTResult.success("修改成功", null);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -245,7 +248,7 @@ public class LiveSessionController {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         liveSessionService.updateLikes(id, likes);
-        RESTResult<Void> r = RESTResult.updateSuccess(null);
+        RESTResult<Void> r = RESTResult.success("修改成功", null);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }
@@ -291,6 +294,8 @@ public class LiveSessionController {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
         Long sessionId = body.get("sessionId") != null ? Long.parseLong(body.get("sessionId").toString()) : null;
+        if (sessionId == null) sessionId = parseId(body, "id");
+        if (sessionId == null) sessionId = parseId(body, "sourceSessionId");
         if (sessionId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "sessionId 不能为空");
         String newTitle = body.get("newTitle") != null ? body.get("newTitle").toString() : null;
         long newId = liveSessionService.cloneSession(sessionId, userId, newTitle);
@@ -304,13 +309,15 @@ public class LiveSessionController {
      */
     @PostMapping("/export-to-short-video")
     @Operation(summary = "场次导出短视频 / Export to Short Video")
-    public RESTResult<Long> exportToShortVideo(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+    public RESTResult<LiveSessionExportToShortVideoResultVO> exportToShortVideo(HttpServletRequest request, @RequestBody Map<String, Object> body) {
         Long userId = AuthTokenFilter.getUserId(request);
         if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
-        Long sessionId = body.get("sessionId") != null ? Long.parseLong(body.get("sessionId").toString()) : null;
+        Long sessionId = parseId(body, "sessionId");
+        if (sessionId == null) sessionId = parseId(body, "id");
         if (sessionId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "sessionId 不能为空");
-        long projectId = liveSessionService.exportToShortVideo(sessionId, userId);
-        RESTResult<Long> r = RESTResult.addSuccess(projectId);
+        String style = body.get("style") instanceof String s ? s : null;
+        LiveSessionExportToShortVideoResultVO result = liveSessionShortVideoExportService.exportToShortVideoProject(sessionId, userId, style);
+        RESTResult<LiveSessionExportToShortVideoResultVO> r = RESTResult.addSuccess(result);
         r.setTraceId(MDC.get("traceId"));
         return r;
     }

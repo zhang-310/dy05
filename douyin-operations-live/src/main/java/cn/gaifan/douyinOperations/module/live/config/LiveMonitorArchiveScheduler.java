@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.live.config;
 import cn.gaifan.douyinOperations.module.live.repository.LiveMonitorRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -26,8 +27,15 @@ public class LiveMonitorArchiveScheduler {
     @Resource
     private JdbcTemplate jdbcTemplate;
 
+    @Value("${app.live.monitor-archive.enabled:true}")
+    private boolean schedulerEnabled;
+
     @Scheduled(cron = "${app.live.monitor-archive.cron:0 0 3 1 * ?}")
     public void archive() {
+        if (!schedulerEnabled) {
+            log.debug("LiveMonitor 归档定时任务已禁用，跳过");
+            return;
+        }
         LocalDateTime cutoff = LocalDateTime.now().minusDays(RETENTION_DAYS);
         Timestamp cutoffTs = Timestamp.valueOf(cutoff);
         try {

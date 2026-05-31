@@ -25,6 +25,17 @@ public class AccountCollectTaskVO {
     private Integer analyzedVideos;
     private Integer indexedVideos;
     private Long targetKbId;
+    private Integer maxCount;
+    private String workerId;
+    private String workerRegion;
+    private Integer retryCount;
+    private Integer maxRetryCount;
+    private Timestamp leaseUntil;
+    private Timestamp claimedAt;
+    private Timestamp startedAt;
+    private Timestamp finishedAt;
+    private Timestamp lastHeartbeatAt;
+    private Timestamp nextRunAt;
     private String errorMessage;
     private Timestamp createTime;
     private Timestamp updateTime;

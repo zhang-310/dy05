@@ -52,7 +52,7 @@ public class WorkflowExecutorImpl implements WorkflowExecutor {
         }
 
         // P0-1: 强制数据隔离 - 只能执行自己创建的工作流
-        WorkflowDefinition def = definitionRepository.findByWorkflowCodeAndOwnerIdAndDeleted(workflowCode, userId, 0)
+        WorkflowDefinition def = definitionRepository.findByWorkflowCodeAndOwnerIdAndDeleted(workflowCode, userId, Integer.valueOf(0))
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "工作流不存在或无权限"));
 
         List<WorkflowStep> steps = stepRepository.findByDefinitionIdAndDeletedOrderBySequenceNoAsc(def.getId(), 0);

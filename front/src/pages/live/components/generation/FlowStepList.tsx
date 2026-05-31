@@ -11,6 +11,7 @@ import {
   Typography,
   IconButton,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
@@ -35,16 +36,26 @@ const GroupedStepItem = memo(function GroupedStepItem({ step, onRetryStep }: Gro
   return (
     <Paper
       variant="outlined"
-      sx={{
+      data-testid={step.status === 'failed' ? 'flow-step-grouped-failed-surface' : 'flow-step-grouped-surface'}
+      data-contract-scope="live-generation-flow-grouped-step"
+      data-contract-source="groupedSteps-prop"
+      data-step-key={step.stepKey ?? ''}
+      data-script-id={step.scriptId ?? ''}
+      data-step-status={step.status}
+      data-no-local-step-fallback="true"
+      sx={(theme) => ({
         p: 1.5,
         borderRadius: 1,
         bgcolor:
           step.status === 'loading'
             ? 'action.hover'
             : step.status === 'failed'
-              ? 'rgba(211, 47, 47, 0.06)'
+              ? alpha(theme.palette.error.main, theme.palette.mode === 'dark' ? 0.16 : 0.08)
               : 'background.paper',
-      }}
+        borderColor: step.status === 'failed'
+          ? alpha(theme.palette.error.main, theme.palette.mode === 'dark' ? 0.45 : 0.28)
+          : 'divider',
+      })}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {step.status === 'done' && <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />}
@@ -57,7 +68,13 @@ const GroupedStepItem = memo(function GroupedStepItem({ step, onRetryStep }: Gro
           {getStepTitle(step.label)}
         </Typography>
         {step.status === 'failed' && onRetryStep && (
-          <Button size="small" onClick={() => onRetryStep(step)}>
+          <Button
+            size="small"
+            onClick={() => onRetryStep(step)}
+            data-testid="flow-step-grouped-retry-button"
+            data-contract-source="onRetryStep-prop"
+            data-step-key={step.stepKey ?? ''}
+          >
             重试
           </Button>
         )}
@@ -116,22 +133,33 @@ const FlatStepItem = memo(
         <Paper
           ref={isLast ? ref : undefined}
           variant="outlined"
-          sx={{
+          data-testid={step.status === 'failed' ? 'flow-step-flat-failed-surface' : 'flow-step-flat-surface'}
+          data-contract-scope="live-generation-flow-flat-step"
+          data-contract-source="steps-prop"
+          data-step-key={stepKey}
+          data-script-id={step.scriptId ?? ''}
+          data-step-status={step.status}
+          data-expanded={isExpanded ? 'true' : 'false'}
+          data-has-expandable-content={hasExpandableContent ? 'true' : 'false'}
+          data-quality-score={step.qualityScore ?? ''}
+          data-rag-ref-count={step.ragRefs?.length ?? 0}
+          data-no-local-step-fallback="true"
+          sx={(theme) => ({
             p: 1,
             borderRadius: 1.5,
             bgcolor:
               step.status === 'loading'
                 ? 'action.hover'
                 : step.status === 'failed'
-                  ? 'rgba(211, 47, 47, 0.04)'
+                  ? alpha(theme.palette.error.main, theme.palette.mode === 'dark' ? 0.14 : 0.06)
                   : 'background.paper',
             borderColor:
               step.status === 'loading'
                 ? 'primary.light'
                 : step.status === 'failed'
-                  ? 'error.light'
+                  ? alpha(theme.palette.error.main, theme.palette.mode === 'dark' ? 0.5 : 0.32)
                   : 'divider',
-          }}
+          })}
         >
           <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
             {/* Status icon */}
@@ -235,7 +263,15 @@ const FlatStepItem = memo(
                 {hasExpandableContent && (
                   <Box sx={{ display: 'flex', alignItems: 'center', ml: 'auto', gap: 0, flexShrink: 0 }}>
                     {step.status === 'failed' && onRetryStep && (
-                      <IconButton size="small" onClick={() => onRetryStep(step)} title="重试" sx={{ p: 0.25 }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => onRetryStep(step)}
+                        title="重试"
+                        sx={{ p: 0.25 }}
+                        data-testid="flow-step-flat-retry-button"
+                        data-contract-source="onRetryStep-prop"
+                        data-step-key={stepKey}
+                      >
                         <AutorenewIcon sx={{ fontSize: 14, color: 'primary.main' }} />
                       </IconButton>
                     )}
@@ -244,6 +280,9 @@ const FlatStepItem = memo(
                       onClick={() => onToggleExpand(stepKey)}
                       title={isExpanded ? '收起' : '展开'}
                       sx={{ p: 0.25 }}
+                      data-testid="flow-step-flat-toggle-button"
+                      data-contract-source="onToggleExpand-prop"
+                      data-step-key={stepKey}
                     >
                       {isExpanded ? (
                         <ExpandLessIcon sx={{ fontSize: 16 }} />
@@ -256,6 +295,10 @@ const FlatStepItem = memo(
                       onClick={() => onCopy(contentText ?? '')}
                       title="复制"
                       sx={{ p: 0.25 }}
+                      data-testid="flow-step-flat-copy-button"
+                      data-contract-source="browser-clipboard-prop"
+                      data-action-owner="onCopy-prop"
+                      data-step-key={stepKey}
                     >
                       <ContentCopyIcon sx={{ fontSize: 14 }} />
                     </IconButton>
@@ -331,7 +374,12 @@ const FlatStepItem = memo(
 
           {/* Expanded content area */}
           {hasExpandableContent && (
-            <Box sx={{ mt: 0.5, pt: 0.5, borderTop: 1, borderColor: 'divider' }}>
+            <Box
+              data-testid="flow-step-expanded-content"
+              data-contract-source="steps-prop"
+              data-no-local-step-fallback="true"
+              sx={{ mt: 0.5, pt: 0.5, borderTop: 1, borderColor: 'divider' }}
+            >
               <Typography
                 variant="body2"
                 sx={{
@@ -486,7 +534,13 @@ export const FlowStepList = memo(function FlowStepList({
   return (
     <>
       {steps.length === 0 && currentLabel && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1.5 }}>
+        <Box
+          data-testid="flow-step-current-label-only"
+          data-contract-source="/live/ai/generate-full-pipelined-sse|/live/ai/generate-full-sse|/live/ai/generate-skeleton-sse"
+          data-current-label={currentLabel}
+          data-no-local-step-fallback="true"
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1.5 }}
+        >
           <AutorenewIcon sx={{ fontSize: 18, color: 'primary.main', animation: 'spin 1s linear infinite' }} />
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: 12 }}>
             {getStepTitle(currentLabel)}

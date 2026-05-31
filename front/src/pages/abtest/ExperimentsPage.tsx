@@ -5,8 +5,9 @@ import {
   Typography, Grid, Tabs, Tab, Dialog, DialogTitle,
   DialogContent, DialogActions, Stepper, Step, StepLabel,
   FormControl, InputLabel, Select, MenuItem, IconButton,
-  Paper, Tooltip, Collapse, Slider,
+  Paper, Tooltip, Collapse, Slider, Alert,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import AddIcon from '@mui/icons-material/Add'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import PauseIcon from '@mui/icons-material/Pause'
@@ -15,12 +16,15 @@ import BarChartIcon from '@mui/icons-material/BarChart'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import type { GridColDef } from '@mui/x-data-grid'
-import { StandardDataGrid, ConfirmDialog } from '@/components/base'
-import { abtestApi, type AbVariant } from '@/api/abtest'
+import { StandardDataGrid, ConfirmDialog, PageHeader } from '@/components/base'
+import { abtestApi, type AbExperiment, type AbVariant } from '@/api/abtest'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDate } from '@/utils/date'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { normalizeArray, readTotal } from '@/utils/response-normalize'
 
 // ─── p-value helper ──────────────────────────────────────────────────────────
 function ncdf(z: number): number {
@@ -43,17 +47,41 @@ function pValueFromVariants(variants: AbVariant[]): number {
 const STATUS_MAP: Record<number, { label: string; color: 'default' | 'info' | 'warning' | 'success' }> = {
   0: { label: '草稿', color: 'default' },
   1: { label: '进行中', color: 'info' },
-  2: { label: '已暂停', color: 'warning' },
-  3: { label: '已结束', color: 'success' },
+  2: { label: '已完成', color: 'success' },
+  3: { label: '已暂停', color: 'warning' },
 }
 
 const STATUS_TABS = [
   { value: -1, label: '全部' },
   { value: 0, label: '草稿' },
   { value: 1, label: '运行中' },
-  { value: 2, label: '已暂停' },
-  { value: 3, label: '已完成' },
+  { value: 3, label: '已暂停' },
+  { value: 2, label: '已完成' },
 ]
+
+const ABTEST_ENDPOINTS = {
+  list: '/abtest/experiment/list',
+  save: '/abtest/experiment/save',
+  delete: '/abtest/experiment/delete',
+  status: '/abtest/experiment/update-status',
+  detail: '/admin/ai/abtest',
+} as const
+const ABTEST_READY_ENDPOINTS = [
+  ABTEST_ENDPOINTS.list,
+  ABTEST_ENDPOINTS.save,
+  ABTEST_ENDPOINTS.delete,
+  ABTEST_ENDPOINTS.status,
+] as const
+const ABTEST_UNSUPPORTED_ENDPOINTS = [
+  '/abtest/experiment/mock',
+  '/abtest/experiment/local-list',
+  '/abtest/experiment/local-save',
+  '/abtest/experiment/local-delete',
+  '/abtest/experiment/local-update-status',
+  '/abtest/experiment/static-result',
+  '/abtest/experiment/segment-analysis',
+  '/abtest/traffic-ratio/save',
+] as const
 
 // ─── Sample Size Calculator ───────────────────────────────────────────────────
 function zScore(p: number): number {
@@ -77,9 +105,9 @@ function SampleCalculator({ onSampleSize }: { onSampleSize: (n: number) => void 
   const [baseline, setBaseline] = useState(3.8)
   const [mde, setMde] = useState(15)
   const [power, setPower] = useState(0.8)
-  const [alpha, setAlpha] = useState(0.05)
+  const [significanceLevel, setSignificanceLevel] = useState(0.05)
 
-  const n = useMemo(() => calcSampleSize(baseline, mde, power, alpha), [baseline, mde, power, alpha])
+  const n = useMemo(() => calcSampleSize(baseline, mde, power, significanceLevel), [baseline, mde, power, significanceLevel])
   const sessions = (n / 500).toFixed(1)
 
   return (
@@ -110,7 +138,7 @@ function SampleCalculator({ onSampleSize }: { onSampleSize: (n: number) => void 
             <Grid item xs={6}>
               <FormControl fullWidth size="small">
                 <InputLabel>显著性水平 α</InputLabel>
-                <Select label="显著性水平 α" value={alpha} onChange={e => setAlpha(Number(e.target.value))}>
+                <Select label="显著性水平 α" value={significanceLevel} onChange={e => setSignificanceLevel(Number(e.target.value))}>
                   <MenuItem value={0.01}>0.01</MenuItem>
                   <MenuItem value={0.05}>0.05</MenuItem>
                   <MenuItem value={0.1}>0.10</MenuItem>
@@ -118,7 +146,17 @@ function SampleCalculator({ onSampleSize }: { onSampleSize: (n: number) => void 
               </FormControl>
             </Grid>
           </Grid>
-          <Paper sx={{ mt: 2, p: 1.5, bgcolor: 'primary.50', borderRadius: 1 }}>
+          <Paper
+            data-testid="abtest-sample-size-result-surface"
+            variant="outlined"
+            sx={(theme) => ({
+              mt: 2,
+              p: 1.5,
+              bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.18 : 0.08),
+              borderColor: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.34 : 0.18),
+              borderRadius: 1,
+            })}
+          >
             <Typography variant="body2">每个变体最少需要：<strong>{n.toLocaleString()}</strong> 样本</Typography>
             <Typography variant="body2" color="text.secondary">预计约 <strong>{sessions}</strong> 场次（按历史均值 500 UV/场）</Typography>
           </Paper>
@@ -130,34 +168,67 @@ function SampleCalculator({ onSampleSize }: { onSampleSize: (n: number) => void 
 }
 // ─── CreateWizard ────────────────────────────────────────────────────────────
 interface WizardForm {
-  experimentName: string
+  name: string
   description: string
+  experimentType: string
+  targetEntityType: string
+  targetEntityId: string
   metric: string
   minSampleSize: number
   variants: Partial<AbVariant>[]
-  trafficSplit: number
-  sessionId?: number
 }
 
-const STEPS = ['基础信息', '添加变体', '流量配置', '确认启动']
+const STEPS = ['基础信息', '添加变体', '样本评估', '确认保存']
 const METRICS = ['转化率', 'GMV', '点击率', '加购率']
+const EXPERIMENT_TYPES = [
+  { value: 'script_style', label: '话术风格' },
+  { value: 'live', label: '直播场次' },
+  { value: 'video', label: '短视频' },
+  { value: 'copy', label: '文案' },
+]
+const TARGET_ENTITY_TYPES = [
+  { value: 'live_session', label: '直播场次' },
+  { value: 'product', label: '商品' },
+  { value: 'short_video_project', label: '短视频项目' },
+]
 
 function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const toast = useToast()
   const [step, setStep] = useState(0)
+  const [saveError, setSaveError] = useState('')
   const [form, setForm] = useState<WizardForm>({
-    experimentName: '', description: '', metric: '转化率', minSampleSize: 1000,
+    name: '', description: '', experimentType: 'script_style', targetEntityType: 'live_session', targetEntityId: '',
+    metric: '转化率', minSampleSize: 1000,
     variants: [
-      { variantName: '对照组 A', trafficRatio: 50, scriptStyle: '' },
-      { variantName: '实验组 B', trafficRatio: 50, scriptStyle: '' },
+      { variantName: '对照组 A', variantType: 'A', trafficRatio: 50, styleCode: '', content: '' },
+      { variantName: '实验组 B', variantType: 'B', trafficRatio: 50, styleCode: '', content: '' },
     ],
-    trafficSplit: 50,
   })
+  const wizardContext = () => {
+    const variantNames = form.variants.map(v => `${v.variantType || '-'}:${v.variantName || '未命名'}`).join(',')
+    return `experimentName=${form.name.trim() || '未填写'}; experimentType=${form.experimentType}; targetEntityType=${form.targetEntityType || '-'}; targetEntityId=${form.targetEntityId || '-'}; metric=${form.metric}; minSampleSize=${form.minSampleSize}; variants=${variantNames}; step=${STEPS[step]}`
+  }
 
   const saveMut = useMutation({
-    mutationFn: () => abtestApi.save({ experimentName: form.experimentName, description: form.description, trafficSplit: form.trafficSplit }),
+    mutationFn: () => {
+      setSaveError('')
+      return abtestApi.save({
+        name: form.name,
+        description: form.description,
+        experimentType: form.experimentType,
+        targetEntityType: form.targetEntityType || undefined,
+        targetEntityId: form.targetEntityId ? Number(form.targetEntityId) : undefined,
+        status: 0,
+        variants: form.variants.map((variant, index) => ({
+          variantName: variant.variantName ?? `变体 ${index + 1}`,
+          variantType: String(variant.variantType ?? (index === 0 ? 'A' : 'B')),
+          content: variant.content,
+          styleCode: variant.styleCode ?? variant.scriptStyle,
+        })),
+      })
+    },
     onSuccess: () => { toast('实验已创建', 'success'); onCreated(); onClose(); setStep(0) },
-    onError: () => toast('创建失败', 'error'),
+    onError: (error: Error) => { setSaveError(`创建实验失败（POST ${ABTEST_ENDPOINTS.save}）：${getErrorMessage(error)}（${wizardContext()}）`); toast(`创建失败：${getErrorMessage(error)}`, 'error') },
   })
 
   const addVariant = () => {
@@ -168,7 +239,7 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
       ...f,
       variants: [
         ...f.variants.map(v => ({ ...v, trafficRatio: ratio })),
-        { variantName: names[f.variants.length], trafficRatio: ratio, scriptStyle: '' },
+        { variantName: names[f.variants.length], variantType: String.fromCharCode(65 + f.variants.length), trafficRatio: ratio, styleCode: '', content: '' },
       ],
     }))
   }
@@ -178,13 +249,13 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
     setForm(f => ({ ...f, variants: f.variants.filter((_, i) => i !== idx) }))
   }
 
-  const updateVariant = (idx: number, field: string, val: string) => {
+  const updateVariant = (idx: number, field: string, val: string | number) => {
     setForm(f => ({ ...f, variants: f.variants.map((v, i) => i === idx ? { ...v, [field]: val } : v) }))
   }
 
   const canNext = () => {
-    if (step === 0) return form.experimentName.trim().length > 0
-    if (step === 1) return form.variants.every(v => v.variantName)
+    if (step === 0) return form.name.trim().length > 0
+    if (step === 1) return form.variants.length >= 2 && form.variants.every(v => v.variantName && v.variantType)
     return true
   }
 
@@ -198,8 +269,27 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
 
         {step === 0 && (
           <Stack spacing={2}>
-            <TextField label="实验名称 *" value={form.experimentName} onChange={e => setForm(f => ({ ...f, experimentName: e.target.value }))} fullWidth size="small" />
+            <TextField label="实验名称 *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} fullWidth size="small" />
             <TextField label="假设描述" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} fullWidth size="small" multiline minRows={2} />
+            <FormControl fullWidth size="small">
+              <InputLabel>实验类型</InputLabel>
+              <Select label="实验类型" value={form.experimentType} onChange={e => setForm(f => ({ ...f, experimentType: e.target.value }))}>
+                {EXPERIMENT_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>目标实体类型</InputLabel>
+                  <Select label="目标实体类型" value={form.targetEntityType} onChange={e => setForm(f => ({ ...f, targetEntityType: e.target.value }))}>
+                    {TARGET_ENTITY_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="目标实体 ID" type="number" value={form.targetEntityId} onChange={e => setForm(f => ({ ...f, targetEntityId: e.target.value }))} fullWidth size="small" />
+              </Grid>
+            </Grid>
             <FormControl fullWidth size="small">
               <InputLabel>核心指标</InputLabel>
               <Select label="核心指标" value={form.metric} onChange={e => setForm(f => ({ ...f, metric: e.target.value }))}>
@@ -218,7 +308,8 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
                 <Stack direction="row" spacing={1} alignItems="flex-start">
                   <Chip label={String.fromCharCode(65 + i)} size="small" color={i === 0 ? 'default' : 'primary'} sx={{ mt: 0.5 }} />
                   <TextField label="变体名称" value={v.variantName ?? ''} onChange={e => updateVariant(i, 'variantName', e.target.value)} size="small" sx={{ flex: 1 }} />
-                  <TextField label="话术标识" value={v.scriptStyle ?? ''} onChange={e => updateVariant(i, 'scriptStyle', e.target.value)} size="small" sx={{ flex: 1 }} placeholder="关联话术ID或描述" />
+                  <TextField label="风格编码" value={v.styleCode ?? v.scriptStyle ?? ''} onChange={e => updateVariant(i, 'styleCode', e.target.value)} size="small" sx={{ flex: 1 }} placeholder="professional / friendly" />
+                  <TextField label="变体内容" value={v.content ?? ''} onChange={e => updateVariant(i, 'content', e.target.value)} size="small" sx={{ flex: 1 }} placeholder="话术内容或差异说明" />
                   {i >= 2 && <IconButton size="small" color="error" onClick={() => removeVariant(i)}><DeleteIcon fontSize="small" /></IconButton>}
                 </Stack>
               </Paper>
@@ -231,11 +322,12 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
 
         {step === 2 && (
           <Stack spacing={2}>
-            <Typography variant="body2">流量分配比例（每个变体）</Typography>
+            <Alert severity="info">当前后端 `ab_variant` 暂无流量比例字段，滑块仅用于样本量评估和前端展示，不会写入数据库。</Alert>
+            <Typography variant="body2">计划流量分配比例（仅评估）</Typography>
             {form.variants.map((v, i) => (
               <Stack key={i} direction="row" alignItems="center" spacing={2}>
                 <Typography variant="body2" sx={{ width: 100 }}>{v.variantName}</Typography>
-                <Slider value={v.trafficRatio ?? 50} min={10} max={90} step={5} onChange={(_, val) => updateVariant(i, 'trafficRatio', String(val))} sx={{ flex: 1 }} />
+                <Slider value={v.trafficRatio ?? 50} min={10} max={90} step={5} onChange={(_, val) => updateVariant(i, 'trafficRatio', Number(val))} sx={{ flex: 1 }} />
                 <Typography variant="body2" sx={{ width: 40 }}>{v.trafficRatio}%</Typography>
               </Stack>
             ))}
@@ -249,7 +341,11 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
               <Stack spacing={1}>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography variant="body2" color="text.secondary">实验名称</Typography>
-                  <Typography variant="body2">{form.experimentName}</Typography>
+                  <Typography variant="body2">{form.name}</Typography>
+                </Stack>
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">实验类型</Typography>
+                  <Typography variant="body2">{form.experimentType}</Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography variant="body2" color="text.secondary">核心指标</Typography>
@@ -265,12 +361,17 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
                 </Stack>
                 {form.variants.map((v, i) => (
                   <Stack key={i} direction="row" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">{v.variantName}</Typography>
-                    <Typography variant="body2">{v.trafficRatio}% 流量</Typography>
+                    <Typography variant="body2" color="text.secondary">{v.variantName} / {v.variantType}</Typography>
+                    <Typography variant="body2">{v.styleCode || v.content || '-'}</Typography>
                   </Stack>
                 ))}
               </Stack>
             </Paper>
+            {saveError ? (
+              <Alert data-testid="abtest-experiment-save-error" data-input-retained="true" data-no-local-experiment-create="true" severity="error">
+                {saveError}。创建失败会保留当前向导输入。
+              </Alert>
+            ) : null}
           </Stack>
         )}
       </DialogContent>
@@ -279,7 +380,7 @@ function CreateWizard({ open, onClose, onCreated }: { open: boolean; onClose: ()
         {step > 0 && <Button onClick={() => setStep(s => s - 1)}>上一步</Button>}
         {step < STEPS.length - 1
           ? <Button variant="contained" onClick={() => setStep(s => s + 1)} disabled={!canNext()}>下一步</Button>
-          : <Button variant="contained" color="success" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>启动实验</Button>
+          : <Button variant="contained" color="success" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>保存实验</Button>
         }
       </DialogActions>
     </Dialog>
@@ -295,27 +396,56 @@ export default function ExperimentsPage() {
   const [page, setPage] = useState(0)
   const [rows, setRows] = useState(20)
   const [wizardOpen, setWizardOpen] = useState(false)
-  const [deleteId, setDeleteId] = useState<number | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AbExperiment | null>(null)
+  const [actionError, setActionError] = useState('')
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['ab-experiments', { page, rows, keyword, statusTab }],
-    queryFn: () => abtestApi.list({ page, rows, experimentName: keyword || undefined, status: statusTab === -1 ? undefined : statusTab }),
+    queryFn: () => abtestApi.list({ page, rows, keyword: keyword || undefined, status: statusTab === -1 ? undefined : statusTab }),
   })
+  const experimentRows = normalizeArray<AbExperiment>(data?.list ?? data)
+  const experimentTotal = readTotal(data, experimentRows.length)
+  const filterContext = () => {
+    const tabLabel = STATUS_TABS.find(item => item.value === statusTab)?.label ?? String(statusTab)
+    return `route=/admin/ai/abtest/experiments; keyword=${keyword.trim() || '空'}; statusTab=${tabLabel}; page=${page}; rows=${rows}`
+  }
+  const experimentContext = (row?: Partial<AbExperiment> | null, fallbackId?: number | string) => {
+    const id = row?.id ?? fallbackId ?? '-'
+    const name = row?.name ?? row?.experimentName ?? '未知实验'
+    const status = row?.status == null ? '-' : `${row.status}/${STATUS_MAP[Number(row.status)]?.label ?? '未知'}`
+    return `experimentId=${id}; experimentName=${name}; experimentType=${row?.experimentType ?? '-'}; target=${row?.targetEntityType ?? '-'}#${row?.targetEntityId ?? '-'}; status=${status}; ${filterContext()}`
+  }
 
-  const startMut = useMutation({ mutationFn: abtestApi.start, onSuccess: () => { toast('实验已启动', 'success'); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) }, onError: () => toast('操作失败', 'error') })
-  const pauseMut = useMutation({ mutationFn: abtestApi.pause, onSuccess: () => { toast('实验已暂停', 'success'); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) }, onError: () => toast('操作失败', 'error') })
-  const stopMut = useMutation({ mutationFn: abtestApi.stop, onSuccess: () => { toast('实验已结束', 'success'); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) }, onError: () => toast('操作失败', 'error') })
-  const delMut = useMutation({ mutationFn: abtestApi.delete, onSuccess: () => { toast('已删除', 'success'); setDeleteId(null); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) }, onError: () => toast('删除失败', 'error') })
+  const startMut = useMutation({
+    mutationFn: (row: AbExperiment) => { setActionError(''); return abtestApi.start(row.id) },
+    onSuccess: () => { toast('实验已启动', 'success'); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) },
+    onError: (e: Error, row) => { setActionError(`启动实验失败（POST ${ABTEST_ENDPOINTS.status}）：${getErrorMessage(e)}（targetStatus=1/进行中; ${experimentContext(row)}）`); toast(`操作失败：${getErrorMessage(e)}`, 'error') },
+  })
+  const pauseMut = useMutation({
+    mutationFn: (row: AbExperiment) => { setActionError(''); return abtestApi.pause(row.id) },
+    onSuccess: () => { toast('实验已暂停', 'success'); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) },
+    onError: (e: Error, row) => { setActionError(`暂停实验失败（POST ${ABTEST_ENDPOINTS.status}）：${getErrorMessage(e)}（targetStatus=3/已暂停; ${experimentContext(row)}）`); toast(`操作失败：${getErrorMessage(e)}`, 'error') },
+  })
+  const stopMut = useMutation({
+    mutationFn: (row: AbExperiment) => { setActionError(''); return abtestApi.stop(row.id) },
+    onSuccess: () => { toast('实验已完成', 'success'); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) },
+    onError: (e: Error, row) => { setActionError(`结束实验失败（POST ${ABTEST_ENDPOINTS.status}）：${getErrorMessage(e)}（targetStatus=2/已完成; ${experimentContext(row)}）`); toast(`操作失败：${getErrorMessage(e)}`, 'error') },
+  })
+  const delMut = useMutation({
+    mutationFn: (row: AbExperiment) => { setActionError(''); return abtestApi.delete(row.id) },
+    onSuccess: () => { toast('已删除', 'success'); setDeleteTarget(null); qc.invalidateQueries({ queryKey: ['ab-experiments'] }) },
+    onError: (e: Error, row) => { setActionError(`删除实验失败（POST ${ABTEST_ENDPOINTS.delete}）：${getErrorMessage(e)}（${experimentContext(row)}）`); toast(`删除失败：${getErrorMessage(e)}`, 'error') },
+  })
 
   const columns: GridColDef[] = [
     {
-      field: 'experimentName', headerName: '实验名称', flex: 2,
+      field: 'name', headerName: '实验名称', flex: 2,
       renderCell: ({ row }) => (
         <Typography
           variant="body2" color="primary" sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-          onClick={() => navigate(`/admin/abtest/${row.id as number}`)}
+          onClick={() => navigate(`/admin/ai/abtest/${row.id as number}`)}
         >
-          {row.experimentName as string}
+          {String(row.name ?? row.experimentName ?? '-')}
         </Typography>
       ),
     },
@@ -328,19 +458,23 @@ export default function ExperimentsPage() {
     },
     {
       field: 'variants', headerName: '变体数', width: 80,
-      renderCell: ({ row }) => String((row.variants as AbVariant[] | undefined)?.length ?? '-'),
+      renderCell: ({ row }) => String(normalizeArray<AbVariant>(row.variants).length || '-'),
     },
-    { field: 'trafficSplit', headerName: '流量分配', width: 90, renderCell: ({ value }) => `${value}%` },
+    { field: 'experimentType', headerName: '实验类型', width: 120 },
+    {
+      field: 'targetEntityId', headerName: '目标实体', width: 130,
+      renderCell: ({ row }) => row.targetEntityId ? `${row.targetEntityType ?? '-'} #${row.targetEntityId}` : '-',
+    },
     {
       field: 'pValue', headerName: '显著性', width: 110, sortable: false,
       renderCell: ({ row }) => {
-        const variants = (row.variants as AbVariant[] | undefined) ?? []
+        const variants = normalizeArray<AbVariant>(row.variants)
         const p = pValueFromVariants(variants)
         if (isNaN(p)) return <Typography variant="caption" color="text.secondary">—</Typography>
         return (
           <Stack direction="row" spacing={0.5} alignItems="center">
             <Typography variant="caption">{p.toFixed(3)}</Typography>
-            {p < 0.05 && <Typography variant="caption" title="统计显著">✅</Typography>}
+            {p < 0.05 && <CheckCircleIcon color="success" fontSize="small" titleAccess="统计显著" />}
           </Stack>
         )
       },
@@ -353,15 +487,16 @@ export default function ExperimentsPage() {
       field: 'actions', headerName: '操作', width: 220, sortable: false,
       renderCell: ({ row }) => {
         const status = row.status as number
+        const rowName = String(row.name ?? row.experimentName ?? row.id ?? '实验')
         return (
           <Stack direction="row" spacing={0.5}>
             <Tooltip title="详情">
-              <IconButton size="small" onClick={() => navigate(`/admin/abtest/${row.id as number}`)}><BarChartIcon fontSize="small" /></IconButton>
+              <IconButton size="small" aria-label={`查看 ${rowName}`} onClick={() => navigate(`/admin/ai/abtest/${row.id as number}`)}><BarChartIcon fontSize="small" /></IconButton>
             </Tooltip>
-            {status === 0 && <Tooltip title="启动"><IconButton size="small" color="success" onClick={() => startMut.mutate(row.id as number)}><PlayArrowIcon fontSize="small" /></IconButton></Tooltip>}
-            {status === 1 && <Tooltip title="暂停"><IconButton size="small" color="warning" onClick={() => pauseMut.mutate(row.id as number)}><PauseIcon fontSize="small" /></IconButton></Tooltip>}
-            {(status === 1 || status === 2) && <Tooltip title="结束"><IconButton size="small" color="error" onClick={() => stopMut.mutate(row.id as number)}><StopIcon fontSize="small" /></IconButton></Tooltip>}
-            {status === 0 && <Tooltip title="删除"><IconButton size="small" color="error" onClick={() => setDeleteId(row.id as number)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
+            {status === 0 && <Tooltip title="启动"><IconButton size="small" color="success" aria-label={`启动 ${rowName}`} onClick={() => startMut.mutate(row as AbExperiment)}><PlayArrowIcon fontSize="small" /></IconButton></Tooltip>}
+            {status === 1 && <Tooltip title="暂停"><IconButton size="small" color="warning" aria-label={`暂停 ${rowName}`} onClick={() => pauseMut.mutate(row as AbExperiment)}><PauseIcon fontSize="small" /></IconButton></Tooltip>}
+            {(status === 1 || status === 3) && <Tooltip title="结束"><IconButton size="small" color="error" aria-label={`结束 ${rowName}`} onClick={() => stopMut.mutate(row as AbExperiment)}><StopIcon fontSize="small" /></IconButton></Tooltip>}
+            {status === 0 && <Tooltip title="删除"><IconButton size="small" color="error" aria-label={`删除 ${rowName}`} onClick={() => setDeleteTarget(row as AbExperiment)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
           </Stack>
         )
       },
@@ -369,9 +504,37 @@ export default function ExperimentsPage() {
   ]
 
   return (
-    <Box sx={{ height: 'calc(100vh - 48px - 32px)', display: 'flex', flexDirection: 'column' }}>
-      {/* Page Title */}
-      <Typography variant="h5" sx={{ mb: 2 }}>A/B 实验管理</Typography>
+    <Box
+      data-testid="abtest-experiments-page"
+      data-ready-endpoints={ABTEST_READY_ENDPOINTS.join('|')}
+      data-unsupported-endpoints={ABTEST_UNSUPPORTED_ENDPOINTS.join('|')}
+      data-no-local-experiment-fallback="true"
+      data-no-local-experiment-mutation="true"
+      data-no-static-abtest-result="true"
+      sx={{ height: 'calc(100vh - 48px - 32px)', display: 'flex', flexDirection: 'column' }}
+    >
+      <PageHeader
+        title="A/B 实验管理"
+        subtitle="对齐 `/abtest/experiment/*` 真实契约：状态 0=草稿、1=运行中、2=已完成、3=已暂停；分群分析接口尚未落库。"
+        breadcrumbs={[{ label: 'AI' }, { label: 'A/B 实验' }]}
+      />
+      {isError && (
+        <Alert
+          data-testid="abtest-experiments-list-error"
+          data-input-retained="true"
+          data-no-local-experiment-fallback="true"
+          severity="error"
+          sx={{ mb: 1.5 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          实验列表加载失败（POST {ABTEST_ENDPOINTS.list}）：{getErrorMessage(error)}（{filterContext()}）
+        </Alert>
+      )}
+      {actionError ? (
+        <Alert data-testid="abtest-experiments-action-error" data-no-local-experiment-mutation="true" severity="error" sx={{ mb: 1.5 }}>
+          {actionError}。失败不会本地切换状态或移除实验行。
+        </Alert>
+      ) : null}
       {/* Status filter tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 1.5 }}>
         <Tabs value={statusTab} onChange={(_, v) => { setStatusTab(v); setPage(0) }}>
@@ -388,15 +551,23 @@ export default function ExperimentsPage() {
         <Box sx={{ flex: 1 }} />
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setWizardOpen(true)}>新建实验</Button>
       </Stack>
-      <StandardDataGrid
-        rows={data?.list ?? []} columns={columns} rowCount={data?.total ?? 0}
-        loading={isFetching} paginationMode="server"
-        paginationModel={{ page, pageSize: rows }}
-        onPaginationModelChange={m => { setPage(m.page); setRows(m.pageSize) }}
-        sx={{ flex: 1 }}
-      />
+      <Box data-testid="abtest-experiments-grid" data-source-endpoint={ABTEST_ENDPOINTS.list} data-no-local-experiment-fallback="true" sx={{ flex: 1, minHeight: 0 }}>
+        <StandardDataGrid
+          rows={experimentRows} columns={columns} rowCount={experimentTotal}
+          loading={isFetching} paginationMode="server"
+          paginationModel={{ page, pageSize: rows }}
+          onPaginationModelChange={m => { setPage(m.page); setRows(m.pageSize) }}
+          sx={{ flex: 1 }}
+        />
+      </Box>
       <CreateWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onCreated={() => qc.invalidateQueries({ queryKey: ['ab-experiments'] })} />
-      <ConfirmDialog open={deleteId !== null} content="确定要删除该实验吗？" onClose={() => setDeleteId(null)} onConfirm={() => deleteId !== null && delMut.mutate(deleteId)} loading={delMut.isPending} />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        content={`确定要删除该实验吗？endpoint=${ABTEST_ENDPOINTS.delete}; ${experimentContext(deleteTarget)}。删除失败会保留实验行和当前筛选。`}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget !== null && delMut.mutate(deleteTarget)}
+        loading={delMut.isPending}
+      />
     </Box>
   )
 }

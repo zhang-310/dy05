@@ -53,12 +53,12 @@ public interface DouyinVideoRepository extends JpaRepository<DouyinVideo, Long>,
 
     long countByCreateTimeAfterAndDeleted(Timestamp createTime, Integer deleted);
 
-    @Query("SELECT COUNT(v) FROM DouyinVideo v JOIN DouyinAccount a ON v.accountId = a.id WHERE a.userId = :ownerId AND a.deleted = 0 AND v.deleted = :deleted")
+    @Query("SELECT COUNT(v) FROM DouyinVideo v JOIN DouyinAccount a ON v.accountId = a.id WHERE a.ownerId = :ownerId AND a.deleted = 0 AND v.deleted = :deleted")
     long countByOwnerIdAndDeleted(@Param("ownerId") Long ownerId, @Param("deleted") Integer deleted);
 
-    @Query("SELECT COUNT(v) FROM DouyinVideo v JOIN DouyinAccount a ON v.accountId = a.id WHERE a.userId = :ownerId AND a.deleted = 0 AND v.publishTime IS NOT NULL AND (:status IS NULL OR :status >= 0) AND v.deleted = :deleted")
+    @Query("SELECT COUNT(v) FROM DouyinVideo v JOIN DouyinAccount a ON v.accountId = a.id WHERE a.ownerId = :ownerId AND a.deleted = 0 AND v.publishTime IS NOT NULL AND (:status IS NULL OR :status >= 0) AND v.deleted = :deleted")
     long countByOwnerIdAndStatusAndDeleted(@Param("ownerId") Long ownerId, @Param("status") Integer status, @Param("deleted") Integer deleted);
 
-    @Query("SELECT COUNT(v) FROM DouyinVideo v JOIN DouyinAccount a ON v.accountId = a.id WHERE a.userId = :ownerId AND a.deleted = 0 AND v.createTime >= :createTime AND v.deleted = :deleted")
+    @Query("SELECT COUNT(v) FROM DouyinVideo v JOIN DouyinAccount a ON v.accountId = a.id WHERE a.ownerId = :ownerId AND a.deleted = 0 AND v.createTime >= :createTime AND v.deleted = :deleted")
     long countByOwnerIdAndCreateTimeAfterAndDeleted(@Param("ownerId") Long ownerId, @Param("createTime") Timestamp createTime, @Param("deleted") Integer deleted);
 }

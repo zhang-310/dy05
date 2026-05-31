@@ -60,11 +60,7 @@ public interface DramaService {
     /** 更新角色（名称、描述） */
     SvDramaCharacter updateCharacter(Long characterId, Long ownerId, String name, String description);
 
-    /**
-     * AI 生成剧本 (多集) - 占位实现
-     * 输入: 短剧类型、题材、集数
-     * 输出: 每集的剧本、分镜、悬念钩子
-     */
+    /** AI 生成剧本 (多集)，未配置 LLM 时抛出明确降级错误 */
     String generateDramaScript(Long dramaId, Long ownerId, String theme, String style);
 
     /**

@@ -1,0 +1,17 @@
+# Gaifan commercial PG integration tests (Testcontainers)
+spring:
+  flyway:
+    enabled: true
+    validate-on-migrate: false
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  cache:
+    type: simple
+
+app:
+  credit:
+    enforce: false
+
+auth:
+  token-store: memory

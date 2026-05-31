@@ -28,6 +28,11 @@ public interface OrderService {
     void confirmPayment(Long orderId, String transactionId, String paymentMethod);
 
     /**
+     * 确认支付（需验证归属）
+     */
+    void confirmPayment(Long orderId, String transactionId, String paymentMethod, Long userId);
+
+    /**
      * 查询订单详情（P0-4: 需验证归属）
      */
     OrderVO getOrder(Long orderId, Long userId);
@@ -48,14 +53,29 @@ public interface OrderService {
     void shipOrder(Long orderId, String trackingNumber);
 
     /**
+     * 发货（需验证归属）
+     */
+    void shipOrder(Long orderId, String trackingNumber, Long userId);
+
+    /**
      * 完成订单
      */
     void completeOrder(Long orderId);
 
     /**
+     * 完成订单（需验证归属）
+     */
+    void completeOrder(Long orderId, Long userId);
+
+    /**
      * 取消订单
      */
     void cancelOrder(Long orderId);
+
+    /**
+     * 取消订单（需验证归属）
+     */
+    void cancelOrder(Long orderId, Long userId);
 
     /**
      * 统计日期范围内的完成订单金额

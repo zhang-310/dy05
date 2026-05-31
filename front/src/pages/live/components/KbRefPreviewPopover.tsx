@@ -9,10 +9,12 @@ import {
   Popover,
   Switch,
   Typography,
+  Alert,
 } from '@mui/material'
 import PreviewIcon from '@mui/icons-material/Preview'
 import { aiApi } from '@/api/ai'
 import type { KbSearchHit } from '@/api/ai'
+import { getErrorMessage } from '@/utils/errorHandler'
 
 interface KbRefItem {
   title?: string
@@ -37,6 +39,7 @@ export const KbRefPreviewPopover = memo(function KbRefPreviewPopover({
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState<KbRefItem[]>([])
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const handleOpen = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget)
@@ -52,7 +55,8 @@ export const KbRefPreviewPopover = memo(function KbRefPreviewPopover({
   useEffect(() => {
     if (!open || !query.trim()) return
     setLoading(true)
-    aiApi.kbSearch(kbId, { query, limit: 10 })
+    setErrorMessage(null)
+    aiApi.kbSearch(kbId, { query, topK: 10, queryRewrite: false })
       .then((res) => {
         const data = res
         const docs: KbSearchHit[] = Array.isArray(data) ? data : Array.isArray((data as { results?: unknown })?.results) ? (data as { results: KbSearchHit[] }).results : []
@@ -63,7 +67,10 @@ export const KbRefPreviewPopover = memo(function KbRefPreviewPopover({
           excluded: false,
         })))
       })
-      .catch(() => setItems([]))
+      .catch((error: unknown) => {
+        setItems([])
+        setErrorMessage(`/ai/knowledge-base/${kbId}/search 检索失败：${getErrorMessage(error)}`)
+      })
       .finally(() => setLoading(false))
   }, [open, kbId, query])
 
@@ -79,6 +86,9 @@ export const KbRefPreviewPopover = memo(function KbRefPreviewPopover({
         onClick={handleOpen}
         disabled={disabled}
         variant="text"
+        data-testid="kb-ref-preview-open-button"
+        data-contract-source={`/ai/knowledge-base/${kbId}/search`}
+        data-no-local-kb-search-fallback="true"
       >
         预览引用
       </Button>
@@ -90,7 +100,17 @@ export const KbRefPreviewPopover = memo(function KbRefPreviewPopover({
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
         PaperProps={{ sx: { width: 400, maxHeight: 480 } }}
       >
-        <Box sx={{ p: 2 }}>
+        <Box
+          sx={{ p: 2 }}
+          data-testid="kb-ref-preview-popover"
+          data-contract-scope="live-kb-reference-preview"
+          data-ready-endpoints="/ai/knowledge-base/:kbId/search"
+          data-unsupported-actions="local-kb-search-fallback|document-mutation|script-mutation"
+          data-contract-source={`/ai/knowledge-base/${kbId}/search`}
+          data-result-count={items.length}
+          data-state={errorMessage ? 'error' : loading ? 'loading' : 'ready'}
+          data-no-local-kb-search-fallback="true"
+        >
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             相关文档 ({items.filter((i) => !i.excluded).length})
           </Typography>
@@ -98,15 +118,40 @@ export const KbRefPreviewPopover = memo(function KbRefPreviewPopover({
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
               <CircularProgress size={24} />
             </Box>
+          ) : errorMessage ? (
+            <Alert
+              severity="warning"
+              data-testid="kb-ref-preview-error"
+              data-contract-source={`/ai/knowledge-base/${kbId}/search`}
+              data-no-local-kb-search-fallback="true"
+              sx={{ fontSize: 12 }}
+            >
+              {errorMessage}
+            </Alert>
           ) : items.length === 0 ? (
-            <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              data-testid="kb-ref-preview-empty-state"
+              data-contract-source={`/ai/knowledge-base/${kbId}/search`}
+              data-no-local-kb-search-fallback="true"
+              sx={{ py: 2, textAlign: 'center' }}
+            >
               未找到相关文档
             </Typography>
           ) : (
-            <List dense sx={{ maxHeight: 360, overflow: 'auto' }}>
+            <List
+              dense
+              data-testid="kb-ref-preview-list"
+              data-contract-source={`/ai/knowledge-base/${kbId}/search`}
+              data-no-local-kb-search-fallback="true"
+              sx={{ maxHeight: 360, overflow: 'auto' }}
+            >
               {items.map((item, idx) => (
                 <ListItem
                   key={idx}
+                  data-testid="kb-ref-preview-item"
+                  data-contract-source={`/ai/knowledge-base/${kbId}/search`}
                   sx={{
                     opacity: item.excluded ? 0.5 : 1,
                     bgcolor: item.excluded ? 'action.disabledBackground' : 'transparent',

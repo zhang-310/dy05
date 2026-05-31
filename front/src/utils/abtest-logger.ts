@@ -2,17 +2,19 @@
  * ABTestLogger - A/B 测试事件上报工具
  *
  * 功能：
- * - 本地存储事件（IndexedDB/localStorage）
- * - 批量上报事件到服务器
+ * - 本地存储事件（localStorage）
+ * - 批量上报事件到真实 /abtest/event/record 接口
  * - 自动防抖和重试机制
  * - 页面卸载时强制上报
  */
+
+import { abtestApi } from '@/api/abtest'
 
 export interface ABTestEvent {
   experimentId: string
   variant: string
   eventName: string
-  data?: Record<string, any>
+  data?: Record<string, unknown>
   timestamp: number
   userId?: string
 }
@@ -59,28 +61,20 @@ class ABTestLoggerImpl implements ABTestLogger {
     const events = this.getLocalEvents(experimentId)
     if (events.length === 0) return
 
-    try {
-      const response = await fetch('/api/v1/analytics/ab-test-events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          experimentId,
-          events,
-          timestamp: Date.now(),
-        }),
-      })
-
-      if (response.ok) {
-        // 上报成功，清除本地存储
-        this.clearEvents(experimentId)
-      } else {
-        console.warn(`Failed to upload events: ${response.status}`)
+    const remaining: ABTestEvent[] = []
+    for (const event of events) {
+      try {
+        await this.uploadSingleEvent(event)
+      } catch (error) {
+        console.error('Failed to upload AB test event:', error)
+        remaining.push(event)
       }
-    } catch (error) {
-      console.error('Failed to upload AB test events:', error)
-      // 失败时保留本地存储，稍后重试
+    }
+
+    if (remaining.length === 0) {
+      this.clearEvents(experimentId)
+    } else {
+      this.setLocalEvents(experimentId, remaining)
     }
   }
 
@@ -93,7 +87,8 @@ class ABTestLoggerImpl implements ABTestLogger {
     try {
       const key = this.getStorageKey(experimentId)
       const data = localStorage.getItem(key)
-      return data ? JSON.parse(data) : []
+      const parsed = data ? JSON.parse(data) : []
+      return Array.isArray(parsed) ? parsed : []
     } catch (error) {
       console.error('Failed to parse local events:', error)
       return []
@@ -152,6 +147,31 @@ class ABTestLoggerImpl implements ABTestLogger {
    */
   private getStorageKey(experimentId: string): string {
     return `ab_test_events_${experimentId}`
+  }
+
+  private async uploadSingleEvent(event: ABTestEvent): Promise<void> {
+    const experimentId = this.toPositiveNumber(event.experimentId)
+    const variantId = this.toPositiveNumber(event.data?.variantId ?? event.variant)
+    if (!experimentId || !variantId) {
+      throw new Error('ABTestLogger 需要数字 experimentId 和 variantId 才能上报 /abtest/event/record')
+    }
+
+    await abtestApi.eventRecord({
+      experimentId,
+      variantId,
+      eventType: event.eventName,
+      userFingerprint: String(event.data?.userFingerprint ?? event.userId ?? ''),
+      sessionId: event.data?.sessionId == null ? undefined : String(event.data.sessionId),
+    })
+  }
+
+  private toPositiveNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed) && parsed > 0) return parsed
+    }
+    return null
   }
 }
 

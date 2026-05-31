@@ -50,6 +50,21 @@ public interface AlertEngineService {
     PageResultVO<AlertRecordVO> listAlertRecords(int page, int rows);
 
     /**
+     * 确认告警记录
+     */
+    void acknowledgeAlertRecord(Long recordId);
+
+    /**
+     * 恢复告警记录
+     */
+    void resolveAlertRecord(Long recordId);
+
+    /**
+     * 关闭告警记录
+     */
+    void closeAlertRecord(Long recordId);
+
+    /**
      * 启用规则
      */
     void enableAlertRule(Long ruleId);

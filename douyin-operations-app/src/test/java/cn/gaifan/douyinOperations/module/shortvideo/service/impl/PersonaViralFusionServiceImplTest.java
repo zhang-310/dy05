@@ -5,7 +5,10 @@ import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
 import cn.gaifan.douyinOperations.module.douyin.repository.DyPersonaRepository;
+import cn.gaifan.douyinOperations.module.product.entity.DyProduct;
+import cn.gaifan.douyinOperations.module.product.repository.DyProductRepository;
 import cn.gaifan.douyinOperations.module.script.service.ViolationWordService;
+import cn.gaifan.douyinOperations.module.shortvideo.service.PersonaViralFusionService.PersonaFusionOptions;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvViralVideo;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvHotTopicRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.service.HotspotWindowService;
@@ -48,6 +51,8 @@ class PersonaViralFusionServiceImplTest {
     private HotspotWindowService hotspotWindowService;
     @Mock
     private ViolationWordService violationWordService;
+    @Mock
+    private DyProductRepository productRepository;
 
     @InjectMocks
     private PersonaViralFusionServiceImpl service;
@@ -82,6 +87,76 @@ class PersonaViralFusionServiceImplTest {
         assertThat(prompt).contains("不得伪称来自真实 ASR / 真实抽帧");
         assertThat(prompt).doesNotContain("【原视频口播文案（ASR 转写）】");
         assertThat(prompt).doesNotContain("【原视频场景描述（抽帧分析）】");
+    }
+
+    @Test
+    @DisplayName("generatePersonaFusedScript 应把商品、话题、时长和数量约束注入提示词")
+    void generatePersonaFusedScript_shouldInjectPageConstraintsIntoPrompt() {
+        ReflectionTestUtils.setField(service, "llmClient", llmClient);
+        ReflectionTestUtils.setField(service, "productRepository", productRepository);
+        SvViralVideo viral = buildInferredViral();
+        DyPersona persona = buildPersona();
+        DyProduct product = buildProduct();
+        AiModel model = buildModel();
+
+        when(viralVideoService.getViralVideo(11L, 9L)).thenReturn(viral);
+        when(personaRepository.findByIdAndDeleted(3L, 0)).thenReturn(Optional.of(persona));
+        when(productRepository.findByIdAndDeleted(5L, 0)).thenReturn(Optional.of(product));
+        when(aiModelRepository.findByStatusAndDeleted(1, 0)).thenReturn(List.of(model));
+        when(llmClient.chat(eq(model), anyString(), anyString()))
+                .thenReturn(new LlmClient.LlmResponse("{\"title\":\"商品融合脚本\"}", 188, true, null));
+
+        Map<String, Object> result = service.generatePersonaFusedScript(
+                11L,
+                3L,
+                "form_imitation",
+                new PersonaFusionOptions(5L, "春节修护场景", 45, 3),
+                9L);
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(llmClient).chat(eq(model), anyString(), promptCaptor.capture());
+        String prompt = promptCaptor.getValue();
+
+        assertThat(prompt).contains("【关联商品】");
+        assertThat(prompt).contains("修护精华");
+        assertThat(prompt).contains("屏障修护、熬夜急救");
+        assertThat(prompt).contains("【话题/场景约束】春节修护场景");
+        assertThat(prompt).contains("【目标时长】约 45 秒");
+        assertThat(prompt).contains("alternatives 数组");
+        assertThat(result.get("constraintsApplied")).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> constraints = (Map<String, Object>) result.get("constraintsApplied");
+        assertThat(constraints.get("productId")).isEqualTo(5L);
+        assertThat(constraints.get("productName")).isEqualTo("修护精华");
+        assertThat(constraints.get("topic")).isEqualTo("春节修护场景");
+        assertThat(constraints.get("durationSeconds")).isEqualTo(45);
+        assertThat(constraints.get("count")).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("generatePersonaFusedScript 应拒绝非当前用户商品")
+    void generatePersonaFusedScript_shouldRejectProductOwnedByOtherUser() {
+        ReflectionTestUtils.setField(service, "llmClient", llmClient);
+        ReflectionTestUtils.setField(service, "productRepository", productRepository);
+        SvViralVideo viral = buildInferredViral();
+        DyPersona persona = buildPersona();
+        DyProduct product = buildProduct();
+        product.setUserId(99L);
+        AiModel model = buildModel();
+
+        when(viralVideoService.getViralVideo(11L, 9L)).thenReturn(viral);
+        when(personaRepository.findByIdAndDeleted(3L, 0)).thenReturn(Optional.of(persona));
+        when(aiModelRepository.findByStatusAndDeleted(1, 0)).thenReturn(List.of(model));
+        when(productRepository.findByIdAndDeleted(5L, 0)).thenReturn(Optional.of(product));
+
+        Map<String, Object> result = service.generatePersonaFusedScript(
+                11L,
+                3L,
+                "form_imitation",
+                new PersonaFusionOptions(5L, null, null, null),
+                9L);
+
+        assertThat(result.get("error")).isEqualTo("关联商品不存在或无权访问");
     }
 
     @Test
@@ -168,5 +243,16 @@ class PersonaViralFusionServiceImplTest {
         model.setTemperature(new BigDecimal("0.70"));
         model.setMaxTokens(2048);
         return model;
+    }
+
+    private DyProduct buildProduct() {
+        DyProduct product = new DyProduct();
+        product.setId(5L);
+        product.setUserId(9L);
+        product.setProductName("修护精华");
+        product.setProductCategory("护肤");
+        product.setAiSellingPoints("屏障修护、熬夜急救");
+        product.setPrice(new BigDecimal("129.00"));
+        return product;
     }
 }

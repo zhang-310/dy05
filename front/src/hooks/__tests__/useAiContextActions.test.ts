@@ -39,8 +39,28 @@ describe('useAiContextActions', () => {
     const { result } = renderHook(() => useAiContextActions(prefix, ctx))
 
     expect(result.current).toEqual([
-      { label: '实时提词', pathSuffix: '/admin/live/realtime?sessionId=456' },
+      { label: '实时面板', pathSuffix: '/admin/live/sessions/456/realtime' },
       { label: '场次详情', pathSuffix: '/admin/live/sessions/456' },
+    ])
+  })
+
+  it('keeps org live actions inside registered org routes', () => {
+    const ctx: PageContext = { kind: 'live_workbench', liveSessionId: 456 }
+    const { result } = renderHook(() => useAiContextActions('/org', ctx))
+
+    expect(result.current).toEqual([
+      { label: '直播场次', pathSuffix: '/org/live/sessions' },
+      { label: '场次详情', pathSuffix: '/org/live/sessions/456' },
+    ])
+  })
+
+  it('keeps talent live actions inside registered talent routes', () => {
+    const ctx: PageContext = { kind: 'live_workbench', liveSessionId: 456 }
+    const { result } = renderHook(() => useAiContextActions('/talent', ctx))
+
+    expect(result.current).toEqual([
+      { label: '直播场次', pathSuffix: '/talent/live/sessions' },
+      { label: '场次详情', pathSuffix: '/talent/live/sessions/456' },
     ])
   })
 
@@ -65,8 +85,17 @@ describe('useAiContextActions', () => {
     const { result } = renderHook(() => useAiContextActions(prefix, ctx))
 
     expect(result.current).toEqual([
-      { label: 'AI 智能体', pathSuffix: '/admin/agent' },
+      { label: 'AI 智能体', pathSuffix: '/admin/ai/agent/list' },
     ])
+  })
+
+  it('downgrades knowledge actions to role dashboard when role shell has no AI routes', () => {
+    const ctx: PageContext = { kind: 'knowledge' }
+    const { result: orgResult } = renderHook(() => useAiContextActions('/org', ctx))
+    const { result: talentResult } = renderHook(() => useAiContextActions('/talent', ctx))
+
+    expect(orgResult.current).toEqual([{ label: '角色工作台', pathSuffix: '/org/dashboard' }])
+    expect(talentResult.current).toEqual([{ label: '角色工作台', pathSuffix: '/talent/dashboard' }])
   })
 
   it('returns default actions for unknown context', () => {
@@ -74,8 +103,23 @@ describe('useAiContextActions', () => {
     const { result } = renderHook(() => useAiContextActions(prefix, ctx))
 
     expect(result.current).toEqual([
-      { label: '打开智能体', pathSuffix: '/admin/agent' },
+      { label: '打开智能体', pathSuffix: '/admin/ai/agent/list' },
       { label: '知识库', pathSuffix: '/admin/ai/knowledge' },
+    ])
+  })
+
+  it('uses only registered role-shell routes for generic org and talent contexts', () => {
+    const ctx: PageContext = { kind: 'other' as any }
+    const { result: orgResult } = renderHook(() => useAiContextActions('/org', ctx))
+    const { result: talentResult } = renderHook(() => useAiContextActions('/talent', ctx))
+
+    expect(orgResult.current).toEqual([
+      { label: '机构工作台', pathSuffix: '/org/dashboard' },
+      { label: '直播场次', pathSuffix: '/org/live/sessions' },
+    ])
+    expect(talentResult.current).toEqual([
+      { label: '达人工作台', pathSuffix: '/talent/dashboard' },
+      { label: '短视频项目', pathSuffix: '/talent/shortvideo' },
     ])
   })
 
@@ -101,7 +145,16 @@ describe('useAiContextActions', () => {
 
     rerender({ prefix: '/org' })
 
-    expect(result.current[0].pathSuffix).toBe('/org/content/library')
+    expect(result.current[0].pathSuffix).toBe('/org/dashboard')
+  })
+
+  it('downgrades product detail actions for role shells without product routes', () => {
+    const ctx: PageContext = { kind: 'product_detail', productId: 100 }
+    const { result: orgResult } = renderHook(() => useAiContextActions('/org', ctx))
+    const { result: talentResult } = renderHook(() => useAiContextActions('/talent', ctx))
+
+    expect(orgResult.current.map((item) => item.pathSuffix)).toEqual(['/org/dashboard', '/org/analytics'])
+    expect(talentResult.current.map((item) => item.pathSuffix)).toEqual(['/talent/dashboard', '/talent/shortvideo'])
   })
 
   it('updates result when context kind changes', () => {

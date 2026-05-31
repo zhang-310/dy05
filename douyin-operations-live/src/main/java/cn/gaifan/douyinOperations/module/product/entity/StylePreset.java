@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.product.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 风格预设模板表
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "style_preset")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class StylePreset {
 
     @Id

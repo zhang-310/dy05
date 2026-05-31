@@ -1,8 +1,15 @@
 import { useState, useCallback } from 'react'
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material'
+import { Alert, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material'
 import { useToast } from '@/contexts/ToastContext'
 import { DataTablePage, type ColumnDef } from './DataTablePage'
 import { FormDialog, type FormFieldDef } from '@/components/FormDialog'
+
+const CRUD_UNSUPPORTED_ACTIONS = [
+  'direct-api-call',
+  'local-form-fallback',
+  'local-delete-fallback',
+  'implicit-bulk-mutation',
+]
 
 interface CrudTablePageProps {
   title: string
@@ -47,6 +54,8 @@ export function CrudTablePage({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<Record<string, unknown> | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<Record<string, unknown> | null>(null)
+  const [deleteError, setDeleteError] = useState('')
+  const [deleting, setDeleting] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
@@ -71,20 +80,30 @@ export function CrudTablePage({
   }
 
   const handleDeleteClick = (row: Record<string, unknown>) => {
+    setDeleteError('')
     setDeleteConfirm(row)
   }
 
   const handleDeleteConfirm = async () => {
     if (!onDelete || !deleteConfirm) return
     const id = Number(deleteConfirm[idKey])
-    if (!id) return
+    if (!id) {
+      setDeleteError(`删除失败：记录缺少有效 ${idKey}`)
+      return
+    }
+    setDeleting(true)
+    setDeleteError('')
     try {
       await onDelete(id)
       toast('删除成功', 'success')
       setDeleteConfirm(null)
       refresh()
     } catch (e) {
-      toast(e instanceof Error ? e.message : '删除失败', 'error')
+      const message = e instanceof Error ? e.message : '删除失败'
+      setDeleteError(message)
+      toast(message, 'error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -100,7 +119,25 @@ export function CrudTablePage({
     : undefined
 
   return (
-    <>
+    <div
+      data-testid="crud-table-page-shell"
+      data-contract-scope="shared-crud-table-props-wrapper"
+      data-contract-source="fetchData|onSave|onDelete-props"
+      data-title={title}
+      data-toolbar-variant={toolbarVariant}
+      data-id-key={idKey}
+      data-has-form={String(Boolean(hasForm))}
+      data-has-delete-api={String(hasDeleteApi)}
+      data-show-add={String(showAdd)}
+      data-show-edit={String(showEdit)}
+      data-show-delete={String(showDelete)}
+      data-refresh-key={refreshKey}
+      data-delete-dialog-open={String(Boolean(deleteConfirm))}
+      data-unsupported-actions={CRUD_UNSUPPORTED_ACTIONS.join('|')}
+      data-no-direct-api="true"
+      data-no-local-form-fallback="true"
+      data-no-local-delete-fallback="true"
+    >
       <DataTablePage
         key={refreshKey}
         title={title}
@@ -129,17 +166,52 @@ export function CrudTablePage({
       )}
 
       {deleteConfirm && (
-        <Dialog open onClose={() => setDeleteConfirm(null)}>
+        <Dialog
+          open
+          onClose={() => !deleting && setDeleteConfirm(null)}
+          PaperProps={{
+            'data-testid': 'crud-delete-dialog',
+            'data-contract-source': 'onDelete-prop',
+            'data-id-key': idKey,
+            'data-target-id': String(deleteConfirm[idKey] ?? 'missing'),
+            'data-loading': String(deleting),
+            'data-input-retained': deleteError ? 'true' : 'false',
+            'data-no-direct-api': 'true',
+          } as never}
+        >
           <DialogTitle>确认删除</DialogTitle>
-          <DialogContent>确定要删除该记录吗？此操作不可恢复。</DialogContent>
+          <DialogContent>
+            确定要删除该记录吗？此操作不可恢复。
+            {deleteError && (
+              <Alert
+                severity="error"
+                sx={{ mt: 2 }}
+                data-testid="crud-delete-error"
+                data-contract-source="onDelete-prop"
+                data-target-id={String(deleteConfirm[idKey] ?? 'missing')}
+                data-input-retained="true"
+                data-no-local-delete-fallback="true"
+              >
+                删除失败：{deleteError}
+              </Alert>
+            )}
+          </DialogContent>
           <DialogActions>
-            <Button onClick={() => setDeleteConfirm(null)}>取消</Button>
-            <Button variant="contained" color="error" onClick={handleDeleteConfirm}>
-              删除
+            <Button onClick={() => setDeleteConfirm(null)} disabled={deleting} data-testid="crud-delete-cancel-button">取消</Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={handleDeleteConfirm}
+              disabled={deleting}
+              data-testid="crud-delete-confirm-button"
+              data-contract-source="onDelete-prop"
+              data-disabled-reason={deleting ? 'delete-pending' : 'none'}
+            >
+              {deleting ? '删除中...' : '删除'}
             </Button>
           </DialogActions>
         </Dialog>
       )}
-    </>
+    </div>
   )
 }

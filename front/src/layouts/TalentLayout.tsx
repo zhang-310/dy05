@@ -1,21 +1,14 @@
 import {
   Box, List, ListItemButton, ListItemIcon, ListItemText, Typography, Divider,
 } from '@mui/material'
-import DashboardIcon from '@mui/icons-material/Dashboard'
-import LiveTvIcon from '@mui/icons-material/LiveTv'
-import VideoLibraryIcon from '@mui/icons-material/VideoLibrary'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { BaseLayout } from './BaseLayout'
+import { useTalentNavItems } from '@/hooks/useFilteredRoleNav'
 
-const NAV_ITEMS = [
-  { label: '工作台', icon: <DashboardIcon fontSize="small" />, path: '/talent/dashboard' },
-  { label: '直播场次', icon: <LiveTvIcon fontSize="small" />, path: '/talent/live/sessions' },
-  { label: '短视频', icon: <VideoLibraryIcon fontSize="small" />, path: '/talent/shortvideo' },
-]
-
-function TalentDrawer() {
+function TalentDrawer({ onNavigate = () => undefined }: { onNavigate?: () => void }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const talentNavItems = useTalentNavItems()
 
   return (
     <Box sx={{ width: 160, height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -23,11 +16,14 @@ function TalentDrawer() {
         <Typography variant="subtitle2" fontWeight={700} color="secondary.main">达人端</Typography>
       </Box>
       <List dense sx={{ flex: 1, pt: 0.5 }}>
-        {NAV_ITEMS.map(item => (
+        {talentNavItems.map(item => (
           <ListItemButton
             key={item.path}
             selected={location.pathname.startsWith(item.path)}
-            onClick={() => navigate(item.path)}
+            onClick={() => {
+              navigate(item.path)
+              onNavigate()
+            }}
             sx={{ borderRadius: 1, mx: 0.5, mb: 0.25 }}
           >
             <ListItemIcon sx={{ minWidth: 32 }}>{item.icon}</ListItemIcon>
@@ -44,5 +40,5 @@ function TalentDrawer() {
 }
 
 export function TalentLayout() {
-  return <BaseLayout drawerContent={<TalentDrawer />} />
+  return <BaseLayout drawerContent={({ onNavigate }) => <TalentDrawer onNavigate={onNavigate} />} />
 }

@@ -67,7 +67,7 @@ class DouyinVideoControllerTest {
 
         when(dataScopeService.getVisibleUserIds(eq(1L), eq("user")))
                 .thenReturn(List.of(1L));
-        when(douyinAccountRepository.findIdsByUserIdIn(anyList()))
+        when(douyinAccountRepository.findIdsByOwnerIdIn(anyList()))
                 .thenReturn(List.of(1L));
         when(douyinVideoService.search(any(DouyinVideoSearchVO.class)))
                 .thenReturn(pageResult);
@@ -91,7 +91,7 @@ class DouyinVideoControllerTest {
 
         when(dataScopeService.getVisibleUserIds(eq(1L), eq("user")))
                 .thenReturn(List.of(1L));
-        when(douyinAccountRepository.findIdsByUserIdIn(anyList()))
+        when(douyinAccountRepository.findIdsByOwnerIdIn(anyList()))
                 .thenReturn(List.of(1L));
         when(douyinVideoService.search(any(DouyinVideoSearchVO.class)))
                 .thenReturn(pageResult);

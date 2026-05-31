@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { Box, Drawer, Typography, Button, List, ListItem, ListItemText, Divider } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { ShoppingCart as ShoppingCartIcon, Close as CloseIcon } from '@mui/icons-material'
 import FloatButton from './FloatButton'
 
@@ -67,11 +68,13 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
         open={isOpen}
         onClose={handleClose}
         PaperProps={{
-          sx: {
+          'data-testid': 'shopping-cart-drawer-surface',
+          'data-cart-tone': 'surface',
+          sx: (theme) => ({
             width: { xs: '100%', sm: 400 },
-            backgroundColor: '#1E293B', // color-surface
-            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.4)', // shadow-elevation-3
-          },
+            backgroundColor: theme.palette.background.paper,
+            boxShadow: `0 12px 32px ${alpha(theme.palette.common.black, theme.palette.mode === 'dark' ? 0.4 : 0.18)}`,
+          }),
         }}
         SlideProps={{
           timeout: 300, // transition-base
@@ -85,7 +88,8 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
               justifyContent: 'space-between',
               alignItems: 'center',
               padding: '24px', // spacing-lg
-              borderBottom: '1px solid #334155', // color-surface-light
+              borderBottom: '1px solid',
+              borderColor: 'divider',
             }}
           >
             <Typography
@@ -93,7 +97,7 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
               sx={{
                 fontSize: '18px', // font-size-lg
                 fontWeight: 600, // font-weight-semibold
-                color: '#F1F5F9', // color-text-primary
+                color: 'text.primary',
               }}
             >
               购物车
@@ -103,8 +107,8 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
               sx={{
                 minWidth: 0,
                 padding: 0,
-                color: '#475569', // color-text-secondary
-                '&:hover': { color: '#F1F5F9' },
+                color: 'text.secondary',
+                '&:hover': { color: 'text.primary' },
               }}
             >
               <CloseIcon />
@@ -121,7 +125,7 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
                   alignItems: 'center',
                   justifyContent: 'center',
                   height: '100%',
-                  color: '#475569', // color-text-secondary
+                  color: 'text.secondary',
                 }}
               >
                 <ShoppingCartIcon sx={{ fontSize: 48, mb: 1, opacity: 0.5 }} />
@@ -132,9 +136,10 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
                 {items.map((item, index) => (
                   <React.Fragment key={item.id}>
                     <ListItem
+                      data-testid="shopping-cart-item-surface"
                       sx={{
                         padding: '12px 16px', // spacing-md
-                        backgroundColor: '#0F172A', // color-surface-dark
+                        backgroundColor: 'action.hover',
                         borderRadius: '8px', // border-radius-lg
                         marginBottom: '8px', // spacing-sm
                         display: 'flex',
@@ -147,14 +152,14 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
                         primaryTypographyProps={{
                           sx: {
                             fontSize: '14px', // font-size-base
-                            color: '#F1F5F9', // color-text-primary
+                            color: 'text.primary',
                             fontWeight: 500,
                           },
                         }}
                         secondaryTypographyProps={{
                           sx: {
                             fontSize: '12px', // font-size-sm
-                            color: '#475569', // color-text-secondary
+                            color: 'text.secondary',
                           },
                         }}
                       />
@@ -162,7 +167,7 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
                         sx={{
                           fontSize: '14px',
                           fontWeight: 600,
-                          color: '#00D084', // color-primary
+                          color: 'primary.main',
                         }}
                       >
                         ¥{(item.price * item.quantity).toFixed(2)}
@@ -171,7 +176,7 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
                     {index < items.length - 1 && (
                       <Divider
                         sx={{
-                          backgroundColor: '#334155', // color-surface-light
+                          backgroundColor: 'divider',
                           margin: '8px 0', // spacing-sm
                       }}
                     />
@@ -187,8 +192,9 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
             <Box
               sx={{
                 padding: '24px', // spacing-lg
-                borderTop: '1px solid #334155', // color-surface-light
-                backgroundColor: '#0F172A', // color-surface-dark
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                backgroundColor: 'background.default',
               }}
             >
               <Box
@@ -202,7 +208,7 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
                 <Typography
                   sx={{
                     fontSize: '14px', // font-size-base
-                    color: '#475569', // color-text-secondary
+                    color: 'text.secondary',
                   }}
                 >
                   小计：
@@ -211,7 +217,7 @@ export const ShoppingCartFloat = React.memo(function ShoppingCartFloat({
                   sx={{
                     fontSize: '18px', // font-size-lg
                     fontWeight: 700, // font-weight-bold
-                    color: '#00D084', // color-primary
+                    color: 'primary.main',
                   }}
                 >
                   ¥{calculatedTotal.toFixed(2)}

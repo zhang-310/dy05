@@ -61,14 +61,36 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+function normalizePlanCode(plan: UnknownRecord): string {
+  return String(plan.planCode ?? plan.plan ?? '')
+}
+
+function normalizePlanName(planCode: string, plan: UnknownRecord): string {
+  const explicitName = String(plan.planName ?? '')
+  if (explicitName) return explicitName
+  return ({ free: '免费版', pro: '专业版', enterprise: '企业版' } as Record<string, string>)[planCode] ?? planCode
+}
+
+function normalizePlanPrice(planCode: string, plan: UnknownRecord): number {
+  const rawPrice = plan.price
+  if (typeof rawPrice === 'string') {
+    const parsed = Number(rawPrice.replace(/[^\d.]/g, ''))
+    if (Number.isFinite(parsed)) return parsed
+  }
+  const numericPrice = Number(rawPrice)
+  if (Number.isFinite(numericPrice)) return numericPrice
+  return ({ free: 0, pro: 299, enterprise: 999 } as Record<string, number>)[planCode] ?? 0
+}
+
 export function normalizePaymentPlans(plans: unknown): PaymentPlanView[] {
   if (!Array.isArray(plans)) return []
   return plans.map((plan) => {
     const item = plan as UnknownRecord
+    const planCode = normalizePlanCode(item)
     return {
-      planCode: String(item.planCode ?? ''),
-      planName: String(item.planName ?? ''),
-      price: Number(item.price ?? 0),
+      planCode,
+      planName: normalizePlanName(planCode, item),
+      price: normalizePlanPrice(planCode, item),
       features: Array.isArray(item.features) ? item.features.map((feature) => String(feature)) : [],
     }
   })

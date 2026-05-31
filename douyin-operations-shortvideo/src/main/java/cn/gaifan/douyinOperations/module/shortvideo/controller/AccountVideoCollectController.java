@@ -5,8 +5,11 @@ import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
+import cn.gaifan.douyinOperations.module.shortvideo.service.AccountCollectQueueOpsService;
 import cn.gaifan.douyinOperations.module.shortvideo.service.AccountVideoCollectService;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectAnalyzeVO;
+import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectQueueHealthVO;
+import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectQueueRepairVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectTaskIdVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectTaskSaveVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectTaskSearchVO;
@@ -41,6 +44,9 @@ public class AccountVideoCollectController {
     @Resource
     private AccountVideoCollectService accountVideoCollectService;
 
+    @Resource
+    private AccountCollectQueueOpsService accountCollectQueueOpsService;
+
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -64,6 +70,18 @@ public class AccountVideoCollectController {
         RESTResult<PageResultVO<AccountCollectTaskVO>> r = RESTResult.getSuccess(result);
         r.setTraceId(MDC.get("traceId"));
         return r;
+    }
+
+    @PostMapping("/queue/health")
+    @Operation(summary = "分布式采集队列健康")
+    public RESTResult<AccountCollectQueueHealthVO> queueHealth(@CurrentUserId Long userId) {
+        return RESTResult.success("OK", accountCollectQueueOpsService.health(userId));
+    }
+
+    @PostMapping("/queue/repair")
+    @Operation(summary = "释放过期租约并批量重试失败任务")
+    public RESTResult<AccountCollectQueueRepairVO> queueRepair(@CurrentUserId Long userId) {
+        return RESTResult.success("OK", accountCollectQueueOpsService.repair(userId));
     }
 
     @PostMapping("/status")
@@ -190,7 +208,9 @@ public class AccountVideoCollectController {
             } catch (Exception e) {
                 try {
                     emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
-                } catch (IOException ignored) {}
+                } catch (IOException ignored) {
+                    // SSE错误消息发送失败，客户端已断开
+                }
                 emitter.complete();
                 scheduler.shutdown();
             }

@@ -39,6 +39,10 @@ public class LiveProductServiceImpl implements LiveProductService {
         Pageable pageable = PageRequest.of(vo.getPage(), vo.getRows(),
                 Sort.by("desc".equalsIgnoreCase(vo.getSortOrder()) ? Sort.Direction.DESC : Sort.Direction.ASC, sortName));
 
+        if (vo.getSessionId() == null && vo.getSessionIds() != null && vo.getSessionIds().isEmpty()) {
+            return PageResultVO.of(0L, Collections.emptyList(), vo.getPage(), vo.getRows());
+        }
+
         Page<LiveProduct> page;
         if (vo.getSessionId() != null && vo.getSessionId() > 0) {
             page = liveProductRepository.findBySessionId(vo.getSessionId(), pageable);
@@ -88,6 +92,11 @@ public class LiveProductServiceImpl implements LiveProductService {
         product.setProductName(vo.getProductName());
         product.setSaleQuantity(vo.getSaleQuantity());
         product.setPosition(vo.getPosition());
+        product.setProductType(trimToNull(vo.getProductType()));
+        if (vo.getScriptSource() != null) {
+            product.setScriptSource(trimToNull(vo.getScriptSource()));
+        }
+        product.setProductScriptId(vo.getProductScriptId());
         product = liveProductRepository.save(product);
         return product.getId();
     }
@@ -108,7 +117,7 @@ public class LiveProductServiceImpl implements LiveProductService {
         if (sessionId == null || sessionId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "直播场次 ID 无效");
         }
-        return liveProductRepository.findBySessionId(sessionId).stream()
+        return liveProductRepository.findBySessionIdOrderByPositionAscIdAsc(sessionId).stream()
                 .map(this::toLiveProductVO).collect(Collectors.toList());
     }
 
@@ -151,7 +160,7 @@ public class LiveProductServiceImpl implements LiveProductService {
         }
 
         // 获取当前场次已有产品的最大 position
-        List<LiveProduct> existing = liveProductRepository.findBySessionId(sessionId);
+        List<LiveProduct> existing = liveProductRepository.findBySessionIdOrderByPositionAscIdAsc(sessionId);
         int maxPosition = existing.stream()
                 .mapToInt(p -> p.getPosition() != null ? p.getPosition() : 0)
                 .max()
@@ -166,6 +175,7 @@ public class LiveProductServiceImpl implements LiveProductService {
             product.setProductId(item.getProductId());
             product.setProductName(item.getProductName());
             product.setProductType(item.getProductType());
+            product.setProductScriptId(item.getProductScriptId());
             product.setPosition(maxPosition + i + 1);
             newProducts.add(product);
         }
@@ -183,7 +193,18 @@ public class LiveProductServiceImpl implements LiveProductService {
         vo.setSaleQuantity(product.getSaleQuantity());
         vo.setRevenue(product.getRevenue());
         vo.setPosition(product.getPosition());
+        vo.setProductType(product.getProductType());
+        vo.setScriptSource(product.getScriptSource());
+        vo.setProductScriptId(product.getProductScriptId());
         vo.setCreateTime(product.getCreateTime());
         return vo;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

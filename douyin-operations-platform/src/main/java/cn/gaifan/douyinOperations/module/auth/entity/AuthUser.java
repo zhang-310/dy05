@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.auth.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
  * 用户账号表（登录、个人信息中心；管理员可做基本信息操作、封禁）
  * 与 sql/auth/schema.sql 中 auth_user 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "auth_user")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class AuthUser {
 
     @Id

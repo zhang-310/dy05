@@ -15,9 +15,9 @@ import org.springframework.web.client.RestTemplate;
 import java.util.Map;
 
 /**
- * 数字人合成服务：支持 stub（本地测试）和 api（HeyGen/D-ID）两种模式。
+ * 数字人合成服务：支持 local-url（本地联调）和 api（HeyGen/D-ID）两种模式。
  * <ul>
- *   <li>{@code app.shortvideo.digital-human.mode=stub} — 返回配置的 stub-video-url</li>
+ *   <li>{@code app.shortvideo.digital-human.mode=local-url} — 返回配置的 local-video-url</li>
  *   <li>{@code app.shortvideo.digital-human.mode=api} — 调用数字人 API（HeyGen 优先）</li>
  * </ul>
  */
@@ -33,13 +33,13 @@ public class DigitalHumanSynthesisServiceImpl implements DigitalHumanSynthesisSe
     @Value("${app.shortvideo.digital-human.enabled:false}")
     private boolean enabled;
 
-    /** stub | api */
-    @Value("${app.shortvideo.digital-human.mode:stub}")
+    /** disabled | local-url | api */
+    @Value("${app.shortvideo.digital-human.mode:disabled}")
     private String mode;
 
     /** 测试/联调：直接回写公网可访问的视频 URL */
-    @Value("${app.shortvideo.digital-human.stub-video-url:}")
-    private String stubVideoUrl;
+    @Value("${app.shortvideo.digital-human.local-video-url:}")
+    private String localVideoUrl;
 
     /** HeyGen API Key（mode=api 时使用） */
     @Value("${app.shortvideo.digital-human.heygen-api-key:}")
@@ -65,22 +65,20 @@ public class DigitalHumanSynthesisServiceImpl implements DigitalHumanSynthesisSe
         if ("api".equalsIgnoreCase(mode)) {
             return StringUtils.hasText(heygenApiKey) || StringUtils.hasText(didApiKey);
         }
-        // stub mode
-        return StringUtils.hasText(stubVideoUrl);
+        return "local-url".equalsIgnoreCase(mode) && StringUtils.hasText(localVideoUrl);
     }
 
     @Override
-    public String synthesizePlaceholder(Map<String, Object> params, Long userId, Long projectId) {
+    public String synthesize(Map<String, Object> params, Long userId, Long projectId) {
         if (!enabled) return null;
 
         if ("api".equalsIgnoreCase(mode)) {
             return synthesizeViaApi(params, userId, projectId);
         }
 
-        // Stub mode fallback
-        if (StringUtils.hasText(stubVideoUrl)) {
-            log.info("[DigitalHuman] stub 模式: projectId={}, url={}", projectId, stubVideoUrl.trim());
-            return stubVideoUrl.trim();
+        if ("local-url".equalsIgnoreCase(mode) && StringUtils.hasText(localVideoUrl)) {
+            log.info("[DigitalHuman] local-url 模式: projectId={}, url={}", projectId, localVideoUrl.trim());
+            return localVideoUrl.trim();
         }
         return null;
     }
@@ -102,12 +100,6 @@ public class DigitalHumanSynthesisServiceImpl implements DigitalHumanSynthesisSe
             } catch (Exception e) {
                 log.error("[DigitalHuman] D-ID 调用也失败: {}", e.getMessage());
             }
-        }
-
-        // Final fallback to stub if configured
-        if (StringUtils.hasText(stubVideoUrl)) {
-            log.warn("[DigitalHuman] API 不可用，降级到 stub: projectId={}", projectId);
-            return stubVideoUrl.trim();
         }
 
         log.error("[DigitalHuman] 无可用数字人服务: projectId={}", projectId);
@@ -165,6 +157,9 @@ public class DigitalHumanSynthesisServiceImpl implements DigitalHumanSynthesisSe
     private String synthesizeViaDid(Map<String, Object> params, Long userId, Long projectId) {
         String scriptText = params != null ? String.valueOf(params.getOrDefault("scriptText", "")) : "";
         String imageUrl = params != null ? String.valueOf(params.getOrDefault("imageUrl", "")) : "";
+        if (!StringUtils.hasText(imageUrl)) {
+            throw new IllegalArgumentException("D-ID 数字人生成必须提供 imageUrl，禁止使用示例素材伪装真实结果");
+        }
 
         HttpHeaders headers = new HttpHeaders();
         headers.setBasicAuth(didApiKey, "");
@@ -175,7 +170,7 @@ public class DigitalHumanSynthesisServiceImpl implements DigitalHumanSynthesisSe
                         "type", "text",
                         "input", scriptText
                 ),
-                "source_url", StringUtils.hasText(imageUrl) ? imageUrl : "https://d-id-public-bucket.s3.us-west-2.amazonaws.com/alice.jpg"
+                "source_url", imageUrl
         );
 
         HttpEntity<Map<String, Object>> req = new HttpEntity<>(body, headers);

@@ -4,6 +4,7 @@ import cn.gaifan.douyinOperations.common.config.AuthTokenFilter;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
+import cn.gaifan.douyinOperations.module.system.config.ExternalApiHealthCheckScheduler;
 import cn.gaifan.douyinOperations.module.system.entity.ExternalApiConfig;
 import cn.gaifan.douyinOperations.module.system.service.ExternalApiConfigService;
 import cn.gaifan.douyinOperations.module.system.vo.ExternalApiConfigSaveVO;
@@ -33,6 +34,9 @@ public class ExternalApiConfigController {
 
     @Resource
     private ExternalApiConfigService externalApiConfigService;
+
+    @Resource
+    private ExternalApiHealthCheckScheduler externalApiHealthCheckScheduler;
 
     private boolean isAdmin(HttpServletRequest request) {
         return ROLE_ADMIN.equals(AuthTokenFilter.getRoleCode(request));
@@ -140,6 +144,28 @@ public class ExternalApiConfigController {
 
         externalApiConfigService.updateHealthStatus(providerCode, status, latencyMs, successRate);
         return RESTResult.success();
+    }
+
+    /**
+     * 立即触发单个供应商后端探测，不在浏览器直连第三方。
+     */
+    @PostMapping("/probe")
+    @Operation(summary = "立即探测外部API健康状态")
+    public RESTResult<Map<String, Object>> probe(
+            HttpServletRequest request,
+            @RequestBody Map<String, String> body) {
+
+        if (AuthTokenFilter.getUserId(request) == null)
+            return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        if (!isAdmin(request))
+            return RESTResult.error(ErrorCode.FORBIDDEN, "无权限访问");
+
+        String providerCode = body != null ? body.get("providerCode") : null;
+        if (providerCode == null || providerCode.isBlank())
+            return RESTResult.error(ErrorCode.VALIDATION_FAIL, "providerCode 不能为空");
+
+        String status = externalApiHealthCheckScheduler.checkProvider(providerCode);
+        return RESTResult.getSuccess(Map.of("providerCode", providerCode, "status", status));
     }
 
     /**

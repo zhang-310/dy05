@@ -5,7 +5,8 @@ import lombok.AllArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -31,7 +32,8 @@ uniqueConstraints = {
     @UniqueConstraint(name = "uk_cache_composite", columnNames = {"product_id", "comparison_type", "owner_id"})
 })
 @SQLRestriction("deleted = 0")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder

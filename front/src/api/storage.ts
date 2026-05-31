@@ -1,21 +1,22 @@
 import request from '@/utils/request'
-import type { PageResult } from '@/types/common'
+import { normalizeArray } from '@/utils/response-normalize'
 
-export interface SysFile {
-  id: number
-  ownerId: number
-  originalName: string
-  storageName: string
-  storagePath: string
-  fileUrl: string
-  fileType: string
-  fileExt: string
-  fileSize: number
-  module: string
-  provider: string
-  createTime: string
+export interface StorageFile {
+  key: string
+  size?: number | null
+  lastModified?: string | null
+  url?: string | null
+  directory?: boolean
 }
-export interface StorageQuery { page?: number; rows?: number; originalName?: string; fileName?: string; fileType?: string; module?: string }
+export type SysFile = StorageFile
+
+export interface StorageQuery {
+  prefixSuffix?: string
+  originalName?: string
+  fileName?: string
+  fileType?: string
+  module?: string
+}
 
 export interface UploadTask {
   id: number
@@ -28,28 +29,49 @@ export interface UploadTask {
   createdAt: string
 }
 
+export interface UploadInitParams {
+  originalFilename?: string
+  filename?: string
+  fileSize: number
+  fileMd5: string
+  storageKey?: string
+  module?: string
+}
+
 export const storageApi = {
-  configured: () => request.post<{ configured: boolean; provider: string }>('/storage/configured', {}),
-  list: (params: StorageQuery) => request.post<PageResult<SysFile>>('/storage/list', params),
-  upload: (file: File, module?: string) => {
+  configured: () => request.post<boolean>('/storage/configured', {}),
+  list: (params: StorageQuery = {}) =>
+    request.post<unknown>('/storage/list', {
+      prefixSuffix: params.prefixSuffix ?? params.originalName ?? params.fileName ?? '',
+    }).then(normalizeArray<StorageFile>),
+  upload: (file: File, prefix?: string) => {
     const form = new FormData()
     form.append('file', file)
-    if (module) form.append('module', module)
-    return request.post<SysFile>('/storage/upload', form)
+    if (prefix) form.append('prefix', prefix)
+    return request.post<{ key: string; url: string }>('/storage/upload', form)
   },
-  delete: (id: number) => request.post<void>('/storage/delete', { id }),
-  url: (id: number) => request.post<{ url: string }>('/storage/url', { id }),
+  delete: (key: string) => request.post<void>('/storage/delete', { key }),
+  url: (key: string) => request.post<{ url: string }>('/storage/url', { key }),
 
   // 分片上传
-  uploadInit: (params: { filename: string; fileSize: number; fileMd5: string; chunkSize?: number; module?: string }) =>
-    request.post<UploadTask>('/storage/upload/init', params),
-  uploadChunk: (uploadId: string, chunkIndex: number, chunkData: Blob) => {
+  uploadInit: (params: UploadInitParams) => {
+    const originalFilename = params.originalFilename ?? params.filename ?? ''
+    return request.post<UploadTask>('/storage/upload/init', {
+      originalFilename,
+      fileSize: params.fileSize,
+      fileMd5: params.fileMd5,
+      storageKey: params.storageKey ?? originalFilename,
+      module: params.module,
+    })
+  },
+  uploadChunk: (uploadId: string, chunkIndex: number, chunkData: Blob, chunkMd5?: string) => {
     const form = new FormData()
     form.append('uploadId', uploadId)
     form.append('chunkIndex', String(chunkIndex))
+    form.append('chunkMd5', chunkMd5 ?? '')
     form.append('chunk', chunkData)
     return request.post<void>('/storage/upload/chunk', form)
   },
-  uploadComplete: (uploadId: string) => request.post<SysFile>('/storage/upload/complete', { uploadId }),
-  uploadCancel: (uploadId: string) => request.post<void>('/storage/upload/cancel', { uploadId }),
+  uploadComplete: (uploadId: string) => request.post<StorageFile>('/storage/upload/complete', { uploadId }),
+  uploadCancel: (uploadId: string) => request.post<void>('/storage/upload/cancel', undefined, { params: { uploadId } }),
 }

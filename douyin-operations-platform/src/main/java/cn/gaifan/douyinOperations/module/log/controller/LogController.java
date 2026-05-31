@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.log.controller;
 
 import cn.gaifan.douyinOperations.common.config.AuthTokenFilter;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
+import cn.gaifan.douyinOperations.common.constant.RoleCode;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
 import cn.gaifan.douyinOperations.module.log.service.OperationLogService;
@@ -218,10 +219,13 @@ public class LogController {
 
     /** P0-3: 检查用户是否有管理员角色 */
     private boolean hasAdminRole(HttpServletRequest request) {
+        if (RoleCode.ADMIN.equals(AuthTokenFilter.getRoleCode(request))) {
+            return true;
+        }
         // 从 request attribute 获取角色信息（由 AuthTokenFilter 设置）
         Object roles = request.getAttribute("userRoles");
         if (roles instanceof List) {
-            return ((List<?>) roles).contains("ADMIN");
+            return ((List<?>) roles).contains("ADMIN") || ((List<?>) roles).contains(RoleCode.ADMIN);
         }
         return false;
     }

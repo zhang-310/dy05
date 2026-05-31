@@ -1,11 +1,12 @@
 import { useLocation } from 'react-router-dom'
 import { useUserStore } from '@/stores'
+import { ROLE_SCOPE_PREFIX, roleScopeFromRoleCode } from '@/constants/roleRoutes'
 
 const ROLE_PREFIX: Record<string, string> = {
   admin: '/admin',
   institution: '/org',
   talent: '/talent',
-  user: '/talent',
+  user: '/user',
 }
 
 /**
@@ -14,12 +15,12 @@ const ROLE_PREFIX: Record<string, string> = {
  */
 export function useRolePrefix() {
   const { pathname } = useLocation()
-  const roles = useUserStore((s) => s.userInfo?.roles ?? [])
-  const roleCode = roles[0] ?? ''
+  const roleCode = useUserStore((s) => s.userInfo?.roles?.[0] ?? '')
 
   if (pathname.startsWith('/admin')) return '/admin'
   if (pathname.startsWith('/org')) return '/org'
   if (pathname.startsWith('/talent')) return '/talent'
+  if (pathname.startsWith('/user')) return '/user'
 
-  return ROLE_PREFIX[roleCode ?? ''] ?? '/talent'
+  return ROLE_PREFIX[roleCode ?? ''] ?? ROLE_SCOPE_PREFIX[roleScopeFromRoleCode(roleCode)]
 }

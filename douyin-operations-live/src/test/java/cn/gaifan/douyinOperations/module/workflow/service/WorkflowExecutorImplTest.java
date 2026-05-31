@@ -64,7 +64,7 @@ class WorkflowExecutorImplTest {
 
     @Test
     void execute_shouldRejectMissingWorkflowDefinition() {
-        when(definitionRepository.findByWorkflowCodeAndDeleted("missing", 0)).thenReturn(Optional.empty());
+        when(definitionRepository.findByWorkflowCodeAndOwnerIdAndDeleted("missing", 1L, 0)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> workflowExecutor.execute("missing", Map.of("userId", 1L, "sessionId", 2L)))
                 .isInstanceOf(BusinessException.class)
@@ -91,7 +91,7 @@ class WorkflowExecutorImplTest {
         fullResult.setScriptIdsForAttribution(List.of(101L, 102L));
         fullResult.setResults(List.of());
 
-        when(definitionRepository.findByWorkflowCodeAndDeleted("live_script_full", 0))
+        when(definitionRepository.findByWorkflowCodeAndOwnerIdAndDeleted("live_script_full", 1L, 0))
                 .thenReturn(Optional.of(definition));
         when(stepRepository.findByDefinitionIdAndDeletedOrderBySequenceNoAsc(10L, 0))
                 .thenReturn(List.of(generate, save));

@@ -27,17 +27,39 @@ describe('log API', () => {
 
   it('systemList posts system log query payload', async () => {
     mockPost.mockResolvedValue({ total: 0, list: [] })
-    await logApi.systemList({ page: 1, rows: 50, module: 'auth' })
+    await logApi.systemList({ page: 1, rows: 50, module: 'auth', eventType: 'startup', status: 1 })
     expect(mockPost).toHaveBeenCalledWith('/log/system/page', {
       page: 1,
       rows: 50,
       module: 'auth',
+      eventType: 'startup',
+      status: 1,
     })
   })
 
-  it('auditLogGet posts audit id payload', async () => {
-    mockPost.mockResolvedValue({ id: 3 })
-    await logApi.auditLogGet(3)
-    expect(mockPost).toHaveBeenCalledWith('/log/audit/get', { id: 3 })
+  it('auditLogPage posts audit search payload to real backend route', async () => {
+    mockPost.mockResolvedValue({ total: 0, list: [] })
+    await logApi.auditLogPage({ page: 0, rows: 20, username: 'admin', entity: 'product' })
+    expect(mockPost).toHaveBeenCalledWith('/log/audit/search', {
+      page: 0,
+      rows: 20,
+      username: 'admin',
+      entity: 'product',
+    })
+  })
+
+  it('normalizes wrapped operation, system and audit log pages', async () => {
+    mockPost
+      .mockResolvedValueOnce({ data: { records: [{ id: 1, username: 'admin', requestUrl: '/api/test', responseTime: '88', status: '1' }], totalElements: 1 } })
+      .mockResolvedValueOnce({ items: [{ id: 2, module: 'system', type: 'warn', message: '缓存告警', status: '0' }], totalCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 3, username: 'auditor', targetType: 'config', targetId: '9', beforeValue: '{}', afterValue: '{"ok":true}' }], totalRecords: 1 })
+
+    const ops = await logApi.list({ page: 0, rows: 20 })
+    const system = await logApi.systemList({ page: 0, rows: 20 })
+    const audit = await logApi.auditLogPage({ page: 0, rows: 20 })
+
+    expect(ops).toMatchObject({ total: 1, list: [expect.objectContaining({ requestUri: '/api/test', durationMs: 88 })] })
+    expect(system.list[0]).toMatchObject({ eventType: 'warn', summary: '缓存告警', status: 0 })
+    expect(audit.list[0]).toMatchObject({ entity: 'config', entityId: 9, newValue: '{"ok":true}' })
   })
 })

@@ -73,6 +73,12 @@ public class ExternalApiConfigServiceImpl implements ExternalApiConfigService {
     }
 
     @Override
+    public ExternalApiConfig getRawByProviderCode(String code) {
+        return configRepository.findByProviderCodeAndDeleted(code, 0)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "供应商配置不存在: " + code));
+    }
+
+    @Override
     @Transactional
     public ExternalApiConfig save(ExternalApiConfigSaveVO saveVO) {
         ExternalApiConfig entity;
@@ -132,13 +138,11 @@ public class ExternalApiConfigServiceImpl implements ExternalApiConfigService {
     @Override
     @Transactional
     public void updateHealthStatus(String providerCode, String status, Integer latencyMs, Float successRate) {
-        ExternalApiConfig config = configRepository.findByProviderCodeAndDeleted(providerCode, 0)
-                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "供应商配置不存在: " + providerCode));
-        config.setHealthStatus(status);
-        config.setAvgLatencyMs(latencyMs);
-        config.setSuccessRatePct(successRate);
-        config.setLastHealthCheck(new Timestamp(System.currentTimeMillis()));
-        configRepository.save(config);
+        int updated = configRepository.updateHealthFields(providerCode, status, latencyMs, successRate,
+                new Timestamp(System.currentTimeMillis()));
+        if (updated <= 0) {
+            throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "供应商配置不存在: " + providerCode);
+        }
     }
 
     @Override

@@ -15,11 +15,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class SecretAttributeConverter implements AttributeConverter<String, String> {
 
-    private static FieldEncryptionService encryptionService;
+    private FieldEncryptionService encryptionService;
 
     @Autowired
     public void setEncryptionService(FieldEncryptionService service) {
-        SecretAttributeConverter.encryptionService = service;
+        this.encryptionService = service;
     }
 
     @Override

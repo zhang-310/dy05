@@ -12,7 +12,7 @@ public final class ApiAuthWhitelist {
 
     private ApiAuthWhitelist() {}
 
-    public static final String[] PATHS = {
+    static final String[] PATHS = {
             "/api/v1/auth/login",
             "/api/v1/auth/captcha",
             "/api/v1/auth/sms/send",
@@ -20,7 +20,12 @@ public final class ApiAuthWhitelist {
             "/api/v1/auth/oauth/authorize",
             "/api/v1/auth/oauth/callback",
             "/api/v1/messaging/webhook/feishu",
-            "/api/v1/messaging/webhook/wecom"
+            "/api/v1/messaging/webhook/wecom",
+            "/api/v1/payment/callback",
+            "/api/v1/short-video/account-collect/worker/claim",
+            "/api/v1/short-video/account-collect/worker/heartbeat",
+            "/api/v1/short-video/account-collect/worker/submit",
+            "/api/v1/short-video/account-collect/worker/fail"
     };
 
     private static final Set<String> PATH_SET;

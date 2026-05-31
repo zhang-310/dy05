@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * A/B 测试结果记录
  * 与 sql/live/ab-analysis-schema.sql 中 live_ab_test_result 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_ab_test_result")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveAbTestResult {
 
     @Id

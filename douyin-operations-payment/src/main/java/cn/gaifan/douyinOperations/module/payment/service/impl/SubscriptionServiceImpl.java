@@ -1,5 +1,8 @@
 package cn.gaifan.douyinOperations.module.payment.service.impl;
 
+import cn.gaifan.douyinOperations.common.constant.ErrorCode;
+import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
 import cn.gaifan.douyinOperations.module.payment.entity.Subscription;
 import cn.gaifan.douyinOperations.module.payment.repository.SubscriptionRepository;
 import cn.gaifan.douyinOperations.module.payment.service.SubscriptionService;
@@ -22,6 +25,9 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     @Autowired
     private SubscriptionRepository subscriptionRepository;
 
+    @Autowired
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     // P1-10: 配额检查性能优化 - 使用本地缓存减少数据库查询
     private final Map<Long, Subscription> subscriptionCache = new ConcurrentHashMap<>();
     private final Map<Long, Long> cacheTimestamps = new ConcurrentHashMap<>();
@@ -36,24 +42,28 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     @Override
     @Cacheable(value = "payment:subscription", key = "#userId", unless = "#result == null")
     public Subscription getActiveSubscription(Long userId) {
+        Long ownerId = requireOwnerId(userId);
+
         // P1-10: 先检查本地缓存
-        Long cacheTime = cacheTimestamps.get(userId);
+        Long cacheTime = cacheTimestamps.get(ownerId);
         if (cacheTime != null && System.currentTimeMillis() - cacheTime < CACHE_TTL_MS) {
-            Subscription cached = subscriptionCache.get(userId);
+            Subscription cached = subscriptionCache.get(ownerId);
             if (cached != null && !cached.isExpired()) {
                 return cached;
             }
         }
 
         // 缓存未命中，查询数据库
-        Subscription sub = subscriptionRepository.findByUserIdAndDeletedAndStatus(userId, 0, "active")
+        Subscription sub = subscriptionRepository.findByOrgIdAndDeletedAndStatus(ownerId, 0, "active")
+                .or(() -> subscriptionRepository.findByUserIdAndDeletedAndStatus(userId, 0, "active")
+                        .filter(s -> ownerId.equals(s.getOwnerId()) || ownerId.equals(s.getOrgId())))
                 .filter(s -> !s.isExpired())
                 .orElse(null);
 
         // 更新本地缓存
         if (sub != null) {
-            subscriptionCache.put(userId, sub);
-            cacheTimestamps.put(userId, System.currentTimeMillis());
+            subscriptionCache.put(ownerId, sub);
+            cacheTimestamps.put(ownerId, System.currentTimeMillis());
         }
 
         return sub;
@@ -62,19 +72,20 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Subscription createOrUpgrade(Long userId, String plan) {
-        var existingOpt = subscriptionRepository.findByUserIdAndDeletedAndStatus(userId, 0, "active");
-
-        // P0-6: 获取 ownerId
-        Long ownerId = 1L; // TODO: 从上下文获取
+        Long ownerId = requireOwnerId(userId);
+        var existingOpt = subscriptionRepository.findByOrgIdAndDeletedAndStatus(ownerId, 0, "active")
+                .or(() -> subscriptionRepository.findByUserIdAndDeletedAndStatus(userId, 0, "active")
+                        .filter(s -> ownerId.equals(s.getOwnerId()) || ownerId.equals(s.getOrgId())));
 
         Subscription sub;
         if (existingOpt.isPresent()) {
             sub = existingOpt.get();
         } else {
             sub = new Subscription();
-            sub.setUserId(userId);
-            sub.setOwnerId(ownerId);
         }
+        sub.setUserId(userId);
+        sub.setOwnerId(ownerId);
+        sub.setOrgId(ownerId);
 
         sub.setPlan(plan);
         sub.setStatus("active");
@@ -94,8 +105,8 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         log.info("[Subscription] 创建/升级订阅: userId={}, plan={}", userId, plan);
 
         // P1-10: 清除缓存
-        subscriptionCache.remove(userId);
-        cacheTimestamps.remove(userId);
+        subscriptionCache.remove(ownerId);
+        cacheTimestamps.remove(ownerId);
 
         return sub;
     }
@@ -142,5 +153,13 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     private String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return s.substring(0, 1).toUpperCase() + s.substring(1);
+    }
+
+    private Long requireOwnerId(Long userId) {
+        Long orgId = tenantOrgResolutionHelper.organizationIdForUser(userId);
+        if (orgId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "当前用户未绑定组织，无法访问支付订阅");
+        }
+        return orgId;
     }
 }

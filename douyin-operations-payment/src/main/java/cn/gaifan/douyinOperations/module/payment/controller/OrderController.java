@@ -68,11 +68,11 @@ public class OrderController {
      * 确认支付
      */
     @PostMapping("/confirmPayment")
-    public RESTResult<?> confirmPayment(@RequestBody Map<String, String> request) {
+    public RESTResult<?> confirmPayment(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
         Long orderId = Long.parseLong(request.get("orderId"));
         String transactionId = request.get("transactionId");
         String paymentMethod = request.get("paymentMethod");
-        orderService.confirmPayment(orderId, transactionId, paymentMethod);
+        orderService.confirmPayment(orderId, transactionId, paymentMethod, requireUserId(httpRequest));
         return RESTResult.success();
     }
 
@@ -80,10 +80,10 @@ public class OrderController {
      * 发货
      */
     @PostMapping("/ship")
-    public RESTResult<?> shipOrder(@RequestBody Map<String, String> request) {
+    public RESTResult<?> shipOrder(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
         Long orderId = Long.parseLong(request.get("orderId"));
         String trackingNumber = request.get("trackingNumber");
-        orderService.shipOrder(orderId, trackingNumber);
+        orderService.shipOrder(orderId, trackingNumber, requireUserId(httpRequest));
         return RESTResult.success();
     }
 
@@ -91,9 +91,9 @@ public class OrderController {
      * 完成订单
      */
     @PostMapping("/complete")
-    public RESTResult<?> completeOrder(@RequestBody Map<String, Long> request) {
+    public RESTResult<?> completeOrder(@RequestBody Map<String, Long> request, HttpServletRequest httpRequest) {
         Long orderId = request.get("orderId");
-        orderService.completeOrder(orderId);
+        orderService.completeOrder(orderId, requireUserId(httpRequest));
         return RESTResult.success();
     }
 
@@ -101,9 +101,9 @@ public class OrderController {
      * 取消订单
      */
     @PostMapping("/cancel")
-    public RESTResult<?> cancelOrder(@RequestBody Map<String, Long> request) {
+    public RESTResult<?> cancelOrder(@RequestBody Map<String, Long> request, HttpServletRequest httpRequest) {
         Long orderId = request.get("orderId");
-        orderService.cancelOrder(orderId);
+        orderService.cancelOrder(orderId, requireUserId(httpRequest));
         return RESTResult.success();
     }
 

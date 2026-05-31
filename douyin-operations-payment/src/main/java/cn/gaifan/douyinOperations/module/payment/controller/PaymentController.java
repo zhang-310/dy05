@@ -5,6 +5,10 @@
 
 package cn.gaifan.douyinOperations.module.payment.controller;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.ResponseEntity;
 import lombok.RequiredArgsConstructor;
@@ -12,12 +16,25 @@ import lombok.extern.slf4j.Slf4j;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.annotation.Resource;
+import cn.gaifan.douyinOperations.common.config.AuthTokenFilter;
+import cn.gaifan.douyinOperations.common.constant.ErrorCode;
+import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.module.payment.config.PaymentGatewayProperties;
+import cn.gaifan.douyinOperations.module.payment.entity.OrderStatus;
 import cn.gaifan.douyinOperations.module.payment.service.DouyinPaymentService;
+import cn.gaifan.douyinOperations.module.payment.service.RefundService;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentCallbackLog;
+import cn.gaifan.douyinOperations.module.payment.entity.PaymentOrder;
+import cn.gaifan.douyinOperations.module.payment.entity.TransactionStatus;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentCallbackLogRepository;
+import cn.gaifan.douyinOperations.module.payment.repository.PaymentOrderRepository;
+import cn.gaifan.douyinOperations.module.payment.repository.PaymentTransactionLogRepository;
 import cn.gaifan.douyinOperations.common.vo.RESTResult;
+import cn.gaifan.douyinOperations.module.payment.vo.RefundSaveVO;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 支付控制器
@@ -29,9 +46,16 @@ import java.time.LocalDateTime;
 public class PaymentController {
 
     private final DouyinPaymentService paymentService;
+    private final PaymentGatewayProperties paymentGatewayProperties;
+    private final PaymentOrderRepository orderRepository;
+    private final PaymentTransactionLogRepository transactionLogRepository;
+    private final RefundService refundService;
 
     @Resource
     private PaymentCallbackLogRepository callbackLogRepository;
+
+    @Value("${app.payment.legacy.allow-unauthenticated-read:false}")
+    private boolean allowUnauthenticatedLegacyRead;
 
     /**
      * 创建订单并生成支付链接
@@ -87,20 +111,14 @@ public class PaymentController {
         log.info("🔍 查询订单：orderNo={}", orderNo);
 
         try {
-            // 从数据库查询订单（这里省略具体实现）
-            // PaymentOrder order = paymentService.getOrder(orderNo);
-
-            final String orderNoVal = orderNo;
-            return ResponseEntity.ok(RESTResult.success("查询成功", new Object() {
-                public String getOrderNo() { return orderNoVal; }
-                public String getStatus() { return "PAID"; }
-                public BigDecimal getAmount() { return new BigDecimal("99.99"); }
-            }));
+            PaymentOrder order = orderRepository.findByOrderNo(orderNo)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+            return ResponseEntity.ok(RESTResult.success("查询成功", legacyOrderPayload(order)));
 
         } catch (Exception e) {
             log.error("✗ 订单查询失败", e);
             return ResponseEntity.status(500).body(
-                    RESTResult.error(3010, "订单查询失败")
+            RESTResult.error(3010, "订单查询失败")
             );
         }
     }
@@ -234,8 +252,7 @@ public class PaymentController {
      * 白名单配置示例：203.107.32.0/24,203.107.33.0/24,127.0.0.1
      */
     private boolean isIpInWhitelist(String clientIp) {
-        // 从配置读取白名单（这里硬编码示例，实际应从 application.yml 读取）
-        String whitelist = "203.107.32.0/24,203.107.33.0/24,127.0.0.1,::1";
+        String whitelist = paymentGatewayProperties.getDouyin().getCallbackIpWhitelist();
 
         if (whitelist == null || whitelist.isEmpty()) {
             log.warn("⚠️ IP 白名单未配置，允许所有 IP 访问");
@@ -305,18 +322,24 @@ public class PaymentController {
     @PostMapping("/refund")
     public ResponseEntity<RESTResult<?>> requestRefund(
             @RequestParam String orderNo,
-            @RequestParam String reason) {
+            @RequestParam String reason,
+            HttpServletRequest request) {
 
         log.info("💰 申请退款：orderNo={}, reason={}", orderNo, reason);
 
         try {
-            // 创建退款单（这里省略具体实现）
-            // PaymentRefund refund = paymentService.createRefund(orderNo, reason);
-
-            return ResponseEntity.ok(RESTResult.success(new Object() {
-                public String refundNo = "REF" + System.currentTimeMillis();
-                public String status = "PENDING";
-            }));
+            Long userId = requireUserId(request);
+            PaymentOrder order = orderRepository.findByOrderNo(orderNo)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+            long refundId = refundService.createRefund(RefundSaveVO.builder()
+                    .orderId(order.getId())
+                    .amount(order.getActualAmount())
+                    .reason(reason)
+                    .build(), userId);
+            return ResponseEntity.ok(RESTResult.success(Map.of(
+                    "refundId", refundId,
+                    "status", "PENDING"
+            )));
 
         } catch (Exception e) {
             log.error("✗ 退款申请失败", e);
@@ -334,17 +357,22 @@ public class PaymentController {
     @SuppressWarnings("unused")
     public ResponseEntity<RESTResult<?>> listOrders(
             @RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer rows) {
+            @RequestParam(defaultValue = "10") Integer rows,
+            HttpServletRequest request) {
 
         log.info("📋 获取订单列表：page={}, rows={}", page, rows);
 
         try {
-            // 分页查询用户订单（这里省略具体实现）
-
-            return ResponseEntity.ok(RESTResult.success(new Object() {
-                public int total = 100;
-                public java.util.List<?> list = new java.util.ArrayList<>();
-            }));
+            Long userId = currentUserId(request);
+            PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.max(rows, 1),
+                    Sort.by(Sort.Direction.DESC, "createdAt"));
+            Page<PaymentOrder> result = userId != null
+                    ? orderRepository.findByUserIdAndDeleted(userId, 0, pageable)
+                    : unauthenticatedLegacyPage(pageable);
+            return ResponseEntity.ok(RESTResult.success(Map.of(
+                    "total", result.getTotalElements(),
+                    "list", result.getContent().stream().map(this::legacyOrderPayload).toList()
+            )));
 
         } catch (Exception e) {
             log.error("✗ 订单列表查询失败", e);
@@ -389,14 +417,26 @@ public class PaymentController {
         log.info("📊 获取支付统计：period={}", period);
 
         try {
-            // 计算统计数据（这里省略具体实现）
+            List<OrderStatus> paidStatuses = List.of(OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.COMPLETED);
+            long totalOrders = orderRepository.count();
+            long paidOrders = orderRepository.countByStatusIn(paidStatuses);
+            BigDecimal totalAmount = orderRepository.sumActualAmountByStatuses(paidStatuses);
+            if (totalAmount == null) totalAmount = BigDecimal.ZERO;
+            double successRate = totalOrders == 0 ? 0D : paidOrders * 100D / totalOrders;
+            BigDecimal avgAmount = paidOrders == 0
+                    ? BigDecimal.ZERO
+                    : totalAmount.divide(BigDecimal.valueOf(paidOrders), 2, java.math.RoundingMode.HALF_UP);
 
-            return ResponseEntity.ok(RESTResult.success(new Object() {
-                public int totalOrders = 1000;
-                public BigDecimal totalAmount = new BigDecimal("99999.99");
-                public double successRate = 99.5;
-                public BigDecimal avgAmount = new BigDecimal("100.00");
-            }));
+            return ResponseEntity.ok(RESTResult.success(Map.of(
+                    "period", period,
+                    "totalOrders", totalOrders,
+                    "paidOrders", paidOrders,
+                    "failedTransactions", transactionLogRepository.countByStatus(TransactionStatus.FAILED),
+                    "totalAmount", totalAmount,
+                    "successRate", successRate,
+                    "avgAmount", avgAmount,
+                    "stub", false
+            )));
 
         } catch (Exception e) {
             log.error("✗ 统计获取失败", e);
@@ -404,5 +444,43 @@ public class PaymentController {
                     RESTResult.error(3050, "统计获取失败")
             );
         }
+    }
+
+    private Map<String, Object> legacyOrderPayload(PaymentOrder order) {
+        return Map.ofEntries(
+                Map.entry("id", order.getId()),
+                Map.entry("orderNo", order.getOrderNo()),
+                Map.entry("userId", order.getUserId()),
+                Map.entry("productId", order.getProductId()),
+                Map.entry("amount", order.getAmount()),
+                Map.entry("actualAmount", order.getActualAmount()),
+                Map.entry("quantity", order.getQuantity()),
+                Map.entry("status", order.getStatus().name()),
+                Map.entry("paymentMethod", order.getPaymentMethod() == null ? "" : order.getPaymentMethod()),
+                Map.entry("transactionId", order.getTransactionId() == null ? "" : order.getTransactionId()),
+                Map.entry("paidAt", order.getPaidAt() == null ? "" : order.getPaidAt().toString()),
+                Map.entry("trackingNumber", order.getTrackingNumber() == null ? "" : order.getTrackingNumber()),
+                Map.entry("remark", order.getRemark() == null ? "" : order.getRemark()),
+                Map.entry("createdAt", order.getCreatedAt() == null ? "" : order.getCreatedAt().toString())
+        );
+    }
+
+    private Page<PaymentOrder> unauthenticatedLegacyPage(PageRequest pageable) {
+        if (!allowUnauthenticatedLegacyRead) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        }
+        return orderRepository.findAll(pageable);
+    }
+
+    private Long requireUserId(HttpServletRequest request) {
+        Long userId = currentUserId(request);
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        }
+        return userId;
+    }
+
+    private Long currentUserId(HttpServletRequest request) {
+        return request != null ? AuthTokenFilter.getUserId(request) : null;
     }
 }

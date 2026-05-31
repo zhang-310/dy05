@@ -21,11 +21,12 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import AddchartIcon from '@mui/icons-material/Addchart'
 import type { GridColDef } from '@mui/x-data-grid'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { PageHeader, StandardDataGrid } from '@/components/base'
+import { DataGridEmptyOverlay, PageHeader, StandardDataGrid } from '@/components/base'
 import { aiApi } from '@/api/ai'
 import { useToast } from '@/contexts/ToastContext'
 import { useNavigate } from 'react-router-dom'
 import type { AiModelBenchmarkComparisonRow, AiTaskModelConfigRow } from '@/types/ai'
+import { getErrorMessage } from '@/utils/errorHandler'
 
 const PRIORITY_OPTIONS = [
   { value: 'latency', label: '优先延迟（平均 ms 最低）' },
@@ -33,30 +34,26 @@ const PRIORITY_OPTIONS = [
   { value: 'success', label: '优先成功率（最高）' },
 ] as const
 
-function isComparisonRow(o: unknown): o is AiModelBenchmarkComparisonRow {
-  if (!o || typeof o !== 'object') return false
-  return Number.isFinite((o as Partial<AiModelBenchmarkComparisonRow>).modelId)
-}
+const MODEL_BENCHMARK_ENDPOINTS = {
+  comparison: '/ai/model-benchmark/comparison',
+  bestModel: '/ai/model-benchmark/best-model',
+  record: '/ai/model-benchmark/record',
+} as const
 
-function normalizeComparisonRows(raw: unknown): AiModelBenchmarkComparisonRow[] {
-  if (!Array.isArray(raw)) return []
-  const out: AiModelBenchmarkComparisonRow[] = []
-  for (const item of raw) {
-    if (!isComparisonRow(item)) continue
-    const modelId = Number(item.modelId)
-    if (!Number.isFinite(modelId)) continue
-    out.push({
-      modelId,
-      modelName: item.modelName,
-      taskCode: item.taskCode ?? '',
-      avgLatencyMs: item.avgLatencyMs ?? 0,
-      successRate: item.successRate ?? 0,
-      avgTokens: item.avgTokens ?? 0,
-      totalCalls: item.totalCalls ?? 0,
-    })
-  }
-  return out
-}
+const MODEL_BENCHMARK_READY_ENDPOINTS = [
+  MODEL_BENCHMARK_ENDPOINTS.comparison,
+  MODEL_BENCHMARK_ENDPOINTS.bestModel,
+  MODEL_BENCHMARK_ENDPOINTS.record,
+  '/ai/admin/task-model-config/list',
+].join('|')
+
+const MODEL_BENCHMARK_UNSUPPORTED_ENDPOINTS = [
+  '/ai/model-benchmark/mock-ranking',
+  '/ai/model-benchmark/local-best-model',
+  '/ai/model-benchmark/export',
+  '/ai/model-benchmark/auto-record',
+  '/ai/admin/models/get-secret',
+].join('|')
 
 function taskOptionsFromConfig(rows: AiTaskModelConfigRow[]): { code: string; label: string }[] {
   const map = new Map<string, string>()
@@ -84,13 +81,22 @@ export default function ModelBenchmarkPage() {
   const [recordTokens, setRecordTokens] = useState('120')
   const [recordSuccess, setRecordSuccess] = useState(true)
 
-  const { data: taskConfigs = [] } = useQuery({
+  const {
+    data: taskConfigs = [],
+    isError: taskConfigsIsError,
+    error: taskConfigsError,
+    refetch: refetchTaskConfigs,
+  } = useQuery({
     queryKey: ['task-model-config', 'benchmark-filter'],
     queryFn: () => aiApi.taskModelConfigList(),
     staleTime: 60_000,
   })
 
-  const taskMenuOptions = useMemo(() => taskOptionsFromConfig(taskConfigs), [taskConfigs])
+  const normalizedTaskConfigs = useMemo(
+    () => (Array.isArray(taskConfigs) ? taskConfigs : []),
+    [taskConfigs],
+  )
+  const taskMenuOptions = useMemo(() => taskOptionsFromConfig(normalizedTaskConfigs), [normalizedTaskConfigs])
 
   const {
     data: benchmarks = [],
@@ -100,17 +106,17 @@ export default function ModelBenchmarkPage() {
     refetch,
   } = useQuery({
     queryKey: ['model-benchmarks', taskFilter],
-    queryFn: async () => {
-      const res = await aiApi.modelBenchmarkComparison({
+    queryFn: () =>
+      aiApi.modelBenchmarkComparison({
         taskCode: taskFilter.trim() || undefined,
-      })
-      return normalizeComparisonRows(res)
-    },
+      }),
   })
 
   const {
     data: recommendation,
     isFetching: bestLoading,
+    isError: bestIsError,
+    error: bestError,
     refetch: refetchBest,
   } = useQuery({
     queryKey: ['model-benchmark-best', taskFilter, priority],
@@ -126,12 +132,44 @@ export default function ModelBenchmarkPage() {
       void qc.invalidateQueries({ queryKey: ['model-benchmark-best'] })
       setRecordOpen(false)
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e) => toast(`基准样本录入失败：${getErrorMessage(e)}`, 'error'),
   })
 
   const rows = useMemo(
     () => benchmarks.map((row, idx) => ({ ...row, id: `${row.modelId}-${row.taskCode}-${idx}` })),
     [benchmarks],
+  )
+  const taskCount = useMemo(() => new Set(rows.map((r) => r.taskCode).filter(Boolean)).size, [rows])
+  const totalSamples = useMemo(() => rows.reduce((sum, r) => sum + Number(r.totalCalls ?? 0), 0), [rows])
+  const avgSuccessRate = useMemo(() => {
+    if (rows.length === 0) return 0
+    return rows.reduce((sum, r) => sum + Number(r.successRate ?? 0), 0) / rows.length
+  }, [rows])
+  const taskConfigCodes = useMemo(
+    () => new Set(normalizedTaskConfigs.map((row) => row.taskCode).filter(Boolean)),
+    [normalizedTaskConfigs],
+  )
+  const benchmarkTaskCodes = useMemo(
+    () => new Set(rows.map((row) => row.taskCode).filter(Boolean)),
+    [rows],
+  )
+  const tasksWithoutBenchmark = useMemo(
+    () => normalizedTaskConfigs.filter((row) => row.taskCode && !benchmarkTaskCodes.has(row.taskCode)),
+    [benchmarkTaskCodes, normalizedTaskConfigs],
+  )
+  const benchmarksWithoutConfig = useMemo(
+    () => rows.filter((row) => row.taskCode && !taskConfigCodes.has(row.taskCode)),
+    [rows, taskConfigCodes],
+  )
+  const lowQualityRows = useMemo(
+    () => rows.filter((row) => Number(row.successRate ?? 0) < 0.8 || Number(row.avgLatencyMs ?? 0) >= 3000),
+    [rows],
+  )
+  const hasComparisonData = rows.length > 0
+  const hasTaskConfigs = normalizedTaskConfigs.length > 0
+  const selectedTaskLabel = useMemo(
+    () => taskMenuOptions.find((item) => item.code === taskFilter)?.label ?? taskFilter,
+    [taskFilter, taskMenuOptions],
   )
 
   const columns: GridColDef<AiModelBenchmarkComparisonRow & { id: string }>[] = [
@@ -188,7 +226,16 @@ export default function ModelBenchmarkPage() {
   }
 
   return (
-    <Box data-testid="model-benchmark-page" sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box
+      data-testid="model-benchmark-page"
+      data-ready-endpoints={MODEL_BENCHMARK_READY_ENDPOINTS}
+      data-unsupported-endpoints={MODEL_BENCHMARK_UNSUPPORTED_ENDPOINTS}
+      data-no-mock-ranking-fallback="true"
+      data-no-local-best-model-fallback="true"
+      data-no-auto-sample-record="true"
+      data-no-plaintext-key-display="true"
+      sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}
+    >
       <PageHeader
         title="模型基准测试"
         subtitle="基于 ai_model_benchmark 聚合；按任务筛选或查看全部；可手动写入样本并查看推荐模型"
@@ -218,17 +265,160 @@ export default function ModelBenchmarkPage() {
       {isError ? (
         <Alert
           severity="error"
+          data-testid="model-benchmark-comparison-error"
+          data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.comparison}
+          data-no-mock-ranking-fallback="true"
           action={
             <Button color="inherit" size="small" onClick={() => void refetch()}>
               重试
             </Button>
           }
         >
-          {error instanceof Error ? error.message : '加载失败'}
+          模型基准聚合加载失败：{getErrorMessage(error)}。来源：<code>{MODEL_BENCHMARK_ENDPOINTS.comparison}</code>。
         </Alert>
       ) : null}
 
-      <Card variant="outlined">
+      {taskConfigsIsError ? (
+        <Alert
+          severity="warning"
+          data-testid="model-benchmark-task-config-error"
+          data-source-endpoint="/ai/admin/task-model-config/list"
+          data-no-local-task-option-fallback="true"
+          action={
+            <Button color="inherit" size="small" onClick={() => void refetchTaskConfigs()}>
+              重试
+            </Button>
+          }
+        >
+          任务配置加载失败：{getErrorMessage(taskConfigsError)}。来源：<code>/ai/admin/task-model-config/list</code>；下拉框会保留少量常用任务兜底，推荐模型仍需真实 taskCode。
+        </Alert>
+      ) : null}
+
+      {bestIsError ? (
+        <Alert
+          severity="warning"
+          data-testid="model-benchmark-best-error"
+          data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.bestModel}
+          data-no-local-best-model-fallback="true"
+        >
+          推荐模型加载失败：{getErrorMessage(bestError)}。来源：<code>{MODEL_BENCHMARK_ENDPOINTS.bestModel}</code>；列表聚合不受影响，可先查看样本或录入数据后重试推荐。
+        </Alert>
+      ) : null}
+
+      {recordMut.isError ? (
+        <Alert
+          severity="error"
+          data-testid="model-benchmark-record-error"
+          data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.record}
+          data-input-retained="true"
+          data-no-auto-sample-record="true"
+        >
+          基准样本录入失败：{getErrorMessage(recordMut.error)}。来源：<code>{MODEL_BENCHMARK_ENDPOINTS.record}</code>；请确认模型 ID 存在，且后端已注入 ModelBenchmarkService。录入面板和输入值会保留，避免失败后丢失联调样本。
+        </Alert>
+      ) : null}
+
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">聚合行数</Typography>
+            <Typography variant="h5" fontWeight={700}>{rows.length}</Typography>
+            <Typography variant="body2" color="text.secondary">按模型和任务代码聚合</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">任务覆盖</Typography>
+            <Typography variant="h5" fontWeight={700}>{taskCount}</Typography>
+            <Typography variant="body2" color="text.secondary">来自 ai_task_model_config 或样本数据</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">样本总量</Typography>
+            <Typography variant="h5" fontWeight={700}>{totalSamples}</Typography>
+            <Typography variant="body2" color="text.secondary">totalCalls 汇总</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">平均成功率</Typography>
+            <Typography variant="h5" fontWeight={700}>{(avgSuccessRate * 100).toFixed(1)}%</Typography>
+            <Typography variant="body2" color="text.secondary">按聚合行等权估算</Typography>
+          </CardContent>
+        </Card>
+      </Stack>
+
+      <Alert
+        severity="info"
+        data-testid="model-benchmark-boundary-contract"
+        data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.comparison}
+        data-no-mock-ranking-fallback="true"
+        data-no-auto-sample-record="true"
+      >
+        模型基准页只展示 <code>ai_model_benchmark</code> 聚合结果；若后端未注入 ModelBenchmarkService，接口会返回空数组。
+        推荐模型必须选择具体任务，手动录入样本用于联调和运维校准；页面不会用静态 mock 排行替代真实样本。
+      </Alert>
+
+      {!isLoading && !hasComparisonData && !isError ? (
+        <Alert
+          severity={hasTaskConfigs ? 'warning' : 'info'}
+          data-testid="model-benchmark-empty"
+          data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.comparison}
+          data-no-mock-ranking-fallback="true"
+        >
+          {taskFilter.trim()
+            ? `后端未返回 ${selectedTaskLabel} 的 benchmark 样本；可能是 ModelBenchmarkService 未注入、ai_model_benchmark 暂无该任务数据，或真实调用链尚未写入样本。页面不会用 mock 排行替代。`
+            : '后端未返回 benchmark 样本；可能是 ModelBenchmarkService 未注入、ai_model_benchmark 暂无数据，或真实调用链尚未写入样本。页面不会用 mock 排行替代。'}
+        </Alert>
+      ) : null}
+
+      {hasComparisonData || hasTaskConfigs ? (
+        <Card
+          variant="outlined"
+          data-testid="model-benchmark-diagnostics-contract"
+          data-source-endpoints={`${MODEL_BENCHMARK_ENDPOINTS.comparison}|/ai/admin/task-model-config/list`}
+          data-no-mock-ranking-fallback="true"
+          data-no-local-task-option-fallback="true"
+        >
+          <CardContent>
+            <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+              基准覆盖诊断
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+              <Chip size="small" color={tasksWithoutBenchmark.length === 0 ? 'success' : 'warning'} label={`配置无样本 ${tasksWithoutBenchmark.length}`} />
+              <Chip size="small" color={benchmarksWithoutConfig.length === 0 ? 'success' : 'warning'} label={`样本无配置 ${benchmarksWithoutConfig.length}`} />
+              <Chip size="small" color={lowQualityRows.length === 0 ? 'success' : 'error'} label={`低质样本 ${lowQualityRows.length}`} />
+            </Stack>
+            {tasksWithoutBenchmark.length > 0 ? (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                任务模型映射已有配置但暂无 benchmark 样本：{tasksWithoutBenchmark.map((row) => `${row.taskName} (${row.taskCode})`).join('、')}。
+              </Alert>
+            ) : null}
+            {benchmarksWithoutConfig.length > 0 ? (
+              <Alert severity="info" sx={{ mb: 1 }}>
+                存在 benchmark 样本但未在任务模型映射中配置：{Array.from(new Set(benchmarksWithoutConfig.map((row) => row.taskCode))).join('、')}。
+              </Alert>
+            ) : null}
+            {lowQualityRows.length > 0 ? (
+              <Alert severity="error">
+                有模型成功率低于 80% 或平均延迟不低于 3000ms：{lowQualityRows.map((row) => `${row.modelName || row.modelId}/${row.taskCode}`).join('、')}。
+              </Alert>
+            ) : null}
+            {tasksWithoutBenchmark.length === 0 && benchmarksWithoutConfig.length === 0 && lowQualityRows.length === 0 ? (
+              <Alert severity="success">当前任务映射与 benchmark 样本已对齐，未发现明显低质模型聚合行。</Alert>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card
+        variant="outlined"
+        data-testid="model-benchmark-filter-contract"
+        data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.bestModel}
+        data-selected-task={taskFilter || 'all'}
+        data-priority={priority}
+        data-no-local-best-model-fallback="true"
+      >
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }} flexWrap="wrap">
             <FormControl size="small" sx={{ minWidth: 260 }}>
@@ -312,7 +502,12 @@ export default function ModelBenchmarkPage() {
                       </Typography>
                     </>
                   ) : (
-                    <Chip size="small" variant="outlined" label="暂无聚合数据，可先录入样本" />
+                    <>
+                      <Chip size="small" variant="outlined" label="暂无聚合数据" />
+                      <Typography variant="caption" color="text.secondary">
+                        ModelBenchmarkService 未注入或该任务样本不足时，后端会返回 modelId=0。
+                      </Typography>
+                    </>
                   )}
                 </Stack>
               )}
@@ -326,7 +521,13 @@ export default function ModelBenchmarkPage() {
       </Card>
 
       {recordOpen ? (
-        <Card variant="outlined">
+        <Card
+          variant="outlined"
+          data-testid="model-benchmark-record-form"
+          data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.record}
+          data-input-retained="true"
+          data-no-auto-sample-record="true"
+        >
           <CardContent>
             <Typography variant="subtitle2" gutterBottom>
               手动录入一条基准样本（运维/联调用）
@@ -391,12 +592,25 @@ export default function ModelBenchmarkPage() {
 
       <Divider />
 
+      {!isLoading && rows.length === 0 ? (
+        <Alert
+          severity="warning"
+          data-testid="model-benchmark-no-rows"
+          data-source-endpoint={MODEL_BENCHMARK_ENDPOINTS.comparison}
+          data-no-mock-ranking-fallback="true"
+        >
+          暂无模型基准样本。请先通过真实 AI 调用写入 benchmark，或使用“录入样本”添加联调数据；页面不会用静态 mock 填充排行。数据来源：
+          <code>{MODEL_BENCHMARK_ENDPOINTS.comparison}</code>。
+        </Alert>
+      ) : null}
+
       <StandardDataGrid
         rows={rows}
         columns={columns}
         loading={isLoading}
         getRowId={(r) => r.id}
         sx={{ height: 'calc(100vh - 420px)', minHeight: 320 }}
+        slots={{ noRowsOverlay: DataGridEmptyOverlay }}
       />
     </Box>
   )

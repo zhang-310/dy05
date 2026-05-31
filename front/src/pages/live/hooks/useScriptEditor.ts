@@ -140,7 +140,7 @@ export function useScriptEditor({
     let finalContent = content
     let finalDuration: number | '' = row?.durationLimitSec ?? ''
     let finalRequirement = row?.requirement ?? ''
-    let finalPresenterNotes = row?.presenterNotes ?? ''
+    const finalPresenterNotes = row?.presenterNotes ?? ''
 
     // Check for draft with version conflict detection
     if (draft) {
@@ -345,7 +345,7 @@ export function useScriptEditor({
     const next = currentExecuted === 1 ? 0 : 1
     setScripts((prev) => prev.map((s) => s.id === scriptId ? { ...s, executed: next } : s))
     try {
-      await updateScriptExecuted(scriptId)
+      await updateScriptExecuted(scriptId, next)
       toast(next === 1 ? '已标记为已执行' : '已取消执行', 'success')
     } catch (e) {
       setScripts((prev) => prev.map((s) => s.id === scriptId ? { ...s, executed: currentExecuted } : s))

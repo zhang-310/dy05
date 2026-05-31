@@ -126,7 +126,9 @@ class SystemPerformanceControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data.hitCount").value(0));
+                .andExpect(jsonPath("$.data.source").value("redis_info"))
+                .andExpect(jsonPath("$.data.hitCount").exists())
+                .andExpect(jsonPath("$.data.missCount").exists());
     }
 
     @Test
@@ -199,6 +201,7 @@ class SystemPerformanceControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data.status").value("idle"));
+                .andExpect(jsonPath("$.data.status").value("ready"))
+                .andExpect(jsonPath("$.data.source").value("current_runtime_snapshot"));
     }
 }

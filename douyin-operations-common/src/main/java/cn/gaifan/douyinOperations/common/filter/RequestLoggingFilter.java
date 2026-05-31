@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.common.filter;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import cn.gaifan.douyinOperations.common.metrics.PerformanceMetricsCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
@@ -13,6 +14,11 @@ import java.io.IOException;
 @Order(1)
 public class RequestLoggingFilter implements Filter {
     private static final Logger log = LoggerFactory.getLogger(RequestLoggingFilter.class);
+    private final PerformanceMetricsCollector performanceMetricsCollector;
+
+    public RequestLoggingFilter(PerformanceMetricsCollector performanceMetricsCollector) {
+        this.performanceMetricsCollector = performanceMetricsCollector;
+    }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
@@ -23,12 +29,15 @@ public class RequestLoggingFilter implements Filter {
         String method = req.getMethod();
         String uri = req.getRequestURI();
         String ip = getClientIp(req);
+        performanceMetricsCollector.requestStarted();
         
         try {
             chain.doFilter(request, response);
         } finally {
             long duration = System.currentTimeMillis() - startTime;
             int status = res.getStatus();
+            performanceMetricsCollector.record(method + " " + uri, duration, status >= 500);
+            performanceMetricsCollector.requestFinished();
             
             if (duration > 1000) {
                 log.warn("慢请求: {} {} - {}ms - status={} - ip={}", method, uri, duration, status, ip);

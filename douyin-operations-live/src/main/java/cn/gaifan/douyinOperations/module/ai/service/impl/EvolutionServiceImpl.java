@@ -10,8 +10,12 @@ import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.ai.service.VideoAnalysisService;
 import cn.gaifan.douyinOperations.module.ai.vo.VideoCompareRequestVO;
 import cn.gaifan.douyinOperations.module.ai.vo.VideoCompareResultVO;
+import cn.gaifan.douyinOperations.contract.product.FeatureCode;
+import cn.gaifan.douyinOperations.contract.product.ProductCode;
 import cn.gaifan.douyinOperations.module.douyin.entity.DouyinVideo;
 import cn.gaifan.douyinOperations.module.douyin.repository.DouyinVideoRepository;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialProductChargeService;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryProduct;
 import cn.gaifan.douyinOperations.module.live.entity.LiveMonitor;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScript;
 import cn.gaifan.douyinOperations.module.live.entity.LiveSession;
@@ -53,6 +57,9 @@ public class EvolutionServiceImpl implements EvolutionService {
     @Resource private AiModelRepository aiModelRepository;
     @Resource private LlmClient llmClient;
     @Resource private DouyinVideoRepository videoRepository;
+
+    @Autowired(required = false)
+    private CommercialProductChargeService commercialProductChargeService;
     @Resource private LiveSessionRepository sessionRepository;
     @Resource private LiveMonitorRepository monitorRepository;
     @Resource private LiveScriptRepository scriptRepository;
@@ -94,6 +101,16 @@ public class EvolutionServiceImpl implements EvolutionService {
         return viralRepo.findByVideoIdAndDeleted(videoId, 0).map(AiViralAnalysis::getId).orElseGet(() -> {
             DouyinVideo video = videoRepository.findByIdAndDeleted(videoId, 0)
                     .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "视频不存在"));
+
+            if (commercialProductChargeService != null) {
+                commercialProductChargeService.charge(
+                        CommercialProductChargeService.CommercialProductChargeCommand.of(
+                                ProductCode.DOUYIN_OPS,
+                                FeatureCode.DOUYIN_VIDEO_ANALYSIS,
+                                "抖音视频分析 videoId=" + videoId,
+                                DeliveryProduct.DOUYIN_OPS
+                        ));
+            }
 
             AiViralAnalysis entity = new AiViralAnalysis();
             entity.setVideoId(videoId);
@@ -178,7 +195,9 @@ public class EvolutionServiceImpl implements EvolutionService {
             log.error("爆款分析异常: id={}", analysisId, e);
             try {
                 viralRepo.completeAnalysis(analysisId, 2, "分析异常: " + e.getMessage(), null, null, 0, 0L, null);
-            } catch (Exception ignored) {}
+            } catch (Exception ex) {
+                log.debug("爆款分析状态更新失败: id={}, {}", analysisId, ex.getMessage());
+            }
         }
     }
 
@@ -367,7 +386,9 @@ public class EvolutionServiceImpl implements EvolutionService {
             log.error("直播复盘异常: id={}", reviewId, e);
             try {
                 liveReviewRepo.completeReview(reviewId, 2, "复盘异常: " + e.getMessage(), null, null, 0L, null);
-            } catch (Exception ignored) {}
+            } catch (Exception ex) {
+                log.debug("直播复盘状态更新失败: id={}, {}", reviewId, ex.getMessage());
+            }
         }
     }
 
@@ -570,7 +591,9 @@ public class EvolutionServiceImpl implements EvolutionService {
             if (matcher.find()) return Math.min(Integer.parseInt(matcher.group(1)), 100);
             matcher = java.util.regex.Pattern.compile("评分[：:]?\\s*(\\d{1,3})").matcher(content);
             if (matcher.find()) return Math.min(Integer.parseInt(matcher.group(1)), 100);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.debug("评分提取失败，使用默认值: {}", e.getMessage());
+        }
         return 50;
     }
 

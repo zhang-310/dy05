@@ -10,6 +10,9 @@ import cn.gaifan.douyinOperations.module.benchmark.vo.DouyinCookieVO;
  */
 public interface DouyinCookieService {
 
+    record AvailableCookie(Long id, String cookieValue) {
+    }
+
     /**
      * 分页查询Cookie
      */
@@ -42,6 +45,22 @@ public interface DouyinCookieService {
      * @return Cookie值，如果没有可用Cookie返回null
      */
     String getAvailableCookie(Long ownerId, String platform);
+
+    /**
+     * 获取指定 Cookie。多服务器采集时可让每个 worker 固定绑定一个抖音账号。
+     */
+    String getAvailableCookie(Long ownerId, String platform, Long preferredCookieId);
+
+    /**
+     * 获取可用 Cookie，并返回本次实际使用的 Cookie id。
+     * 分布式采集 worker 需要用 id 精确标记失效账号，避免反复用同一个失效登录态重试。
+     */
+    AvailableCookie getAvailableCookieForUse(Long ownerId, String platform, Long preferredCookieId);
+
+    /**
+     * 将 Cookie 标记为不可用。
+     */
+    void markUnavailable(Long id, Long ownerId, String platform, String reason);
 
     /**
      * 记录Cookie使用

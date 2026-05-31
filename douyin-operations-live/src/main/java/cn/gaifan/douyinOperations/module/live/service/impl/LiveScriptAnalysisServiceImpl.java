@@ -6,6 +6,7 @@ import cn.gaifan.douyinOperations.module.ai.entity.AiModel;
 import cn.gaifan.douyinOperations.module.ai.repository.AiModelRepository;
 import cn.gaifan.douyinOperations.module.ai.service.LlmClient;
 import cn.gaifan.douyinOperations.module.ai.service.ModelChatStreamService;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.live.entity.LiveProduct;
 import cn.gaifan.douyinOperations.module.live.entity.LiveScript;
 import cn.gaifan.douyinOperations.module.live.entity.LiveSession;
@@ -51,6 +52,8 @@ public class LiveScriptAnalysisServiceImpl implements LiveScriptAnalysisService 
     @Resource private LiveScriptSkeletonService skeletonService;
     @Resource private ProductService productService;
     @Resource private AiModelRepository aiModelRepository;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
 
     private static ObjectMapper objectMapper() {
         return new ObjectMapper();
@@ -74,12 +77,18 @@ public class LiveScriptAnalysisServiceImpl implements LiveScriptAnalysisService 
         if (models == null || models.isEmpty()) {
             throw new BusinessException(ErrorCode.AI_QUOTA_EXCEEDED, "无可用 AI 模型");
         }
+        String durationInstruction = buildDurationInstruction(script);
+        String scriptContext = buildScriptContext(script);
+        String opsContext = buildLiveRefineOpsContext(userId, script, userQuestion + " " + content);
         String systemPrompt = """
             你是直播话术修改助手。用户提出修改要求时，在保持原有优点（卖点、感染力）基础上精准调整。
             常见要求：时长压缩、风格切换（促销/亲切/专业）、意图转换（介绍→促单）、语气调整。
-            原则：① 保留有效信息 ② 按用户要求调整 ③ 保持口语化、无违禁词 ④ 只输出修改后正文，无解释
+            原则：① 保留有效信息 ② 按用户要求调整 ③ 严格遵守段落时长上限 ④ 保持口语化、无违禁词 ⑤ 必须遵守下方 douyin 与 douyin_weigui 官方规则引用
+            输出：只输出修改后话术正文，不要输出标题、解释、建议、Markdown 或引号。
             """;
-        String userPrompt = String.format("用户要求：%s\n\n当前话术：\n%s\n\n请按要求修改，只输出修改后的话术正文：", userQuestion.trim(), content);
+        String userPrompt = String.format(
+                "%s\n%s%s\n用户要求：%s\n\n当前话术：\n%s\n\n请按要求修改，只输出可直接替换原文的话术正文：",
+                scriptContext, durationInstruction, opsContext, userQuestion.trim(), content);
         LlmClient.LlmResponse resp = llmClient.chatWithFallback(models, systemPrompt, userPrompt);
         if (!resp.success() || resp.content() == null || resp.content().isBlank()) {
             throw new BusinessException(ErrorCode.AI_QUOTA_EXCEEDED, resp.errorMsg() != null ? resp.errorMsg() : "AI 修改失败");
@@ -151,12 +160,18 @@ public class LiveScriptAnalysisServiceImpl implements LiveScriptAnalysisService 
             return;
         }
         try {
+            String durationInstruction = buildDurationInstruction(script);
+            String scriptContext = buildScriptContext(script);
+            String opsContext = buildLiveRefineOpsContext(userId, script, userQuestion + " " + content);
             String systemPrompt = """
                 你是直播话术修改助手。用户提出修改要求时，在保持原有优点（卖点、感染力）基础上精准调整。
                 常见要求：时长压缩、风格切换（促销/亲切/专业）、意图转换（介绍→促单）、语气调整。
-                原则：① 保留有效信息 ② 按用户要求调整 ③ 保持口语化、无违禁词 ④ 只输出修改后正文，无解释
+                原则：① 保留有效信息 ② 按用户要求调整 ③ 严格遵守段落时长上限 ④ 保持口语化、无违禁词 ⑤ 必须遵守下方 douyin 与 douyin_weigui 官方规则引用
+                输出：只输出修改后话术正文，不要输出标题、解释、建议、Markdown 或引号。
                 """;
-            String userPrompt = String.format("用户要求：%s\n\n当前话术：\n%s\n\n请按要求修改，只输出修改后的话术正文：", userQuestion.trim(), content);
+            String userPrompt = String.format(
+                    "%s\n%s%s\n用户要求：%s\n\n当前话术：\n%s\n\n请按要求修改，只输出可直接替换原文的话术正文：",
+                    scriptContext, durationInstruction, opsContext, userQuestion.trim(), content);
             List<Map<String, String>> messages = List.of(
                     Map.of("role", "system", "content", systemPrompt),
                     Map.of("role", "user", "content", userPrompt)
@@ -205,14 +220,18 @@ public class LiveScriptAnalysisServiceImpl implements LiveScriptAnalysisService 
         if (models == null || models.isEmpty()) {
             throw new BusinessException(ErrorCode.AI_QUOTA_EXCEEDED, "无可用 AI 模型");
         }
+        String durationInstruction = buildDurationInstruction(script);
+        String scriptContext = buildScriptContext(script);
+        String opsContext = buildLiveRefineOpsContext(userId, script, content);
         String systemPrompt = """
-            你是直播话术优化助手。根据话术效果评分（0-100，当前偏低）生成改进版。
-            原则：① 保持核心卖点不变 ② 增强吸引力和转化引导 ③ 更口语化、有感染力 ④ 避免违禁词
-            ⑤ 只输出改进后话术正文，无解释
+            你是直播话术改写助手。你的任务是直接生成「可替换原文」的改写稿，不是写分析报告。
+            改写目标：提升开场留人、互动承接、卖点表达、促单转化和合规安全；减少模板腔和空泛口号。
+            约束：保留真实卖点，不编造功效，不使用绝对化/夸大承诺，严格遵守段落时长上限，必须遵守下方 douyin 与 douyin_weigui 官方规则引用。
+            输出：只输出改写后的话术正文。禁止输出改进建议、原因、标题、编号、Markdown、引号或解释。
             """;
         String userPrompt = String.format(
-                "当前话术效果评分：%s（偏低）。\n\n当前话术：\n%s\n\n请优化表达，生成更具吸引力的版本，只输出改进后的话术正文：",
-                score, content);
+                "%s%s%s\n当前话术效果评分：%s（偏低）。\n\n当前话术：\n%s\n\n请重写为更自然、更适合直播间直接口播的改进版，只输出可直接替换原文的话术正文：",
+                scriptContext, durationInstruction, opsContext, score, content);
         LlmClient.LlmResponse resp = llmClient.chatWithFallback(models, systemPrompt, userPrompt);
         if (!resp.success() || resp.content() == null || resp.content().isBlank()) {
             throw new BusinessException(ErrorCode.AI_QUOTA_EXCEEDED, resp.errorMsg() != null ? resp.errorMsg() : "AI 改进失败");
@@ -315,6 +334,68 @@ public class LiveScriptAnalysisServiceImpl implements LiveScriptAnalysisService 
             throw new BusinessException(ErrorCode.AI_QUOTA_EXCEEDED, resp.errorMsg() != null ? resp.errorMsg() : "AI 生成失败");
         }
         return resp.content().trim();
+    }
+
+    private String buildScriptContext(LiveScript script) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("段落类型：").append(typeLabel(script.getScriptType())).append("\n");
+        if (script.getRequirement() != null && !script.getRequirement().isBlank()) {
+            sb.append("段落意图：").append(script.getRequirement().trim()).append("\n");
+        }
+        if (script.getStyle() != null && !script.getStyle().isBlank()) {
+            sb.append("段落风格：").append(script.getStyle().trim()).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private String buildDurationInstruction(LiveScript script) {
+        Integer seconds = script.getDurationLimitSec();
+        if (seconds == null || seconds <= 0) {
+            return "";
+        }
+        int minChars = Math.max(8, seconds * 3);
+        int maxChars = Math.max(minChars, seconds * 4);
+        return "硬性时长限制：" + seconds + "秒以内，按每秒约3-4个中文字估算，正文建议控制在"
+                + minChars + "-" + maxChars + "个中文字内；如果信息过多，优先保留关键卖点、互动钩子和合规表达。\n";
+    }
+
+    private String buildLiveRefineOpsContext(Long userId, LiveScript script, String query) {
+        if (operationalStrategyKnowledgeService == null || userId == null || userId <= 0) {
+            return "";
+        }
+        try {
+            String materialType = script != null && script.getScriptType() != null ? script.getScriptType() : "live_refine";
+            OperationalStrategyKnowledgeService.PromptContext context =
+                    operationalStrategyKnowledgeService.buildLiveGenerationContext(
+                            userId,
+                            String.join(" ", query != null ? query : "", "直播话术微调 商品时长 违规规则 官方规则"),
+                            materialType,
+                            2400);
+            return context != null && context.hasText() ? context.promptBlock() : "";
+        } catch (Exception e) {
+            log.debug("直播微调官方知识上下文构建跳过: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    private String typeLabel(String scriptType) {
+        return switch (scriptType != null ? scriptType : "custom") {
+            case "opening" -> "开场话术";
+            case "product" -> "产品话术";
+            case "transition" -> "转场话术";
+            case "closing" -> "收尾话术";
+            case "chat" -> "聊家常话术";
+            case "interaction" -> "互动引导话术";
+            case "welfare" -> "福利话术";
+            case "closing_deal" -> "逼单促单话术";
+            case "hold_back" -> "憋单蓄水话术";
+            case "emotional" -> "情绪价值话术";
+            case "rapid_intro" -> "快速过品话术";
+            case "deep_sell" -> "深度单品话术";
+            case "pain_point" -> "痛点放大话术";
+            case "testimony" -> "用户证言话术";
+            default -> "自定义话术";
+        };
     }
 
     @Override
@@ -481,7 +562,9 @@ public class LiveScriptAnalysisServiceImpl implements LiveScriptAnalysisService 
                     vo.setType1(getTypeLabel(scripts, vo.getScriptId1()));
                     vo.setType2(getTypeLabel(scripts, vo.getScriptId2()));
                     result.add(vo);
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // 解析行失败，跳过该行
+                }
             }
         }
         return result;

@@ -152,4 +152,10 @@ public interface ProductScriptVersionService {
 
     /** 对比两个话术版本的差异（行级 added/removed/changed） */
     ProductVersionDiffVO diffVersions(Long productId, Integer versionA, Integer versionB);
+
+    /**
+     * 为商品主话术确保存在一条可进入优化链路的版本镜像。
+     */
+    EnsureOptimizationVersionResultVO ensureOptimizationVersion(
+            EnsureOptimizationVersionVO vo, Long userId);
 }

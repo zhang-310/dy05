@@ -1,15 +1,19 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.sql.Timestamp;
 
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_story_formula_template")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvStoryFormulaTemplate {
 
     @Id

@@ -1,20 +1,48 @@
 import { useState } from 'react';
-import { Box, Button, Chip, Stack, TextField, MenuItem, Typography } from '@mui/material';
-import { PlayArrow, Download } from '@mui/icons-material';
+import { Alert, Box, Button, Card, CardContent, Chip, Stack, TextField, MenuItem, Typography } from '@mui/material';
+import { PlayArrow, Download, Refresh } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from 'notistack';
-import { useSearchParams } from 'react-router-dom';
-import { StandardDataGrid } from '@/components/base/StandardDataGrid';
-import { PageHeader } from '@/components/base/PageHeader';
-import { FormDialog } from '@/components/base/FormDialog';
-import { ConfirmDialog } from '@/components/base/ConfirmDialog';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { StandardDataGrid, PageHeader, FormDialog, ConfirmDialog, ErrorAlert, DataGridEmptyOverlay } from '@/components/base';
 import { benchmarkVideoApi, benchmarkAnalysisApi } from '@/api/benchmark';
+import { shortvideoBenchmarkAnalysisPath } from '@/constants/shortvideoRoutes';
+import { shortvideoRoutes } from '@/constants/shortvideoRoutes';
 import type { BenchmarkVideoVO, CollectAccountVideosVO, AnalyzeVideoVO } from '@/types/benchmark';
 import type { GridColDef } from '@mui/x-data-grid';
+
+const BENCHMARK_VIDEO_READY_ENDPOINTS = [
+  '/benchmark/video/list',
+  '/benchmark/video/collect',
+  '/benchmark/video/delete',
+  '/benchmark/analysis/analyze',
+].join('|');
+const BENCHMARK_VIDEO_READY_ROUTES = [
+  shortvideoRoutes.benchmarkVideos,
+  '/admin/shortvideo/benchmark/analysis/:id',
+  shortvideoRoutes.benchmarkAccounts,
+].join('|');
+const BENCHMARK_VIDEO_SUPPORTED_ACTIONS = [
+  'refresh-benchmark-videos',
+  'collect-benchmark-videos',
+  'analyze-benchmark-video',
+  'view-benchmark-analysis',
+  'delete-benchmark-video',
+].join('|');
+
+const BENCHMARK_VIDEO_UNSUPPORTED_ENDPOINTS = [
+  '/benchmark/video/mock',
+  '/benchmark/video/local-list',
+  '/benchmark/video/static-video',
+  '/benchmark/video/local-collect',
+  '/benchmark/analysis/static-analysis',
+  '/benchmark/analysis/local-analyze',
+].join('|');
 
 export default function BenchmarkVideoListPage() {
   const { enqueueSnackbar } = useSnackbar();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const accountId = searchParams.get('accountId');
 
@@ -28,9 +56,9 @@ export default function BenchmarkVideoListPage() {
   const [analyzeDialogOpen, setAnalyzeDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [currentVideo, setCurrentVideo] = useState<BenchmarkVideoVO | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // 查询列表
-  const { data, isLoading } = useQuery({
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['benchmarkVideos', page, pageSize, accountId, keyword, minLikeCount, analysisStatus],
     queryFn: () => benchmarkVideoApi.list({
       page,
@@ -42,41 +70,44 @@ export default function BenchmarkVideoListPage() {
     }),
   });
 
-  // 采集视频
   const collectMutation = useMutation({
     mutationFn: benchmarkVideoApi.collect,
     onSuccess: (videos) => {
       enqueueSnackbar(`采集到 ${videos.length} 个视频`, { variant: 'success' });
+      setActionError(null);
       setCollectDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['benchmarkVideos'] });
     },
-    onError: () => {
+    onError: (err) => {
+      setActionError(`视频采集失败：${getErrorMessage(err)}。来源：/benchmark/video/collect；请检查账号归属、抖音 Cookie、Playwright 和风控状态。`);
       enqueueSnackbar('采集失败', { variant: 'error' });
     },
   });
 
-  // 分析视频
   const analyzeMutation = useMutation({
     mutationFn: benchmarkAnalysisApi.analyze,
     onSuccess: () => {
       enqueueSnackbar('分析任务已提交', { variant: 'success' });
+      setActionError(null);
       setAnalyzeDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['benchmarkVideos'] });
     },
-    onError: () => {
+    onError: (err) => {
+      setActionError(`视频分析失败：${getErrorMessage(err)}。来源：/benchmark/analysis/analyze；请检查视频归属、下载、BOS、ASR/OCR 和 LLM 链路。`);
       enqueueSnackbar('分析失败', { variant: 'error' });
     },
   });
 
-  // 删除
   const deleteMutation = useMutation({
     mutationFn: benchmarkVideoApi.delete,
     onSuccess: () => {
       enqueueSnackbar('删除成功', { variant: 'success' });
+      setActionError(null);
       setDeleteDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['benchmarkVideos'] });
     },
-    onError: () => {
+    onError: (err) => {
+      setActionError(`视频删除失败：${getErrorMessage(err)}。来源：/benchmark/video/delete`);
       enqueueSnackbar('删除失败', { variant: 'error' });
     },
   });
@@ -171,6 +202,7 @@ export default function BenchmarkVideoListPage() {
           <Button
             size="small"
             startIcon={<PlayArrow />}
+            disabled={!params.row.videoUrl}
             onClick={() => window.open(params.row.videoUrl, '_blank')}
           >
             播放
@@ -192,7 +224,7 @@ export default function BenchmarkVideoListPage() {
   };
 
   const handleViewAnalysis = (video: BenchmarkVideoVO) => {
-    window.location.href = `/benchmark/analysis/${video.id}`;
+    navigate(shortvideoBenchmarkAnalysisPath(video.id));
   };
 
   const handleDelete = (video: BenchmarkVideoVO) => {
@@ -208,14 +240,98 @@ export default function BenchmarkVideoListPage() {
     analyzeMutation.mutate(data);
   };
 
+  const rows = data?.list ?? [];
+  const completedCount = rows.filter((item) => item.analysisStatus === 'completed').length;
+  const failedCount = rows.filter((item) => item.analysisStatus === 'failed').length;
+  const pendingCount = rows.filter((item) => item.analysisStatus === 'pending' || !item.analysisStatus).length;
+  const downloadableCount = rows.filter((item) => item.localVideoPath || item.localPath || item.bosVideoUrl || item.bosUrl).length;
+  const qualifiedCount = rows.filter((item) => item.isQualified).length;
+  const listErrorMessage = error instanceof Error ? error.message : '对标视频列表加载失败，请检查 /benchmark/video/list。';
+
   return (
-    <Box sx={{ p: 3 }}>
+    <Box
+      data-testid="benchmark-video-list-page"
+      data-contract-scope="benchmark-video-server-collect-analysis"
+      data-ready-endpoints={BENCHMARK_VIDEO_READY_ENDPOINTS}
+      data-ready-routes={BENCHMARK_VIDEO_READY_ROUTES}
+      data-supported-actions={BENCHMARK_VIDEO_SUPPORTED_ACTIONS}
+      data-unsupported-endpoints={BENCHMARK_VIDEO_UNSUPPORTED_ENDPOINTS}
+      data-no-local-video-fallback="true"
+      data-no-static-video-fallback="true"
+      data-no-static-analysis-fallback="true"
+      data-server-pagination="true"
+      data-row-count={rows.length}
+      data-total-count={data?.total ?? 0}
+      data-list-error={isError ? 'true' : 'false'}
+      sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2, height: 'calc(100vh - 48px - 32px)' }}
+    >
       <PageHeader
         title="对标视频管理"
-        subtitle="采集和分析竞品账号的高质量视频"
+        subtitle="从对标账号采集视频，并提交 ASR/OCR/API/LLM 深度拆解；采集依赖 Cookie 和 Playwright。"
+        actions={
+          <Button size="small" variant="outlined" startIcon={<Refresh />} onClick={() => void refetch()} disabled={isFetching} data-testid="benchmark-video-refresh-button" data-source-endpoint="/benchmark/video/list">
+            刷新
+          </Button>
+        }
       />
 
-      <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+      {isError && (
+        <Box data-testid="benchmark-video-list-error" data-no-local-video-fallback="true" data-input-retained="true">
+          <ErrorAlert title="对标视频加载失败" message={listErrorMessage} onRetry={() => void refetch()} />
+        </Box>
+      )}
+      {actionError && (
+        <Box data-testid="benchmark-video-action-error" data-input-retained="true" data-row-retained="true" data-no-local-video-mutation="true">
+          <ErrorAlert title="对标视频操作失败" message={actionError} onRetry={() => setActionError(null)} />
+        </Box>
+      )}
+
+      {!accountId && (
+        <Alert severity="warning" variant="outlined">
+          当前未从对标账号进入，后端会按登录用户隔离返回全部可见视频；采集按钮需要先进入某个对标账号的视频页。
+        </Alert>
+      )}
+
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">视频总数</Typography>
+            <Typography variant="h5">{data?.total ?? rows.length}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">已完成分析</Typography>
+            <Typography variant="h5" color="success.main">{completedCount}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">待分析</Typography>
+            <Typography variant="h5">{pendingCount}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">分析失败</Typography>
+            <Typography variant="h5" color={failedCount > 0 ? 'error.main' : 'text.primary'}>{failedCount}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">符合阈值</Typography>
+            <Typography variant="h5">{qualifiedCount}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">已落地/BOS</Typography>
+            <Typography variant="h5">{downloadableCount}</Typography>
+          </CardContent>
+        </Card>
+      </Stack>
+
+      <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
         <TextField
           size="small"
           placeholder="搜索视频标题"
@@ -250,6 +366,7 @@ export default function BenchmarkVideoListPage() {
             variant="contained"
             startIcon={<Download />}
             onClick={() => setCollectDialogOpen(true)}
+            data-testid="benchmark-video-open-collect-button"
           >
             采集视频
           </Button>
@@ -257,15 +374,24 @@ export default function BenchmarkVideoListPage() {
       </Stack>
 
       <StandardDataGrid
-        rows={data?.list ?? []}
+        data-testid="benchmark-video-grid-contract"
+        data-contract-scope="benchmark-video-grid-server-pagination"
+        data-ready-endpoints="/benchmark/video/list"
+        data-no-local-video-fallback="true"
+        data-server-pagination="true"
+        data-row-count={rows.length}
+        rows={rows}
         columns={columns}
-        loading={isLoading}
+        loading={isFetching}
         rowCount={data?.total ?? 0}
+        paginationMode="server"
         paginationModel={{ page, pageSize }}
         onPaginationModelChange={(model: { page: number; pageSize: number }) => {
           setPage(model.page);
           setPageSize(model.pageSize);
         }}
+        slots={{ noRowsOverlay: DataGridEmptyOverlay }}
+        sx={{ flex: 1 }}
       />
 
       {/* 采集视频对话框 */}
@@ -273,6 +399,8 @@ export default function BenchmarkVideoListPage() {
         open={collectDialogOpen}
         title="采集账号视频"
         onClose={() => setCollectDialogOpen(false)}
+        confirmText="开始采集"
+        loading={collectMutation.isPending}
         onConfirm={() => {
           const form = document.getElementById('collect-form') as HTMLFormElement;
           if (form) {
@@ -281,6 +409,7 @@ export default function BenchmarkVideoListPage() {
               benchmarkAccountId: accountId ? Number(accountId) : 0,
               minLikeCount: formData.get('minLikeCount') ? Number(formData.get('minLikeCount')) : undefined,
               maxVideos: formData.get('maxVideos') ? Number(formData.get('maxVideos')) : undefined,
+              cookieId: formData.get('cookieId') ? Number(formData.get('cookieId')) : undefined,
             };
             handleCollect(data);
           }
@@ -290,6 +419,7 @@ export default function BenchmarkVideoListPage() {
           <Stack spacing={2}>
             <TextField name="minLikeCount" label="最低点赞数" type="number" required defaultValue={1000} fullWidth />
             <TextField name="maxVideos" label="最多采集数量" type="number" required defaultValue={50} fullWidth />
+            <TextField name="cookieId" label="指定 Cookie ID（可选）" type="number" fullWidth />
           </Stack>
         </form>
       </FormDialog>
@@ -299,6 +429,8 @@ export default function BenchmarkVideoListPage() {
         open={analyzeDialogOpen}
         title="分析视频"
         onClose={() => setAnalyzeDialogOpen(false)}
+        confirmText="提交分析"
+        loading={analyzeMutation.isPending}
         onConfirm={() => {
           const form = document.getElementById('analyze-form') as HTMLFormElement;
           if (form) {
@@ -310,6 +442,7 @@ export default function BenchmarkVideoListPage() {
               enableOcr: formData.get('enableOcr') === 'true',
               enableApi: formData.get('enableApi') === 'true',
               aiModel: formData.get('aiModel') as string || 'gpt-4',
+              cookieId: formData.get('cookieId') ? Number(formData.get('cookieId')) : undefined,
             };
             handleAnalyzeSubmit(data);
           }
@@ -349,6 +482,7 @@ export default function BenchmarkVideoListPage() {
               <MenuItem value="claude-3-opus">Claude 3 Opus</MenuItem>
               <MenuItem value="claude-3-sonnet">Claude 3 Sonnet</MenuItem>
             </TextField>
+            <TextField name="cookieId" label="指定 Cookie ID（可选）" type="number" fullWidth />
 
             <label>
               <input type="checkbox" name="forceReanalyze" value="true" />
@@ -365,7 +499,12 @@ export default function BenchmarkVideoListPage() {
         content={`确定要删除视频"${currentVideo?.title}"吗？`}
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={() => currentVideo && deleteMutation.mutate(currentVideo.id)}
+        loading={deleteMutation.isPending}
       />
     </Box>
   );
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : '未知错误';
 }

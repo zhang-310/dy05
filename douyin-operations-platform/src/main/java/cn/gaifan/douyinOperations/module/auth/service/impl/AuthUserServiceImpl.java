@@ -237,17 +237,30 @@ public class AuthUserServiceImpl implements AuthUserService {
     }
 
     @Override
-    public List<LoginLogVO> getLoginLogs(Long userId, int page, int size) {
+    public PageResultVO<LoginLogVO> getLoginLogs(LoginLogQueryVO vo) {
+        final LoginLogQueryVO q = vo != null ? vo : new LoginLogQueryVO();
+        int page = q.getPage();
+        int size = q.getSize();
         if (page < 0) page = 0;
         if (size <= 0) size = 20;
         if (size > LOGIN_LOGS_PAGE_SIZE_MAX) size = LOGIN_LOGS_PAGE_SIZE_MAX;
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "loginTime"));
-        if (userId != null && userId > 0) {
-            return authLoginLogRepository.findByUserIdOrderByLoginTimeDesc(userId, pageable)
-                    .getContent().stream().map(this::toLogVO).collect(Collectors.toList());
-        }
-        return authLoginLogRepository.findAllByOrderByLoginTimeDesc(pageable)
-                .getContent().stream().map(this::toLogVO).collect(Collectors.toList());
+        Specification<AuthLoginLog> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (q.getUserId() != null && q.getUserId() > 0) {
+                predicates.add(cb.equal(root.get("userId"), q.getUserId()));
+            }
+            if (q.getUsername() != null && !q.getUsername().trim().isEmpty()) {
+                predicates.add(cb.like(root.get("username"), "%" + q.getUsername().trim() + "%"));
+            }
+            if (q.getStatus() != null) {
+                predicates.add(cb.equal(root.get("status"), q.getStatus()));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        Page<AuthLoginLog> pageResult = authLoginLogRepository.findAll(spec, pageable);
+        List<LoginLogVO> list = pageResult.getContent().stream().map(this::toLogVO).collect(Collectors.toList());
+        return PageResultVO.of(pageResult.getTotalElements(), list, page, size);
     }
 
     private AuthUserVO toUserVO(AuthUser u) {

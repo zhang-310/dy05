@@ -23,7 +23,10 @@ import {
   Button,
   TextField,
   Paper,
+  alpha,
+  useTheme,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import ShareIcon from '@mui/icons-material/Share';
@@ -60,6 +63,18 @@ const scriptTypeLabels: Record<string, string> = {
   event: '活动话术',
 };
 
+type SearchTone = 'success' | 'warning' | 'error';
+
+function semanticColor(theme: Theme, tone: SearchTone) {
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main;
+}
+
+function getRelevanceTone(score: number): SearchTone {
+  if (score > 80) return 'success';
+  if (score > 60) return 'warning';
+  return 'error';
+}
+
 /**
  * 单个搜索结果卡片
  */
@@ -72,10 +87,14 @@ function SearchResultCard({
   onFeedback?: (resultId: number, isHelpful: boolean, rating?: number, comment?: string) => Promise<void>;
   onResultClick?: (result: HybridSearchResultVO) => void;
 }) {
+  const theme = useTheme();
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [rating, setRating] = useState<number | null>(null);
   const [comment, setComment] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const relevanceTone = getRelevanceTone(result.relevanceScore);
+  const relevanceColor = semanticColor(theme, relevanceTone);
+  const relevanceTrackColor = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.18 : 0.12);
 
   const handleHelpful = async () => {
     setFeedbackDialogOpen(true);
@@ -113,7 +132,7 @@ function SearchResultCard({
           cursor: 'pointer',
           transition: 'all 0.2s ease',
           '&:hover': {
-            boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+            boxShadow: `0 4px 16px ${alpha(theme.palette.common.black, theme.palette.mode === 'dark' ? 0.36 : 0.12)}`,
             transform: 'translateY(-2px)',
           },
         }}
@@ -149,7 +168,7 @@ function SearchResultCard({
                   sx={{
                     mb: 1,
                     fontWeight: 'bold',
-                    color: '#333',
+                    color: 'text.primary',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     display: '-webkit-box',
@@ -166,7 +185,7 @@ function SearchResultCard({
                 <Typography
                   variant="body2"
                   sx={{
-                    color: '#666',
+                    color: 'text.secondary',
                     mb: 1,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -182,14 +201,14 @@ function SearchResultCard({
               {/* 元数据 */}
               <Stack direction="row" spacing={2} sx={{ mt: 1.5 }}>
                 {result.author && (
-                  <Typography variant="caption" sx={{ color: '#999' }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                     作者: {result.author}
                   </Typography>
                 )}
                 {result.createdAt && (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <AccessTimeIcon sx={{ fontSize: 14, color: '#999' }} />
-                    <Typography variant="caption" sx={{ color: '#999' }}>
+                    <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                       {new Date(result.createdAt).toLocaleDateString('zh-CN')}
                     </Typography>
                   </Box>
@@ -202,24 +221,29 @@ function SearchResultCard({
               <Stack spacing={2} sx={{ height: '100%', justifyContent: 'space-between' }}>
                 {/* 相关性评分 */}
                 <Box>
-                  <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 0.5 }}>
                     相关性
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Box
+                      data-testid="search-result-relevance-track-surface"
+                      data-track-color={relevanceTrackColor}
                       sx={{
                         width: '100%',
                         height: '8px',
-                        backgroundColor: '#e0e0e0',
+                        backgroundColor: relevanceTrackColor,
                         borderRadius: 4,
                         overflow: 'hidden',
                       }}
                     >
                       <Box
+                        data-testid="search-result-relevance-fill-surface"
+                        data-relevance-tone={relevanceTone}
+                        data-relevance-color={relevanceColor}
                         sx={{
                           width: `${result.relevanceScore}%`,
                           height: '100%',
-                          backgroundColor: result.relevanceScore > 80 ? '#4caf50' : result.relevanceScore > 60 ? '#ff9800' : '#f44336',
+                          backgroundColor: relevanceColor,
                           transition: 'width 0.3s ease',
                         }}
                       />
@@ -240,7 +264,7 @@ function SearchResultCard({
                 {/* 效果评分 */}
                 {result.effectivenessScore !== undefined && (
                   <Box>
-                    <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+                    <Typography variant="subtitle2" sx={{ color: 'text.secondary', mb: 0.5 }}>
                       效果评分
                     </Typography>
                     <Rating
@@ -254,8 +278,8 @@ function SearchResultCard({
                 {/* 使用次数 */}
                 {result.usageCount !== undefined && (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <VisibilityIcon sx={{ fontSize: 18, color: '#999' }} />
-                    <Typography variant="body2" sx={{ color: '#666' }}>
+                    <VisibilityIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                       被使用 {result.usageCount} 次
                     </Typography>
                   </Box>
@@ -271,7 +295,7 @@ function SearchResultCard({
             sx={{
               mt: 2,
               pt: 2,
-              borderTop: '1px solid #eee',
+              borderTop: `1px solid ${theme.palette.divider}`,
             }}
           >
             <IconButton
@@ -357,9 +381,15 @@ export const SearchResultsList: React.FC<SearchResultsListProps> = ({
   onFeedback,
   onResultClick,
 }) => {
+  const theme = useTheme();
+  const quietSurface = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.07 : 0.035);
+
   if (results.length === 0 && !isLoading) {
     return (
-      <Paper sx={{ p: 3, textAlign: 'center', backgroundColor: '#f9f9f9' }}>
+      <Paper
+        data-testid="search-results-empty-surface"
+        sx={{ p: 3, textAlign: 'center', backgroundColor: quietSurface, border: `1px solid ${theme.palette.divider}` }}
+      >
         <Typography color="textSecondary">暂无搜索结果</Typography>
       </Paper>
     );
@@ -369,18 +399,21 @@ export const SearchResultsList: React.FC<SearchResultsListProps> = ({
     <Box>
       {/* 搜索统计 */}
       {(total !== undefined || executionTimeMs !== undefined) && (
-        <Paper sx={{ p: 2, mb: 2, backgroundColor: '#f5f5f5' }}>
+        <Paper
+          data-testid="search-results-summary-surface"
+          sx={{ p: 2, mb: 2, backgroundColor: quietSurface, border: `1px solid ${theme.palette.divider}` }}
+        >
           <Stack direction="row" spacing={3}>
             {total !== undefined && (
               <Box>
-                <Typography variant="subtitle2" sx={{ color: '#999' }}>
+                <Typography variant="subtitle2" sx={{ color: 'text.secondary' }}>
                   找到 {total} 个结果
                 </Typography>
               </Box>
             )}
             {executionTimeMs !== undefined && (
               <Box>
-                <Typography variant="subtitle2" sx={{ color: '#999' }}>
+                <Typography variant="subtitle2" sx={{ color: 'text.secondary' }}>
                   耗时 {executionTimeMs}ms
                 </Typography>
               </Box>

@@ -5,25 +5,50 @@
  * @since 2026-03-06
  */
 
+export interface ScriptWeakPointVO {
+  type?: string;
+  timeRange?: string;
+  severity?: string;
+  description?: string;
+}
+
 /**
- * 话术分析结果
+ * 话术分析结果。当前真实后端为 /product/script/analyze 返回的 ScriptAnalysisResultVO。
  */
 export interface ScriptAnalysisResultVO {
-  versionId: number;
-  scriptId: number;
-  productId: number;
-  analysisTime: string;
-  overallScore: number; // 0-100
-  contentQuality: number; // 内容质量评分
-  persuasivenessScore: number; // 说服力评分
-  claritScore: number; // 清晰度评分
-  emotionalResonance: number; // 情感共鸣评分
-  callToActionStrength: number; // 行动号召力
-  weaknessCount: number; // 弱点数量
-  suggestionsCount: number; // 建议数量
-  estimatedEffectivenessImprovement: number; // 预期效果提升百分比
-  keyWeaknesses: string[]; // 主要弱点描述
-  detailedMetrics: Record<string, number>; // 详细指标
+  id?: number;
+  scriptVersionId?: number;
+  overallScore?: number;
+  effectivenessMetrics?: {
+    interactionRate?: number;
+    conversionRate?: number;
+    fanGrowth?: number;
+    commentSentiment?: number;
+  };
+  weakPoints?: ScriptWeakPointVO[];
+  styleProfile?: {
+    dominantStyle?: string;
+    styleScores?: Record<string, number>;
+  };
+  analysisType?: string;
+  dataSource?: string;
+  createdAt?: string;
+
+  /** @deprecated 旧前端字段，保留给遗留组件兼容 */
+  versionId?: number;
+  scriptId?: number;
+  productId?: number;
+  analysisTime?: string;
+  contentQuality?: number;
+  persuasivenessScore?: number;
+  claritScore?: number;
+  emotionalResonance?: number;
+  callToActionStrength?: number;
+  weaknessCount?: number;
+  suggestionsCount?: number;
+  estimatedEffectivenessImprovement?: number;
+  keyWeaknesses?: string[];
+  detailedMetrics?: Record<string, number>;
 }
 
 /**
@@ -31,21 +56,34 @@ export interface ScriptAnalysisResultVO {
  */
 export interface OptimizationSuggestionVO {
   id: number;
-  analysisId: number;
-  versionId: number;
-  category: 'phrasing' | 'structure' | 'emotion' | 'cta' | 'timing' | 'audience'; // 建议分类
-  priority: 'high' | 'medium' | 'low'; // 优先级
-  title: string; // 建议标题
-  description: string; // 详细说明
-  affectedSegment: string; // 影响的文本片段
-  suggestedImprovement: string; // 建议改进文本
-  expectedImprovement: number; // 预期改进百分比
-  confidence: number; // 置信度 0-100
-  acceptanceCount: number; // 被接受的次数
-  rejectionCount: number; // 被拒绝的次数
-  status: 'pending' | 'accepted' | 'rejected' | 'applied'; // 建议状态
-  createdAt: string;
-  updatedAt: string;
+  scriptVersionId?: number;
+  analysisResultId?: number;
+  category: string;
+  priority: string;
+  suggestionContent?: string;
+  relatedWeakPoint?: string;
+  expectedImprovement?: number | {
+    interactionRateIncrease?: number;
+    conversionRateIncrease?: number;
+    confidence?: number;
+  };
+  adoptionStatus?: string;
+  adoptedAt?: string;
+  adoptionNotes?: string;
+  createdAt?: string;
+
+  /** @deprecated 旧前端字段，保留给遗留组件兼容 */
+  analysisId?: number;
+  versionId?: number;
+  title?: string;
+  description?: string;
+  affectedSegment?: string;
+  suggestedImprovement?: string;
+  confidence?: number;
+  acceptanceCount?: number;
+  rejectionCount?: number;
+  status?: 'pending' | 'accepted' | 'rejected' | 'applied';
+  updatedAt?: string;
 }
 
 /**
@@ -53,15 +91,30 @@ export interface OptimizationSuggestionVO {
  */
 export interface RegeneratedScriptVO {
   id: number;
-  originalVersionId: number;
-  suggestionsApplied: number[]; // 应用的建议 ID 列表
-  regeneratedContent: string; // 重生成的内容
-  appliedSuggestionCount: number; // 应用的建议数
-  estimatedImprovementScore: number; // 预期改进分数
-  contentDifference: ContentDifferenceVO; // 内容差异对比
-  createdAt: string;
-  approvalStatus: 'pending' | 'approved' | 'rejected'; // 审批状态
-  appliedAt?: string; // 应用时间
+  scriptVersionId?: number;
+  suggestionId?: number;
+  generationStyle?: string;
+  regeneratedContent: string;
+  aiQualityScore?: number;
+  estimatedMetrics?: {
+    interactionRate?: number;
+    conversionRate?: number;
+    estimatedFanGrowth?: number;
+  };
+  isApplied?: boolean;
+  appliedAt?: string;
+  approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'pending' | 'approved' | 'rejected';
+  approvedBy?: number;
+  approvedAt?: string;
+  approvalNotes?: string;
+  createdAt?: string;
+
+  /** @deprecated 旧前端字段，保留给遗留组件兼容 */
+  originalVersionId?: number;
+  suggestionsApplied?: number[];
+  appliedSuggestionCount?: number;
+  estimatedImprovementScore?: number;
+  contentDifference?: ContentDifferenceVO;
 }
 
 /**

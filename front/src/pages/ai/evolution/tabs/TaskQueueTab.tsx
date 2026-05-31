@@ -5,7 +5,7 @@ import {
   Alert, Box, Button, Chip, Stack, Typography, Link, Paper,
   FormControl, InputLabel, Select, MenuItem, LinearProgress, IconButton,
 } from '@mui/material'
-import { alpha } from '@mui/material/styles'
+import { alpha, useTheme } from '@mui/material/styles'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import AssessmentIcon from '@mui/icons-material/Assessment'
 import DescriptionIcon from '@mui/icons-material/Description'
@@ -19,6 +19,7 @@ import { formatDate } from '@/utils/date'
 import { AGENT_TYPES, parseScopeKbId, TASK_STATUS_MAP } from '@/pages/ai/evolution/engineConstants'
 import { EVOLVE_TASK_STATUS_FILTER_OPTIONS, statusToUi } from '@/pages/ai/evolution/taskQueueListFilters'
 import type { AiEvolveTaskVO } from '@/types/ai'
+import { getErrorMessage } from '@/utils/errorHandler'
 
 function formatScoreDetailText(raw: string): string {
   const t = raw.trim()
@@ -35,6 +36,7 @@ export interface TaskQueueTabProps {
 }
 
 export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
+  const theme = useTheme()
   const toast = useToast()
   const qc = useQueryClient()
   const scopeKbNumeric = parseScopeKbId(scopeKbId)
@@ -43,6 +45,7 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
   const [statusCategory, setStatusCategory] = useState('')
   const [detailItem, setDetailItem] = useState<AiEvolveTaskVO | null>(null)
   const [taskReport, setTaskReport] = useState<unknown | null>(null)
+  const [pageError, setPageError] = useState<string | null>(null)
 
   const closeDetail = () => {
     setDetailItem(null)
@@ -86,6 +89,7 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
       targetKbId: scopeKbNumeric,
     }),
     onSuccess: (res) => {
+      setPageError(null)
       const sid = res?.taskId ? `（进度会话 ${res.taskId}）` : ''
       toast(`已提交后台执行${sid}，列表将自动刷新`, 'success')
       // runEvolution 为异步：立即 refetch 时库内可能尚未插入任务
@@ -96,25 +100,43 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
         qc.invalidateQueries({ queryKey: ['evolve-task-list'] })
       }, 3500)
     },
-    onError: () => toast('触发失败', 'error'),
+    onError: (e) => {
+      const message = getErrorMessage(e)
+      setPageError(`触发失败（POST /ai/evolution/task/trigger）：${message}。当前 Agent 类型和知识库范围会保留。`)
+      toast(`触发失败：${message}`, 'error')
+    },
   })
   const cancelMut = useMutation({
     mutationFn: (id: number) => aiApi.evolveTaskCancel(id),
-    onSuccess: () => { toast('已取消', 'success'); qc.invalidateQueries({ queryKey: ['evolve-task-list'] }) },
-    onError: () => toast('取消失败', 'error'),
+    onSuccess: () => {
+      setPageError(null)
+      toast('已取消', 'success')
+      qc.invalidateQueries({ queryKey: ['evolve-task-list'] })
+    },
+    onError: (e) => {
+      const message = getErrorMessage(e)
+      setPageError(`取消失败（POST /ai/evolution/task/cancel）：${message}。任务行会保留，避免误判已取消。`)
+      toast(`取消失败：${message}`, 'error')
+    },
   })
 
   const reportMut = useMutation({
     mutationFn: (id: number) => aiApi.evolveTaskReport(id),
     onSuccess: (data) => {
       setTaskReport((data as Record<string, unknown>) ?? null)
+      setPageError(null)
       toast('已加载后台报告', 'success')
     },
-    onError: () => toast('报告加载失败（可能无权限或尚无报告）', 'error'),
+    onError: (e) => {
+      const message = getErrorMessage(e)
+      setPageError(`报告加载失败（POST /ai/admin/evolve/report/by-task）：${message}。详情抽屉保留当前任务上下文。`)
+      toast(`报告加载失败：${message}`, 'error')
+    },
   })
 
   const rows = data?.list ?? []
   const total = data?.total ?? 0
+  const triggerHoverBg = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.16 : 0.04)
 
   const columns: GridColDef[] = [
     { field: 'id', headerName: 'ID', width: 70 },
@@ -163,12 +185,21 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
 
   return (
     <>
-    <Box sx={{ bgcolor: 'var(--color-surface-dark)', p: 'var(--spacing-lg)', borderRadius: 'var(--border-radius-xl)' }}>
+    <Box
+      data-testid="evolution-task-queue-tab-contract"
+      data-contract-scope="ai-evolution-task-queue"
+      data-ready-endpoints="/ai/evolution/task/list|/ai/evolution/task/trigger|/ai/evolution/task/cancel|/ai/admin/evolve/report/by-task"
+      data-unsupported-actions="local-task-insertion|static-task-report|local-cancel-mutation"
+      data-no-local-task-fallback="true"
+      data-no-static-report-fallback="true"
+      sx={{ bgcolor: 'var(--color-surface-dark)', p: 'var(--spacing-lg)', borderRadius: 'var(--border-radius-xl)' }}
+    >
       {isError ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          加载任务列表失败：{error instanceof Error ? error.message : '请检查登录与后端服务'}
+          加载任务列表失败（POST /ai/evolution/task/list）：{getErrorMessage(error)}
         </Alert>
       ) : null}
+      {pageError ? <Alert severity="error" sx={{ mb: 2 }}>{pageError}</Alert> : null}
       {!isFetching && !isError && total === 0 ? (
         <Alert severity="info" sx={{ mb: 2 }}>
           {scopeKbNumeric != null ? (
@@ -199,9 +230,22 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
         </FormControl>
         <Box sx={{ flex: 1 }} />
         {AGENT_TYPES.map(a => (
-          <Button key={a.code} size="small" variant="outlined" startIcon={<PlayArrowIcon />}
+          <Button
+            key={a.code}
+            data-testid="evolution-task-trigger-action-surface"
+            data-hover-bg={triggerHoverBg}
+            size="small"
+            variant="outlined"
+            startIcon={<PlayArrowIcon />}
             onClick={() => triggerMut.mutate(a.code)} disabled={triggerMut.isPending}
-            sx={{ borderColor: 'var(--color-surface-light)', color: 'var(--color-text-primary)', '&:hover': { borderColor: 'var(--color-primary)', bgcolor: 'rgba(0, 208, 132, 0.04)' } }}>
+            sx={{
+              borderColor: 'var(--color-surface-light)',
+              color: 'var(--color-text-primary)',
+              '&:hover': {
+                borderColor: theme.palette.primary.main,
+                bgcolor: triggerHoverBg,
+              },
+            }}>
             触发 {a.label}
           </Button>
         ))}
@@ -317,7 +361,7 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
               <Box>
                 <Typography variant="caption" color="text.secondary" display="block" gutterBottom>知识库 / 得分</Typography>
                 <Typography variant="body2">
-                  kbId：{detailItem.kbId ?? '—'}　得分：{detailItem.scoreTotal ?? '—'}
+                  kbId：{detailItem.kbId ?? '—'} 得分：{detailItem.scoreTotal ?? '—'}
                 </Typography>
               </Box>
               {detailItem.topicTexts ? (
@@ -344,11 +388,14 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
                   <Typography variant="caption" color="text.secondary" display="block" gutterBottom>评分明细</Typography>
                   <Box
                     component="pre"
+                    data-testid="evolution-task-score-detail-surface"
                     sx={(theme) => ({
                       m: 0,
                       p: 1.5,
                       borderRadius: 1,
-                      bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
+                      bgcolor: theme.palette.mode === 'dark'
+                        ? theme.palette.background.default
+                        : alpha(theme.palette.common.black, 0.025),
                       border: '1px solid',
                       borderColor: 'divider',
                       fontFamily: 'ui-monospace, monospace',
@@ -379,11 +426,14 @@ export function TaskQueueTab({ scopeKbId }: TaskQueueTabProps) {
                   <Typography variant="caption" color="text.secondary" display="block" gutterBottom>后台报告（摘要）</Typography>
                   <Box
                     component="pre"
+                    data-testid="evolution-task-report-surface"
                     sx={(theme) => ({
                       m: 0,
                       p: 1.5,
                       borderRadius: 1,
-                      bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
+                      bgcolor: theme.palette.mode === 'dark'
+                        ? theme.palette.background.default
+                        : alpha(theme.palette.common.black, 0.025),
                       border: '1px solid',
                       borderColor: 'divider',
                       fontFamily: 'ui-monospace, monospace',

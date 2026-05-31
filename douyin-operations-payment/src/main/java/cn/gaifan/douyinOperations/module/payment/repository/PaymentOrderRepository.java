@@ -30,6 +30,8 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrder, Long
      */
     Page<PaymentOrder> findByUserId(Long userId, Pageable pageable);
 
+    Page<PaymentOrder> findByUserIdAndDeleted(Long userId, Integer deleted, Pageable pageable);
+
     /**
      * 按用户和状态查询
      */
@@ -61,6 +63,11 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrder, Long
      * 按状态计数
      */
     Long countByStatus(OrderStatus status);
+
+    Long countByStatusIn(List<OrderStatus> statuses);
+
+    @Query("SELECT COALESCE(SUM(o.actualAmount), 0) FROM PaymentOrder o WHERE o.status IN :statuses")
+    java.math.BigDecimal sumActualAmountByStatuses(@Param("statuses") List<OrderStatus> statuses);
 
     /**
      * P1-13: GMV 对账：按直播场次 ID 和状态列表汇总实付金额

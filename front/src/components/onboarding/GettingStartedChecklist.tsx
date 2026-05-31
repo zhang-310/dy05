@@ -6,7 +6,46 @@ import { useRolePrefix } from '@/hooks/useRolePrefix'
 
 const STORAGE_KEY = 'dy-getting-started-v1'
 
-type Item = { id: string; label: string; path: string }
+type RolePrefix = '/admin' | '/org' | '/talent'
+type Item = { id: string; label: string; path: string; note?: string; actionLabel?: string }
+
+function rolePath(prefix: RolePrefix, adminPath: string, orgPath = '/org/dashboard', talentPath = '/talent/dashboard') {
+  if (prefix === '/admin') return adminPath
+  if (prefix === '/org') return orgPath
+  return talentPath
+}
+
+function livePath(prefix: RolePrefix) {
+  if (prefix === '/talent') return '/talent/live/sessions'
+  return '/org/live/sessions'
+}
+
+function checklistItems(prefix: RolePrefix, t: (key: string) => string): Item[] {
+  return [
+    { id: 'live', label: t('onboarding.live'), path: livePath(prefix) },
+    {
+      id: 'product',
+      label: t('onboarding.readiness'),
+      path: rolePath(prefix, '/org/product/readiness'),
+      note: prefix === '/admin' ? undefined : t('onboarding.adminOnlyReadinessNote'),
+      actionLabel: prefix === '/admin' ? undefined : t('onboarding.backToWorkbench'),
+    },
+    {
+      id: 'sv',
+      label: t('onboarding.sv'),
+      path: rolePath(prefix, '/talent/shortvideo/dashboard', '/org/dashboard', '/talent/shortvideo'),
+      note: prefix === '/org' ? t('onboarding.orgShortvideoFallbackNote') : undefined,
+      actionLabel: prefix === '/org' ? t('onboarding.backToWorkbench') : undefined,
+    },
+    {
+      id: 'kpi',
+      label: t('onboarding.kpi'),
+      path: rolePath(prefix, '/admin/kpi', '/org/analytics'),
+      note: prefix === '/talent' ? t('onboarding.talentKpiFallbackNote') : undefined,
+      actionLabel: prefix === '/talent' ? t('onboarding.backToWorkbench') : undefined,
+    },
+  ]
+}
 
 function loadDone(): Record<string, boolean> {
   try {
@@ -27,7 +66,7 @@ function saveDone(m: Record<string, boolean>) {
  */
 export function GettingStartedChecklist() {
   const { t } = useTranslation()
-  const prefix = useRolePrefix()
+  const prefix = useRolePrefix() as RolePrefix
   const navigate = useNavigate()
   const [open, setOpen] = useState(() => {
     try {
@@ -38,15 +77,7 @@ export function GettingStartedChecklist() {
   })
   const [done, setDone] = useState<Record<string, boolean>>(loadDone)
 
-  const items: Item[] = useMemo(
-    () => [
-      { id: 'live', label: t('onboarding.live'), path: `${prefix}/live/sessions` },
-      { id: 'product', label: t('onboarding.readiness'), path: `${prefix}/product/readiness` },
-      { id: 'sv', label: t('onboarding.sv'), path: `${prefix}/shortvideo/dashboard` },
-      { id: 'kpi', label: t('onboarding.kpi'), path: `${prefix}/analytics/kpi` },
-    ],
-    [prefix, t],
-  )
+  const items: Item[] = useMemo(() => checklistItems(prefix, t), [prefix, t])
 
   const total = items.length
   const n = items.filter((i) => done[i.id]).length
@@ -92,18 +123,38 @@ export function GettingStartedChecklist() {
           {items.map((i) => (
             <Box key={i.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, py: 0.25 }}>
               <FormControlLabel
+                sx={{ mr: 0, alignItems: 'flex-start' }}
                 control={<Checkbox size="small" checked={!!done[i.id]} onChange={() => toggle(i.id)} />}
-                label={<Typography variant="body2">{i.label}</Typography>}
+                label={(
+                  <Box>
+                    <Typography variant="body2">{i.label}</Typography>
+                    {i.note && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4 }}>
+                        {i.note}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
               />
-              <Button size="small" onClick={() => navigate(i.path)}>
-                {t('onboarding.go')}
+              <Button
+                size="small"
+                aria-label={`${i.actionLabel ?? t('onboarding.go')}：${i.label}`}
+                onClick={() => navigate(i.path)}
+              >
+                {i.actionLabel ?? t('onboarding.go')}
               </Button>
             </Box>
           ))}
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
-            <Button size="small" variant="outlined" onClick={() => navigate(`${prefix}/onboarding`)}>
-              步骤向导
-            </Button>
+            {prefix === '/admin' ? (
+              <Button size="small" variant="outlined" onClick={() => navigate('/admin/onboarding')}>
+                {t('onboarding.guide')}
+              </Button>
+            ) : (
+              <Typography variant="caption" color="text.secondary">
+                {t('onboarding.adminOnlyGuideNote')}
+              </Typography>
+            )}
           </Box>
         </Box>
       </CardContent>

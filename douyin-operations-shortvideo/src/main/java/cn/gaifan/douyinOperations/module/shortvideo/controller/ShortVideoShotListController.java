@@ -84,6 +84,19 @@ public class ShortVideoShotListController {
         return r;
     }
 
+    @PostMapping("/delete-shot")
+    @Operation(summary = "删除单条分镜")
+    public RESTResult<Void> deleteShot(@RequestBody(required = false) Map<String, Object> body, HttpServletRequest request) {
+        Long userId = AuthTokenFilter.getUserId(request);
+        if (userId == null) return RESTResult.error(ErrorCode.UNAUTHORIZED, "未登录");
+        Long shotId = body != null && body.get("shotId") instanceof Number n ? n.longValue() : null;
+        if (shotId == null) return RESTResult.error(ErrorCode.VALIDATION_FAIL, "shotId 不能为空");
+        shotListService.deleteShot(shotId, userId);
+        RESTResult<Void> r = RESTResult.success();
+        r.setTraceId(MDC.get("traceId"));
+        return r;
+    }
+
     @PostMapping("/generate")
     @Operation(summary = "AI 生成分镜")
     public RESTResult<Map<String, Object>> generate(@RequestBody(required = false) Map<String, Object> body, HttpServletRequest request) {

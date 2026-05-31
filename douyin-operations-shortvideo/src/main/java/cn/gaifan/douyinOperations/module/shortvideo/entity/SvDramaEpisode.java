@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.sql.Timestamp;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
  * 短剧剧集表 (Phase 3)
  * 每集关联一个 SvProject
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_drama_episode")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvDramaEpisode {
 
     @Id

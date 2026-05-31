@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.product.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 产品话术版本历史表
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "script_version_history")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class ScriptVersionHistory {
 
     @Id

@@ -5,6 +5,14 @@ export interface SlotTimelineEntry {
   slotLabel: string
   scriptType: string
   sequenceNo?: number
+  index?: number
+  content?: string
+  percent?: number
+  current?: number
+  total?: number
+  stage?: string
+  event?: 'progress' | 'slot_done' | 'slot_failed' | 'status'
+  timestamp?: number
   failed?: boolean
   errorMsg?: string
 }

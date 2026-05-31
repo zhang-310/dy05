@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
  * 分镜详情表，与 sql/shortvideo/migration-bos-production.sql 中 sv_shot 对应
  * 所有媒体 URL 均为 BOS CDN URL
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_shot")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvShot {
 
     @Id

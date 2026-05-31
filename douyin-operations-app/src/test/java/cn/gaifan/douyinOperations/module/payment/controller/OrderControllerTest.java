@@ -88,10 +88,11 @@ class OrderControllerTest {
         orderVO.setOrderNo("ORD20260408001");
         orderVO.setAmount(BigDecimal.valueOf(199.00));
 
-        when(orderService.getOrder(eq(1L)))
+        when(orderService.getOrder(eq(1L), eq(1L)))
                 .thenReturn(orderVO);
 
         mockMvc.perform(post("/api/v1/payment/order/get")
+                        .requestAttr("userId", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -110,10 +111,11 @@ class OrderControllerTest {
         orderVO.setId(1L);
         orderVO.setOrderNo("ORD20260408001");
 
-        when(orderService.getByOrderNo(eq("ORD20260408001")))
+        when(orderService.getByOrderNo(eq("ORD20260408001"), eq(1L)))
                 .thenReturn(orderVO);
 
         mockMvc.perform(post("/api/v1/payment/order/getByOrderNo")
+                        .requestAttr("userId", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -171,9 +173,10 @@ class OrderControllerTest {
         request.put("transactionId", "TXN20260408001");
         request.put("paymentMethod", "wechat");
 
-        doNothing().when(orderService).confirmPayment(eq(1L), eq("TXN20260408001"), eq("wechat"));
+        doNothing().when(orderService).confirmPayment(eq(1L), eq("TXN20260408001"), eq("wechat"), eq(1L));
 
         mockMvc.perform(post("/api/v1/payment/order/confirmPayment")
+                        .requestAttr("userId", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -187,9 +190,10 @@ class OrderControllerTest {
         request.put("orderId", "1");
         request.put("trackingNumber", "SF1234567890");
 
-        doNothing().when(orderService).shipOrder(eq(1L), eq("SF1234567890"));
+        doNothing().when(orderService).shipOrder(eq(1L), eq("SF1234567890"), eq(1L));
 
         mockMvc.perform(post("/api/v1/payment/order/ship")
+                        .requestAttr("userId", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -202,9 +206,10 @@ class OrderControllerTest {
         Map<String, Long> request = new HashMap<>();
         request.put("orderId", 1L);
 
-        doNothing().when(orderService).completeOrder(eq(1L));
+        doNothing().when(orderService).completeOrder(eq(1L), eq(1L));
 
         mockMvc.perform(post("/api/v1/payment/order/complete")
+                        .requestAttr("userId", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -217,9 +222,10 @@ class OrderControllerTest {
         Map<String, Long> request = new HashMap<>();
         request.put("orderId", 1L);
 
-        doNothing().when(orderService).cancelOrder(eq(1L));
+        doNothing().when(orderService).cancelOrder(eq(1L), eq(1L));
 
         mockMvc.perform(post("/api/v1/payment/order/cancel")
+                        .requestAttr("userId", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())

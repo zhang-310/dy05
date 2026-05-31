@@ -2,6 +2,8 @@ package cn.gaifan.douyinOperations.module.payment.service.impl;
 
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
+import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentRefund;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentOrder;
 import cn.gaifan.douyinOperations.module.payment.entity.RefundStatus;
@@ -9,17 +11,28 @@ import cn.gaifan.douyinOperations.module.payment.entity.OrderStatus;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentRefundRepository;
 import cn.gaifan.douyinOperations.module.payment.repository.PaymentOrderRepository;
 import cn.gaifan.douyinOperations.module.payment.service.RefundService;
+import cn.gaifan.douyinOperations.module.payment.vo.PaymentRefundSearchVO;
+import cn.gaifan.douyinOperations.module.payment.vo.PaymentRefundVO;
 import cn.gaifan.douyinOperations.module.payment.vo.RefundSaveVO;
 import cn.gaifan.douyinOperations.module.payment.vo.RefundVO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.Resource;
+import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -36,24 +49,28 @@ public class RefundServiceImpl implements RefundService {
     @Resource
     private PaymentOrderRepository orderRepository;
 
+    @Resource
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public long createRefund(RefundSaveVO vo) {
+    public long createRefund(RefundSaveVO vo, Long userId) {
         if (vo == null || vo.getOrderId() == null || vo.getOrderId() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "参数校验失败");
         }
+        Long ownerId = requireOwnerId(userId);
 
         // 验证订单存在
         PaymentOrder order = orderRepository.findById(vo.getOrderId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+        if (!Objects.equals(order.getUserId(), userId) || !isSameOwner(order, ownerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
+        }
 
         // 检查是否可以退款
         if (!canRefund(vo.getOrderId(), vo.getAmount())) {
             throw new BusinessException(ErrorCode.REFUND_AMOUNT_EXCEED, "退款金额超过可退款余额");
         }
-
-        // P0-6: 获取 ownerId（从订单继承）
-        Long ownerId = order.getOwnerId();
 
         // 创建退款记录
         PaymentRefund refund = PaymentRefund.builder()
@@ -116,10 +133,9 @@ public class RefundServiceImpl implements RefundService {
     }
 
     @Override
-    public RefundVO getRefund(Long refundId) {
+    public RefundVO getRefund(Long refundId, Long userId) {
         PaymentRefund refund = getRefundEntity(refundId);
-        // P0-6: 验证 ownerId（数据隔离）
-        Long ownerId = 1L; // TODO: 从上下文获取
+        Long ownerId = requireOwnerId(userId);
         if (!refund.getOwnerId().equals(ownerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该退款");
         }
@@ -127,18 +143,59 @@ public class RefundServiceImpl implements RefundService {
     }
 
     @Override
-    public List<RefundVO> getRefundsByOrderId(Long orderId) {
+    public List<RefundVO> getRefundsByOrderId(Long orderId, Long userId) {
         // P0-6: 验证订单归属
         PaymentOrder order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
-        Long ownerId = 1L; // TODO: 从上下文获取
-        if (!order.getOwnerId().equals(ownerId)) {
+        Long ownerId = requireOwnerId(userId);
+        if (!Objects.equals(order.getUserId(), userId) || !isSameOwner(order, ownerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
         }
 
         return refundRepository.findByOrderId(orderId).stream()
                 .map(this::convertToVO)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public PageResultVO<PaymentRefundVO> searchRefunds(PaymentRefundSearchVO vo, Long userId) {
+        if (vo == null) {
+            vo = new PaymentRefundSearchVO();
+        }
+        vo.validateParams();
+        Long ownerId = requireOwnerId(userId);
+
+        RefundStatus status = parseStatus(vo.getStatus());
+        String keyword = vo.getKeyword() == null ? "" : vo.getKeyword().trim();
+        Long keywordId = parseLong(keyword);
+
+        Specification<PaymentRefund> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("ownerId"), ownerId));
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (keywordId != null) {
+                predicates.add(cb.or(
+                        cb.equal(root.get("id"), keywordId),
+                        cb.equal(root.get("orderId"), keywordId)
+                ));
+            } else if (!keyword.isEmpty()) {
+                predicates.add(cb.like(cb.lower(root.get("reason")), "%" + keyword.toLowerCase() + "%"));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        Sort.Direction direction = "asc".equalsIgnoreCase(vo.getSortOrder()) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String sortName = normalizeRefundSortName(vo.getSortName());
+        Page<PaymentRefund> page = refundRepository.findAll(spec, PageRequest.of(vo.getPage(), vo.getRows(), Sort.by(direction, sortName)));
+
+        Map<Long, PaymentOrder> ordersById = loadOrders(page.getContent());
+        List<PaymentRefundVO> list = page.getContent().stream()
+                .map(refund -> convertToPaymentRefundVO(refund, ordersById.get(refund.getOrderId())))
+                .collect(Collectors.toList());
+
+        return PageResultVO.of(page.getTotalElements(), list, vo.getPage(), vo.getRows());
     }
 
     @Override
@@ -185,6 +242,65 @@ public class RefundServiceImpl implements RefundService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.REFUND_NOT_FOUND, "退款不存在"));
     }
 
+    private RefundStatus parseStatus(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return RefundStatus.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private Long parseLong(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String normalizeRefundSortName(String sortName) {
+        if ("createTime".equals(sortName)) {
+            return "createdAt";
+        }
+        if ("amount".equals(sortName) || "status".equals(sortName) || "orderId".equals(sortName)) {
+            return sortName;
+        }
+        return "createdAt";
+    }
+
+    private Map<Long, PaymentOrder> loadOrders(List<PaymentRefund> refunds) {
+        List<Long> orderIds = refunds.stream()
+                .map(PaymentRefund::getOrderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, PaymentOrder> ordersById = new HashMap<>();
+        orderRepository.findAllById(orderIds).forEach(order -> ordersById.put(order.getId(), order));
+        return ordersById;
+    }
+
+    private Long requireOwnerId(Long userId) {
+        Long orgId = tenantOrgResolutionHelper.organizationIdForUser(userId);
+        if (orgId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "当前用户未绑定组织，无法访问支付数据");
+        }
+        return orgId;
+    }
+
+    private boolean isSameOwner(PaymentOrder order, Long ownerId) {
+        return Objects.equals(order.getOwnerId(), ownerId)
+                || (order.getOrgId() != null && Objects.equals(order.getOrgId(), ownerId));
+    }
+
     private RefundVO convertToVO(PaymentRefund refund) {
         return RefundVO.builder()
                 .id(refund.getId())
@@ -196,5 +312,21 @@ public class RefundServiceImpl implements RefundService {
                 .approvedAt(refund.getApprovedAt())
                 .completedAt(refund.getCompletedAt())
                 .build();
+    }
+
+    private PaymentRefundVO convertToPaymentRefundVO(PaymentRefund refund, PaymentOrder order) {
+        PaymentRefundVO vo = new PaymentRefundVO();
+        vo.setId(refund.getId());
+        vo.setOrderId(refund.getOrderId());
+        vo.setOrderNo(order != null ? order.getOrderNo() : null);
+        vo.setRefundNo("R" + refund.getId());
+        vo.setTransactionNo(order != null ? order.getTransactionId() : null);
+        vo.setAmount(refund.getAmount());
+        vo.setStatus(refund.getStatus() != null ? refund.getStatus().name() : null);
+        vo.setReason(refund.getReason());
+        vo.setCreateTime(refund.getCreatedAt());
+        vo.setApprovedAt(refund.getApprovedAt());
+        vo.setCompletedAt(refund.getCompletedAt());
+        return vo;
     }
 }

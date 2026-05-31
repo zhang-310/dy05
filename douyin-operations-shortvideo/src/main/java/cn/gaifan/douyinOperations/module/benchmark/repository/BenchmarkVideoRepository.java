@@ -41,6 +41,20 @@ public interface BenchmarkVideoRepository extends JpaRepository<BenchmarkVideo, 
      */
     int countByBenchmarkAccountId(Long benchmarkAccountId);
 
+    long countByDeleted(Integer deleted);
+
+    long countByOwnerIdAndDeleted(Long ownerId, Integer deleted);
+
+    long countByAnalysisStatusAndDeleted(String analysisStatus, Integer deleted);
+
+    long countByOwnerIdAndAnalysisStatusAndDeleted(Long ownerId, String analysisStatus, Integer deleted);
+
+    @Query("SELECT MAX(v.createTime) FROM BenchmarkVideo v WHERE v.deleted = 0")
+    java.time.LocalDateTime findLastCreateTime();
+
+    @Query("SELECT MAX(v.createTime) FROM BenchmarkVideo v WHERE v.ownerId = :ownerId AND v.deleted = 0")
+    java.time.LocalDateTime findLastCreateTimeByOwnerId(@Param("ownerId") Long ownerId);
+
     /**
      * 根据账号ID和是否符合条件查找视频
      */

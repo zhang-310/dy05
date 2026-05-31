@@ -14,8 +14,8 @@ describe('request', () => {
 
   it('identifies auth business error codes from backend RESTResult', () => {
     expect(isAuthBusinessCode(2001)).toBe(true)
-    expect(isAuthBusinessCode(2002)).toBe(true)
     expect(isAuthBusinessCode(2003)).toBe(true)
+    expect(isAuthBusinessCode(2002)).toBe(false)
     expect(isAuthBusinessCode(200)).toBe(false)
     expect(isAuthBusinessCode(1002)).toBe(false)
     expect(isAuthBusinessCode('2001')).toBe(false)

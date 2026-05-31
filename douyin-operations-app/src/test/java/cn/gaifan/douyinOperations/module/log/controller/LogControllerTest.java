@@ -96,10 +96,28 @@ class LogControllerTest {
 
         mockMvc.perform(post("/api/v1/log/system/page")
                         .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "admin")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200));
+    }
+
+    @Test
+    @DisplayName("查询系统日志（非管理员）- 应返回 2002 且不应被当作未登录")
+    void systemPage_forbidden_shouldReturn2002() throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("page", 0);
+        body.put("rows", 10);
+
+        mockMvc.perform(post("/api/v1/log/system/page")
+                        .requestAttr("userId", 2L)
+                        .requestAttr("roleCode", "user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(2002))
+                .andExpect(jsonPath("$.message").value("仅管理员可查看系统日志"));
     }
 
     @Test

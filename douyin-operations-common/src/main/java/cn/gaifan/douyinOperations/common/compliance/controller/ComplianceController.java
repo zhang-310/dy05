@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 /**
  * 违规检测 Controller
  */
-@RestController
+@RestController("commonComplianceController")
 @RequestMapping("/api/v1/compliance")
 public class ComplianceController {
 

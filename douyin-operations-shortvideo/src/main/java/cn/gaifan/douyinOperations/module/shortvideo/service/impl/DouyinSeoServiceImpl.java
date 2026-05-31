@@ -1,33 +1,47 @@
 package cn.gaifan.douyinOperations.module.shortvideo.service.impl;
 
+import cn.gaifan.douyinOperations.module.shortvideo.service.PublishTimeRecommendationService;
 import cn.gaifan.douyinOperations.module.shortvideo.service.DouyinSeoService;
+import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 抖音 SEO 服务实现 (Phase 8)
- * 占位实现，后续可接入 LLM/数据分析
+ * 基于入参和已落库分析数据生成建议；无真实数据时返回空结果。
  */
 @Service
 public class DouyinSeoServiceImpl implements DouyinSeoService {
 
+    @Resource
+    private PublishTimeRecommendationService publishTimeRecommendationService;
+
     @Override
     public List<String> suggestTags(String title, String description, String industry) {
-        List<String> tags = new ArrayList<>();
-        if (title != null && !title.isBlank()) {
-            for (String w : title.split("[\\s#]+")) {
-                if (w.length() >= 2 && w.length() <= 8) tags.add(w);
-            }
-        }
-        if (industry != null && !industry.isBlank()) tags.add(industry);
-        return tags.isEmpty() ? List.of("短视频", "抖音") : tags.subList(0, Math.min(5, tags.size()));
+        Set<String> tags = new LinkedHashSet<>();
+        collectTokens(tags, title);
+        collectTokens(tags, description);
+        collectTokens(tags, industry);
+        return tags.stream().limit(8).toList();
     }
 
     @Override
-    public List<String> suggestPublishTime(Long accountId) {
-        return List.of("18:00-20:00", "12:00-13:00", "21:00-23:00");
+    public List<String> suggestPublishTime(Long accountId, List<Long> visibleOwnerIds) {
+        if (accountId == null) {
+            return List.of();
+        }
+        return publishTimeRecommendationService.getRecommendedTimes(accountId, visibleOwnerIds)
+                .stream()
+                .map(this::formatPublishTime)
+                .filter(label -> !label.isBlank())
+                .distinct()
+                .limit(5)
+                .toList();
     }
 
     @Override
@@ -37,6 +51,33 @@ public class DouyinSeoServiceImpl implements DouyinSeoService {
 
     @Override
     public List<String> suggestAbTestTitles(String baseTitle) {
-        return baseTitle != null ? List.of(baseTitle, baseTitle + "｜必看") : List.of();
+        if (baseTitle == null || baseTitle.isBlank()) {
+            return List.of();
+        }
+        return List.of(baseTitle.trim());
+    }
+
+    private void collectTokens(Set<String> tags, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        for (String token : value.split("[\\s#，,。.!！?？、|｜/\\\\:：;；\\[\\]()（）{}<>《》\"'“”‘’]+")) {
+            String normalized = token.trim();
+            if (normalized.length() >= 2 && normalized.length() <= 16) {
+                tags.add(normalized);
+            }
+        }
+    }
+
+    private String formatPublishTime(Map<String, Object> item) {
+        Object label = item.get("label");
+        if (label instanceof String s && !s.isBlank()) {
+            return s;
+        }
+        int hour = item.get("hourOfDay") instanceof Number n ? n.intValue() : -1;
+        if (hour < 0 || hour > 23) {
+            return "";
+        }
+        return String.format("%02d:00", hour);
     }
 }

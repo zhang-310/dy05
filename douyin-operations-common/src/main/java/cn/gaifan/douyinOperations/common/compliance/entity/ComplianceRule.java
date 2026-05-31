@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.common.compliance.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.sql.Timestamp;
 
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 违规规则实体
  * 对应表: compliance_rule
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "compliance_rule")
+@NoArgsConstructor
 public class ComplianceRule {
 
     @Id
@@ -83,7 +87,7 @@ public class ComplianceRule {
      * 规则描述的向量表示（1536 维）
      * 用于语义检索
      */
-    @Column(name = "embedding", columnDefinition = "vector(1536)")
+    @Column(name = "embedding", columnDefinition = "TEXT")
     private String embedding;
 
     /**

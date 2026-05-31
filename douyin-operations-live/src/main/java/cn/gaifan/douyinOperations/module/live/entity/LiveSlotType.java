@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 直播槽位类型配置表
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_slot_type")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveSlotType {
 
     @Id

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -12,10 +14,12 @@ import java.sql.Timestamp;
  * 与 sql/live/schema.sql 中 live_monitor 一一对应
  * 逻辑删除：deleted=0 有效，由 sql/migrations/upgrade-analysis-2026.sql 增加 deleted 列
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_monitor")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveMonitor {
 
     @Id

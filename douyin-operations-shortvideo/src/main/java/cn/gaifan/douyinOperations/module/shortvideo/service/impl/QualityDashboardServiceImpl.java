@@ -175,12 +175,86 @@ public class QualityDashboardServiceImpl implements QualityDashboardService {
     @Override
     public List<String> getAiReflections(Long ownerId) {
         if (ownerId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
-        // 占位：待接入 LLM 生成反思
-        return List.of(
-            "建议增加过渡镜头，提升完播率",
-            "周三/周五晚8点发布效果最佳",
-            "4K 级别在 MiniMax 上性价比最高"
-        );
+        try {
+            LocalDate now = LocalDate.now();
+            Timestamp start = Timestamp.from(now.minusDays(7).atStartOfDay(ZoneId.systemDefault()).toInstant());
+            Timestamp end = Timestamp.from(now.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant());
+            List<SvGenerationLog> logs = generationLogRepository.findByOwnerIdAndCreateTimeBetweenOrderByCreateTimeAsc(ownerId, start, end);
+            if (logs.isEmpty()) {
+                return List.of("近 7 天暂无生成日志，建议先完成成片生成并让质量评分落库，再查看 AI 反思。");
+            }
+
+            int total = logs.size();
+            long successCount = logs.stream().filter(l -> Boolean.TRUE.equals(l.getSuccess())).count();
+            double successRate = successCount * 100.0 / total;
+            double avgScore = logs.stream()
+                .filter(l -> l.getQualityScore() != null)
+                .mapToDouble(l -> l.getQualityScore().doubleValue())
+                .average()
+                .orElse(0);
+            long scoredCount = logs.stream().filter(l -> l.getQualityScore() != null).count();
+            long slowCount = logs.stream()
+                .filter(l -> l.getGenerationTimeMs() != null && l.getGenerationTimeMs() > 120_000)
+                .count();
+            long noAudioCount = logs.stream().filter(l -> !Boolean.TRUE.equals(l.getHasAudio())).count();
+
+            List<String> result = new ArrayList<>();
+            result.add(String.format("近 7 天生成 %d 次，成功率 %.1f%%，平均质量分 %.1f（有评分 %d 条）。",
+                total, successRate, avgScore, scoredCount));
+            if (successRate < 90) {
+                result.add("生成成功率低于 90%，请优先排查失败日志中的模型调用、素材 URL 和回调状态。");
+            }
+            if (scoredCount == 0) {
+                result.add("当前生成日志没有质量分，建议先补齐质量评分任务，否则模型/运镜排名和反思都只能降级。");
+            } else if (avgScore < 75) {
+                result.add("平均质量分低于 75，建议复查分镜提示词、关键帧一致性和成片质检规则。");
+            } else {
+                result.add("平均质量分已达可用区间，建议保留高分模型和高分运镜组合做模板复用。");
+            }
+
+            bestProviderReflection(ownerId, start, end).ifPresent(result::add);
+            bestCameraReflection(ownerId, start, end).ifPresent(result::add);
+            if (slowCount > 0) {
+                result.add(String.format("有 %d 次生成耗时超过 120 秒，建议检查供应商响应、素材体积和异步任务并发。", slowCount));
+            }
+            if (noAudioCount * 100.0 / total > 50) {
+                result.add("超过一半生成记录未带音频，若目标是成片发布，请补齐 BGM/旁白链路以提升完整度。");
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("AI 反思生成异常: {}", e.getMessage());
+            return List.of("AI 反思生成失败，请检查 sv_generation_log 聚合查询和质量评分数据。");
+        }
+    }
+
+    private java.util.Optional<String> bestProviderReflection(Long ownerId, Timestamp start, Timestamp end) {
+        String bestModel = null;
+        double bestAvg = 0;
+        for (Object[] row : generationLogRepository.avgQualityByProvider(ownerId, start, end)) {
+            String provider = (String) row[0];
+            BigDecimal avg = (BigDecimal) row[1];
+            if (avg != null && avg.doubleValue() > bestAvg) {
+                bestAvg = avg.doubleValue();
+                bestModel = provider != null ? provider : "ffmpeg";
+            }
+        }
+        if (bestModel == null) return java.util.Optional.empty();
+        return java.util.Optional.of(String.format("模型 %s 近 7 天平均分最高（%.1f），建议优先用于同类项目。", bestModel, bestAvg));
+    }
+
+    private java.util.Optional<String> bestCameraReflection(Long ownerId, Timestamp start, Timestamp end) {
+        String bestCamera = null;
+        double bestAvg = 0;
+        for (Object[] row : generationLogRepository.avgQualityByCameraType(ownerId, start, end)) {
+            String camera = (String) row[0];
+            BigDecimal avg = (BigDecimal) row[1];
+            if (avg != null && avg.doubleValue() > bestAvg) {
+                bestAvg = avg.doubleValue();
+                bestCamera = camera;
+            }
+        }
+        if (bestCamera == null) return java.util.Optional.empty();
+        return java.util.Optional.of(String.format("运镜 %s 近 7 天质量分最高（%.1f），建议沉淀到分镜模板。", bestCamera, bestAvg));
     }
 
     private static String scoreToGrade(double score) {

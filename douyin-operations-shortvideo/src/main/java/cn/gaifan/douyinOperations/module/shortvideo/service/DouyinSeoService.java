@@ -24,7 +24,7 @@ public interface DouyinSeoService {
      * @param accountId 账号 ID
      * @return 推荐时段列表 (如 "18:00-20:00")
      */
-    List<String> suggestPublishTime(Long accountId);
+    List<String> suggestPublishTime(Long accountId, List<Long> visibleOwnerIds);
 
     /**
      * 封面建议（从关键帧中选择）

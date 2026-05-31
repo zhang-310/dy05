@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -10,10 +12,12 @@ import java.sql.Timestamp;
 /**
  * 话术质量评分（合规/流畅/吸引力三维评分）
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_script_quality_score")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveScriptQualityScore {
 
     @Id

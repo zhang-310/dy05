@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.common.compliance.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -10,9 +12,11 @@ import java.sql.Timestamp;
  * 违规检测记录实体
  * 对应表: compliance_check_log
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "compliance_check_log")
+@NoArgsConstructor
 public class ComplianceCheckLog {
 
     @Id

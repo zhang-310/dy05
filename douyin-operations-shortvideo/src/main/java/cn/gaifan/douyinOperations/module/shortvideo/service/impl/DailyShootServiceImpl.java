@@ -19,6 +19,17 @@ import cn.gaifan.douyinOperations.module.shortvideo.repository.SvShotListReposit
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvShotRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.service.DailyShootService;
 import cn.gaifan.douyinOperations.module.shortvideo.service.SvShotListService;
+import cn.gaifan.douyinOperations.contract.product.FeatureCode;
+import cn.gaifan.douyinOperations.contract.product.ProductCode;
+import cn.gaifan.douyinOperations.common.config.RequestIdentityHolder;
+import cn.gaifan.douyinOperations.contract.credit.CreditReservationActionRequest;
+import cn.gaifan.douyinOperations.contract.credit.CreditReserveRequest;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialCreditHelper;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialProductChargeService;
+import cn.gaifan.douyinOperations.module.platform.identity.CommercialIdentityBridge;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryLedgerService;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryProduct;
+import java.math.BigDecimal;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
@@ -60,6 +71,12 @@ public class DailyShootServiceImpl implements DailyShootService {
     private AiTaskModelConfigRepository taskModelConfigRepository;
     @Resource
     private AiModelRepository modelRepository;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CommercialProductChargeService commercialProductChargeService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CommercialCreditHelper commercialCreditHelper;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private DeliveryLedgerService deliveryLedgerService;
     @Resource
     private ObjectMapper objectMapper;
 
@@ -179,7 +196,9 @@ public class DailyShootServiceImpl implements DailyShootService {
                 String c = m.get("content") != null ? m.get("content").toString().trim() : raw;
                 return new String[]{t, c};
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // JSON解析失败，返回原始内容
+        }
         return new String[]{null, raw};
     }
 
@@ -281,6 +300,38 @@ public class DailyShootServiceImpl implements DailyShootService {
     @Override
     public String exportScript(Long userId, Long projectId) {
         if (userId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        String traceId = "sv-export-" + projectId + "-" + System.currentTimeMillis();
+        String reservationId = null;
+        if (commercialCreditHelper != null && commercialCreditHelper.isEnforced()) {
+            var ctx = RequestIdentityHolder.current();
+            String tenantId = CommercialIdentityBridge.resolveTenantId(ctx);
+            if ("default".equals(tenantId) || tenantId == null || tenantId.isBlank()) {
+                tenantId = "demo-tenant";
+            }
+            String gfUser = CommercialIdentityBridge.resolveUserId(ctx);
+            var reserved = commercialCreditHelper.reserve(new CreditReserveRequest(
+                    tenantId,
+                    gfUser,
+                    null,
+                    ProductCode.SHORTVIDEO_MAKER,
+                    FeatureCode.SHORTVIDEO_EXPORT,
+                    ctx != null && ctx.channel() != null ? ctx.channel() : "WEB",
+                    BigDecimal.ONE,
+                    "standard",
+                    traceId,
+                    "project-" + projectId,
+                    "成片脚本导出冻结 projectId=" + projectId
+            ));
+            reservationId = reserved.reservationId();
+        } else if (commercialProductChargeService != null) {
+            commercialProductChargeService.charge(
+                    CommercialProductChargeService.CommercialProductChargeCommand.of(
+                            ProductCode.SHORTVIDEO_MAKER,
+                            FeatureCode.SHORTVIDEO_EXPORT,
+                            "成片脚本导出 projectId=" + projectId,
+                            DeliveryProduct.SHORTVIDEO_MAKER
+                    ));
+        }
         SvProject project = projectRepository.findById(projectId).orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "项目不存在"));
         if (!project.getOwnerId().equals(userId)) throw new BusinessException(ErrorCode.FORBIDDEN, "无权限");
 
@@ -290,20 +341,45 @@ public class DailyShootServiceImpl implements DailyShootService {
         sb.append("  计划日期：").append(project.getScheduleDate() != null ? project.getScheduleDate() : "-").append("\n");
         sb.append("═══════════════════════════════════════\n\n");
 
-        if (project.getShotListId() == null) return sb.toString();
-        List<SvShot> shots = shotRepository.findByShotListIdAndDeletedOrderByShotNumberAsc(project.getShotListId(), 0);
-        for (SvShot s : shots) {
-            sb.append("【分镜 ").append(s.getShotNumber()).append("】");
-            if (StringUtils.hasText(s.getTimeRange())) sb.append(" ").append(s.getTimeRange());
-            sb.append("\n");
-            if (StringUtils.hasText(s.getSceneDescription())) sb.append("  场景：").append(s.getSceneDescription()).append("\n");
-            if (StringUtils.hasText(s.getCameraAngle())) sb.append("  机位：").append(s.getCameraAngle()).append("\n");
-            if (StringUtils.hasText(s.getCameraType())) sb.append("  运镜：").append(s.getCameraType()).append("\n");
-            if (StringUtils.hasText(s.getDialogue())) sb.append("  台词：").append(s.getDialogue()).append("\n");
-            if (StringUtils.hasText(s.getReviewerNote())) sb.append("  备注：").append(s.getReviewerNote()).append("\n");
-            sb.append("\n");
+        if (project.getShotListId() != null) {
+            List<SvShot> shots = shotRepository.findByShotListIdAndDeletedOrderByShotNumberAsc(project.getShotListId(), 0);
+            for (SvShot s : shots) {
+                sb.append("【分镜 ").append(s.getShotNumber()).append("】");
+                if (StringUtils.hasText(s.getTimeRange())) sb.append(" ").append(s.getTimeRange());
+                sb.append("\n");
+                if (StringUtils.hasText(s.getSceneDescription())) sb.append("  场景：").append(s.getSceneDescription()).append("\n");
+                if (StringUtils.hasText(s.getCameraAngle())) sb.append("  机位：").append(s.getCameraAngle()).append("\n");
+                if (StringUtils.hasText(s.getCameraType())) sb.append("  运镜：").append(s.getCameraType()).append("\n");
+                if (StringUtils.hasText(s.getDialogue())) sb.append("  台词：").append(s.getDialogue()).append("\n");
+                if (StringUtils.hasText(s.getReviewerNote())) sb.append("  备注：").append(s.getReviewerNote()).append("\n");
+                sb.append("\n");
+            }
         }
-        return sb.toString();
+        String result = sb.toString();
+        finalizeExportCommercial(reservationId, traceId, projectId);
+        return result;
+    }
+
+    private void finalizeExportCommercial(String reservationId, String traceId, Long projectId) {
+        if (reservationId == null || commercialCreditHelper == null) {
+            return;
+        }
+        var ctx = RequestIdentityHolder.current();
+        String tenantId = CommercialIdentityBridge.resolveTenantId(ctx);
+        if ("default".equals(tenantId) || tenantId == null || tenantId.isBlank()) {
+            tenantId = "demo-tenant";
+        }
+        commercialCreditHelper.commit(reservationId, new CreditReservationActionRequest(
+                tenantId,
+                CommercialIdentityBridge.resolveUserId(ctx),
+                null,
+                ctx != null && ctx.channel() != null ? ctx.channel() : "WEB",
+                traceId,
+                "成片脚本导出 commit projectId=" + projectId
+        ));
+        if (deliveryLedgerService != null) {
+            deliveryLedgerService.recordShortvideoMakerDelivery(tenantId, traceId, "EXPORTED");
+        }
     }
 
     private static Date parseDate(String s) {

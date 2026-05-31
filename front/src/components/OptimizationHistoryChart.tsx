@@ -6,7 +6,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Box, Card, CardContent, Typography, CircularProgress, Alert } from '@mui/material';
+import { Box, Card, CardContent, Typography, CircularProgress, Alert, alpha, useTheme } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import * as echarts from 'echarts';
 import type { EvolutionMetricsVO } from '@/types/optimization';
 
@@ -17,14 +18,36 @@ interface OptimizationHistoryChartProps {
   height?: number;
 }
 
+type OptimizationHistoryTone = 'primary' | 'secondary' | 'success' | 'warning';
+
+function semanticColor(theme: Theme, tone: OptimizationHistoryTone) {
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main;
+}
+
+function surfaceColor(theme: Theme, tone: OptimizationHistoryTone) {
+  return alpha(semanticColor(theme, tone), theme.palette.mode === 'dark' ? 0.18 : 0.1);
+}
+
 export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> = ({
   metrics,
   isLoading = false,
   error,
   height = 400,
 }) => {
+  const theme = useTheme();
   const chartRef = React.useRef<HTMLDivElement>(null);
   const chartInstance = React.useRef<echarts.ECharts | null>(null);
+  const chartColors = useMemo(
+    () => ({
+      score: semanticColor(theme, 'primary'),
+      applied: semanticColor(theme, 'success'),
+      improvement: semanticColor(theme, 'secondary'),
+      successRate: semanticColor(theme, 'warning'),
+      splitLine: theme.palette.divider,
+      tooltipLabel: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.22 : 0.16),
+    }),
+    [theme],
+  );
 
   // 生成图表配置
   const chartOption = useMemo(() => {
@@ -45,7 +68,7 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
         axisPointer: {
           type: 'cross',
           label: {
-            backgroundColor: '#6a7985',
+            backgroundColor: chartColors.tooltipLabel,
           },
         },
       },
@@ -73,13 +96,13 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
           alignTicks: true,
           axisLine: {
             lineStyle: {
-              color: '#667eea',
+              color: chartColors.score,
             },
           },
           splitLine: {
             show: true,
             lineStyle: {
-              color: '#e0e0e0',
+              color: chartColors.splitLine,
             },
           },
         },
@@ -89,7 +112,7 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
           position: 'right',
           axisLine: {
             lineStyle: {
-              color: '#764ba2',
+              color: chartColors.improvement,
             },
           },
         },
@@ -102,17 +125,17 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
           smooth: true,
           yAxisIndex: 0,
           itemStyle: {
-            color: '#667eea',
+            color: chartColors.score,
           },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
               {
                 offset: 0,
-                color: 'rgba(102, 126, 234, 0.4)',
+                color: alpha(chartColors.score, 0.4),
               },
               {
                 offset: 1,
-                color: 'rgba(102, 126, 234, 0.1)',
+                color: alpha(chartColors.score, 0.1),
               },
             ]),
           },
@@ -123,7 +146,7 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
           type: 'bar',
           yAxisIndex: 0,
           itemStyle: {
-            color: '#4ecdc4',
+            color: chartColors.applied,
             opacity: 0.7,
           },
         },
@@ -134,12 +157,12 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
           smooth: true,
           yAxisIndex: 1,
           itemStyle: {
-            color: '#764ba2',
+            color: chartColors.improvement,
           },
         },
       ],
     };
-  }, [metrics]);
+  }, [chartColors.applied, chartColors.improvement, chartColors.score, chartColors.splitLine, chartColors.tooltipLabel, metrics]);
 
   // 初始化和更新图表
   React.useEffect(() => {
@@ -199,6 +222,9 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
         </Typography>
         <Box
           ref={chartRef}
+          data-testid="optimization-history-chart-surface"
+          data-chart-colors={`${chartColors.score}|${chartColors.applied}|${chartColors.improvement}`}
+          data-area-colors={`${alpha(chartColors.score, 0.4)}|${alpha(chartColors.score, 0.1)}`}
           sx={{
             width: '100%',
             height: `${height}px`,
@@ -207,35 +233,35 @@ export const OptimizationHistoryChart: React.FC<OptimizationHistoryChartProps> =
 
         {/* 统计信息 */}
         <Box sx={{ mt: 3, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 2 }}>
-          <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-            <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+          <Box data-testid="optimization-history-stat-surface" data-stat-tone="primary" data-stat-color={chartColors.score} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'primary'), border: `1px solid ${alpha(chartColors.score, 0.3)}`, borderRadius: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
               总分析次数
             </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#667eea' }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.score }}>
               {metrics.totalAnalysis}
             </Typography>
           </Box>
-          <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-            <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+          <Box data-testid="optimization-history-stat-surface" data-stat-tone="success" data-stat-color={chartColors.applied} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'success'), border: `1px solid ${alpha(chartColors.applied, 0.3)}`, borderRadius: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
               已应用建议数
             </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#4caf50' }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.applied }}>
               {metrics.acceptedSuggestions}
             </Typography>
           </Box>
-          <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-            <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+          <Box data-testid="optimization-history-stat-surface" data-stat-tone="secondary" data-stat-color={chartColors.improvement} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'secondary'), border: `1px solid ${alpha(chartColors.improvement, 0.3)}`, borderRadius: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
               平均改进
             </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#764ba2' }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.improvement }}>
               {metrics.averageScoreImprovement.toFixed(2)}
             </Typography>
           </Box>
-          <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-            <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+          <Box data-testid="optimization-history-stat-surface" data-stat-tone="warning" data-stat-color={chartColors.successRate} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'warning'), border: `1px solid ${alpha(chartColors.successRate, 0.3)}`, borderRadius: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
               成功率
             </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#ff9800' }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.successRate }}>
               {metrics.optimizationSuccessRate.toFixed(1)}%
             </Typography>
           </Box>

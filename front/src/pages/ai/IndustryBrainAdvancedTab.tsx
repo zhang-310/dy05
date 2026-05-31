@@ -29,10 +29,37 @@ const SOURCE_OPTS = [
   { value: 'weibo', label: '微博' },
   { value: 'network', label: '全网' },
 ]
+const ADVANCED_READY_ENDPOINTS = [
+  '/ai/brain/trends/with-lifecycle',
+  '/ai/brain/host-personas',
+  '/ai/brain/trends/for-host',
+  '/ai/brain/risk/warn',
+  '/ai/brain/strategic/plan',
+  '/ai/brain/growth-path',
+  '/ai/brain/knowledge-graph/relation-suggestions/list',
+  '/ai/brain/knowledge-graph/relation-suggestions/materialize',
+  '/ai/brain/knowledge-graph/relation-suggestions/update-status',
+  '/ai/brain/causal/counterfactual',
+  '/ai/brain/causal/explain-strategy',
+  '/ai/brain/trends/detect-new',
+  '/ai/brain/risk/warn-batch',
+  '/ai/brain/risk/stats',
+  '/ai/brain/synergy',
+  '/ai/brain/style-consistency',
+  '/ai/brain/ip-growth-stage',
+  '/ai/brain/ip-metrics-baseline',
+].join(',')
+const ADVANCED_UNSUPPORTED_ENDPOINTS = [
+  '/ai/brain/advanced/mock',
+  '/ai/brain/advanced/local-trends',
+  '/ai/brain/advanced/static-risk',
+  '/ai/brain/advanced/local-graph',
+  '/ai/brain/advanced/static-strategy',
+].join(',')
 
 function LifecyclePanel() {
   const [source, setSource] = useState('')
-  const { data = [], isLoading, refetch } = useQuery({
+  const { data = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['brain-trends-lifecycle', source],
     queryFn: () => brainApi.trendsWithLifecycle({
       category: source || undefined,
@@ -40,7 +67,12 @@ function LifecyclePanel() {
     }),
   })
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-advanced-lifecycle-panel"
+      data-ready-endpoint="/ai/brain/trends/with-lifecycle"
+      data-no-local-trends="true"
+      sx={{ mt: 2 }}
+    >
       <Stack direction="row" spacing={2} alignItems="center" mb={2}>
         <FormControl size="small" sx={{ minWidth: 160 }}>
           <InputLabel>榜单来源</InputLabel>
@@ -51,9 +83,23 @@ function LifecyclePanel() {
         <Button size="small" variant="outlined" onClick={() => refetch()} disabled={isLoading}>刷新</Button>
         {isLoading && <CircularProgress size={20} />}
       </Stack>
-      {!isLoading && data.length === 0 && <Alert severity="info">暂无趋势数据（需启用 TianAPI 等数据源）</Alert>}
+      {isError ? (
+        <Alert
+          data-testid="industry-brain-advanced-lifecycle-error"
+          data-no-local-trends="true"
+          data-input-retained="true"
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          趋势生命周期加载失败（/ai/brain/trends/with-lifecycle）：{error instanceof Error ? error.message : '请检查 TrendMonitorService 与 TianAPI 数据源'}。
+        </Alert>
+      ) : null}
+      {!isLoading && !isError && data.length === 0 && (
+        <Alert data-testid="industry-brain-advanced-lifecycle-empty" data-no-local-trends="true" severity="info">暂无趋势数据：后端返回空列表时不使用 mock 生命周期；请启用 TianAPI、trend-monitor 或等待调度入库。</Alert>
+      )}
       {data.length > 0 && (
-        <TableContainer component={Paper} variant="outlined">
+        <TableContainer data-testid="industry-brain-advanced-lifecycle-table" component={Paper} variant="outlined">
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -83,18 +129,23 @@ function LifecyclePanel() {
 }
 
 function HostTrendsPanel() {
-  const { data: personas = [] } = useQuery({
+  const { data: personas = [], isError: personasError } = useQuery({
     queryKey: ['brain-host-personas'],
     queryFn: () => brainApi.hostPersonas(),
   })
   const [hostCode, setHostCode] = useState('')
-  const { data: hostTrends = [], isLoading, refetch } = useQuery({
+  const { data: hostTrends = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['brain-trends-host', hostCode],
     queryFn: () => brainApi.trendsForHost({ hostCode: hostCode || undefined, limit: 20 }),
     enabled: true,
   })
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-advanced-host-trends-panel"
+      data-ready-endpoints="/ai/brain/host-personas,/ai/brain/trends/for-host"
+      data-no-local-trends="true"
+      sx={{ mt: 2 }}
+    >
       <Stack direction="row" spacing={2} alignItems="center" mb={2}>
         <FormControl size="small" sx={{ minWidth: 220 }}>
           <InputLabel>主播人设</InputLabel>
@@ -112,8 +163,25 @@ function HostTrendsPanel() {
         <Button size="small" variant="outlined" onClick={() => refetch()} disabled={isLoading}>刷新</Button>
         {isLoading && <CircularProgress size={20} />}
       </Stack>
-      {hostTrends.length === 0 && !isLoading && <Alert severity="info">暂无趋势</Alert>}
-      <Stack spacing={1}>
+      {personasError ? (
+        <Alert data-testid="industry-brain-advanced-host-persona-warning" data-no-local-persona="true" severity="warning" sx={{ mb: 2 }}>
+          主播人设列表加载失败（/ai/brain/host-personas）：下拉降级为通用排序，不伪造主播画像。
+        </Alert>
+      ) : null}
+      {isError ? (
+        <Alert
+          data-testid="industry-brain-advanced-host-trends-error"
+          data-no-local-trends="true"
+          data-input-retained="true"
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          主播趋势加载失败（/ai/brain/trends/for-host）：{error instanceof Error ? error.message : '请检查 TrendMonitorService'}。
+        </Alert>
+      ) : null}
+      {hostTrends.length === 0 && !isLoading && !isError && <Alert data-testid="industry-brain-advanced-host-trends-empty" data-no-local-trends="true" severity="info">暂无主播趋势：后端返回空列表时不使用 mock 推荐。</Alert>}
+      <Stack data-testid="industry-brain-advanced-host-trends-list" data-no-local-trends="true" spacing={1}>
         {hostTrends.map(t => (
           <Paper key={t.id} variant="outlined" sx={{ p: 1.5 }}>
             <Typography variant="body2" fontWeight={600}>{t.title}</Typography>
@@ -133,7 +201,12 @@ function RiskPanel() {
     onError: (e: Error) => toast(e.message, 'error'),
   })
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-advanced-risk-panel"
+      data-ready-endpoint="/ai/brain/risk/warn"
+      data-no-static-risk="true"
+      sx={{ mt: 2 }}
+    >
       <TextField
         fullWidth multiline minRows={4}
         label="待检测话术/文案"
@@ -144,9 +217,14 @@ function RiskPanel() {
       <Button variant="contained" disabled={!text.trim() || mut.isPending} onClick={() => mut.mutate()}>
         {mut.isPending ? <CircularProgress size={20} /> : '检测风险'}
       </Button>
-      {mut.data && mut.data.length === 0 && <Alert sx={{ mt: 2 }} severity="success">未检出明显风险</Alert>}
+      {mut.isError ? (
+        <Alert data-testid="industry-brain-advanced-risk-error" data-input-retained="true" data-no-static-risk="true" sx={{ mt: 2 }} severity="error">
+          风险检测失败（/ai/brain/risk/warn）：{mut.error instanceof Error ? mut.error.message : '请检查风险预警服务'}。
+        </Alert>
+      ) : null}
+      {mut.data && mut.data.length === 0 && <Alert data-testid="industry-brain-advanced-risk-clean-result" data-no-static-risk="true" sx={{ mt: 2 }} severity="success">未检出明显风险</Alert>}
       {mut.data && mut.data.length > 0 && (
-        <Stack spacing={1} sx={{ mt: 2 }}>
+        <Stack data-testid="industry-brain-advanced-risk-result" data-no-static-risk="true" spacing={1} sx={{ mt: 2 }}>
           {mut.data.map((r: BrainRiskItem, i: number) => (
             <Alert key={i} severity={r.level >= 3 ? 'error' : r.level >= 2 ? 'warning' : 'info'}>
               [{r.type}] {r.message}{r.suggestion ? ` — ${r.suggestion}` : ''}
@@ -183,7 +261,12 @@ function StrategyGrowthPanel() {
     onError: (e: Error) => toast(e.message, 'error'),
   })
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-advanced-strategy-growth-panel"
+      data-ready-endpoints="/ai/brain/strategic/plan,/ai/brain/growth-path"
+      data-no-static-strategy="true"
+      sx={{ mt: 2 }}
+    >
       <Stack spacing={2}>
         <TextField size="small" label="抖音账号 ID（可选）" value={accountId} onChange={e => setAccountId(e.target.value)} sx={{ maxWidth: 320 }} />
         <TextField size="small" label="战略目标（逗号分隔）" value={goals} onChange={e => setGoals(e.target.value)} fullWidth />
@@ -196,8 +279,18 @@ function StrategyGrowthPanel() {
             {growthMut.isPending ? <CircularProgress size={20} /> : '生成增长路径'}
           </Button>
         </Stack>
+        {planMut.isError ? (
+          <Alert data-testid="industry-brain-advanced-strategy-error" data-input-retained="true" data-no-static-strategy="true" severity="error">
+            战略规划失败（/ai/brain/strategic/plan）：{planMut.error instanceof Error ? planMut.error.message : '请检查战略规划服务'}。
+          </Alert>
+        ) : null}
+        {growthMut.isError ? (
+          <Alert data-testid="industry-brain-advanced-growth-error" data-input-retained="true" data-no-static-strategy="true" severity="error">
+            增长路径失败（/ai/brain/growth-path）：{growthMut.error instanceof Error ? growthMut.error.message : '请检查增长路径服务'}。
+          </Alert>
+        ) : null}
         {plan && (
-          <Stack spacing={2}>
+          <Stack data-testid="industry-brain-advanced-strategy-result" data-no-static-strategy="true" spacing={2}>
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle2" gutterBottom>行业分析</Typography>
               <Typography variant="body2" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>{plan.industryAnalysis}</Typography>
@@ -277,7 +370,7 @@ function StrategyGrowthPanel() {
           </Stack>
         )}
         {growth && (
-          <Paper variant="outlined" sx={{ p: 2 }}>
+          <Paper data-testid="industry-brain-advanced-growth-result" data-no-static-strategy="true" variant="outlined" sx={{ p: 2 }}>
             <Typography variant="subtitle2" gutterBottom>摘要</Typography>
             <Typography variant="body2" sx={{ mb: 1, whiteSpace: 'pre-wrap' }}>{growth.summary}</Typography>
             {(growth.phases ?? []).map((ph, i) => (
@@ -302,7 +395,7 @@ function GraphOpsPanel() {
   const [src, setSrc] = useState('')
   const [tgt, setTgt] = useState('')
   const [rel, setRel] = useState('co_mentioned')
-  const { data = [], isLoading, refetch } = useQuery({
+  const { data = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['brain-relation-suggestions'],
     queryFn: () => brainApi.relationSuggestionsList({ status: 'pending', limit: 30 }),
   })
@@ -328,8 +421,13 @@ function GraphOpsPanel() {
     onError: (e: Error) => toast(e.message, 'error'),
   })
   return (
-    <Box sx={{ mt: 2 }}>
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+    <Box
+      data-testid="industry-brain-advanced-graph-ops-panel"
+      data-ready-endpoints="/ai/brain/knowledge-graph/relation-suggestions/list,/ai/brain/knowledge-graph/relation-suggestions/materialize,/ai/brain/knowledge-graph/relation-suggestions/update-status"
+      data-no-local-graph-mutation="true"
+      sx={{ mt: 2 }}
+    >
+      <Paper data-testid="industry-brain-advanced-graph-materialize-surface" variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Typography variant="subtitle2" gutterBottom>手动写入待审关系（G-2 materialize）</Typography>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <TextField size="small" label="源实体 key" value={src} onChange={e => setSrc(e.target.value)} sx={{ width: 200 }} />
@@ -349,10 +447,31 @@ function GraphOpsPanel() {
         <Button size="small" variant="outlined" onClick={() => refetch()} disabled={isLoading}>刷新待审核关系</Button>
         {isLoading && <CircularProgress size={20} />}
       </Stack>
-      {data.length === 0 && !isLoading && (
-        <Alert severity="info">暂无待审核关系建议（或 Neo4j / 行业大脑图谱未启用）</Alert>
+      {materializeMut.isError ? (
+        <Alert data-testid="industry-brain-advanced-graph-materialize-error" data-input-retained="true" data-no-local-graph-mutation="true" severity="error" sx={{ mb: 2 }}>
+          写入关系建议失败（/ai/brain/knowledge-graph/relation-suggestions/materialize）：{materializeMut.error instanceof Error ? materializeMut.error.message : '请检查图谱建议队列'}。
+        </Alert>
+      ) : null}
+      {statusMut.isError ? (
+        <Alert data-testid="industry-brain-advanced-graph-status-error" data-no-local-graph-mutation="true" severity="error" sx={{ mb: 2 }}>
+          审核关系建议失败（/ai/brain/knowledge-graph/relation-suggestions/update-status）：{statusMut.error instanceof Error ? statusMut.error.message : '请检查关系建议权限'}。
+        </Alert>
+      ) : null}
+      {isError ? (
+        <Alert
+          data-testid="industry-brain-advanced-graph-list-error"
+          data-no-local-graph-mutation="true"
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          关系建议加载失败（/ai/brain/knowledge-graph/relation-suggestions/list）：{error instanceof Error ? error.message : '请检查图谱建议服务'}。
+        </Alert>
+      ) : null}
+      {data.length === 0 && !isLoading && !isError && (
+        <Alert data-testid="industry-brain-advanced-graph-empty" data-no-local-graph-mutation="true" severity="info">暂无待审核关系建议：后端返回空队列时不使用 mock 关系；请先 materialize 或启用图谱链路。</Alert>
       )}
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer data-testid="industry-brain-advanced-graph-list-table" data-no-local-graph-mutation="true" component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -474,11 +593,30 @@ function ExtensionsPanel() {
     onSuccess: (d) => { setIpBaseJson(JSON.stringify(d, null, 2)); toast('基线已拉取', 'success') },
     onError: (e: Error) => toast(e.message, 'error'),
   })
+  const extensionErrors = [
+    cfMut.isError ? `反事实推理失败（/ai/brain/causal/counterfactual）：${cfMut.error instanceof Error ? cfMut.error.message : '请检查因果引擎'}` : null,
+    explainMut.isError ? `策略解释失败（/ai/brain/causal/explain-strategy）：${explainMut.error instanceof Error ? explainMut.error.message : '请检查因果引擎'}` : null,
+    detectMut.isError ? `新趋势检测失败（/ai/brain/trends/detect-new）：${detectMut.error instanceof Error ? detectMut.error.message : '请检查趋势服务'}` : null,
+    batchRiskMut.isError ? `批量风险检测失败（/ai/brain/risk/warn-batch）：${batchRiskMut.error instanceof Error ? batchRiskMut.error.message : '请检查风险服务'}` : null,
+    statsMut.isError ? `风险统计失败（/ai/brain/risk/stats）：${statsMut.error instanceof Error ? statsMut.error.message : '请检查风险服务'}` : null,
+    synergyMut.isError ? `协同摘要失败（/ai/brain/synergy）：${synergyMut.error instanceof Error ? synergyMut.error.message : '请检查五主播协同服务'}` : null,
+    styleMut.isError ? `风格一致性失败（/ai/brain/style-consistency）：${styleMut.error instanceof Error ? styleMut.error.message : '请检查风格画像服务'}` : null,
+    ipStageMut.isError ? `IP 阶段计算失败（/ai/brain/ip-growth-stage）：${ipStageMut.error instanceof Error ? ipStageMut.error.message : '请检查 IP 增长服务'}` : null,
+    ipBaseMut.isError ? `IP 指标基线失败（/ai/brain/ip-metrics-baseline）：${ipBaseMut.error instanceof Error ? ipBaseMut.error.message : '请检查 IP 增长服务'}` : null,
+  ].filter((item): item is string => Boolean(item))
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-advanced-extensions-panel"
+      data-ready-endpoints="/ai/brain/causal/counterfactual,/ai/brain/causal/explain-strategy,/ai/brain/trends/detect-new,/ai/brain/risk/warn-batch,/ai/brain/risk/stats,/ai/brain/synergy,/ai/brain/style-consistency,/ai/brain/ip-growth-stage,/ai/brain/ip-metrics-baseline"
+      data-no-static-extensions="true"
+      sx={{ mt: 2 }}
+    >
       <Stack spacing={2}>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        {extensionErrors.length > 0 ? (
+          <Alert data-testid="industry-brain-advanced-extensions-error" data-input-retained="true" data-no-static-extensions="true" severity="error">{extensionErrors.join('；')}</Alert>
+        ) : null}
+        <Paper data-testid="industry-brain-advanced-counterfactual-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>因果反事实</Typography>
           <TextField fullWidth multiline minRows={2} label="currentState JSON" value={cfCur} onChange={e => setCfCur(e.target.value)} sx={{ mb: 1 }} />
           <TextField fullWidth multiline minRows={2} label="intervention JSON" value={cfInt} onChange={e => setCfInt(e.target.value)} sx={{ mb: 1 }} />
@@ -489,7 +627,7 @@ function ExtensionsPanel() {
             </Typography>
           )}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper data-testid="industry-brain-advanced-strategy-explain-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>策略解释</Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             <TextField size="small" label="strategyId" value={stratId} onChange={e => setStratId(e.target.value)} />
@@ -497,7 +635,7 @@ function ExtensionsPanel() {
           </Stack>
           {stratExplain ? <Typography variant="body2" sx={{ mt: 1 }}>{stratExplain}</Typography> : null}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper data-testid="industry-brain-advanced-detect-new-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>新趋势检测</Typography>
           <Button size="small" onClick={() => detectMut.mutate()} disabled={detectMut.isPending}>拉取 detect-new</Button>
           {detected.length > 0 && (
@@ -506,7 +644,7 @@ function ExtensionsPanel() {
             </List>
           )}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper data-testid="industry-brain-advanced-risk-batch-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>批量风险检测</Typography>
           <TextField fullWidth multiline minRows={3} label="每行一条话术" value={riskBatchText} onChange={e => setRiskBatchText(e.target.value)} />
           <Button size="small" sx={{ mt: 1 }} onClick={() => batchRiskMut.mutate()} disabled={batchRiskMut.isPending}>检测</Button>
@@ -518,7 +656,7 @@ function ExtensionsPanel() {
             </Stack>
           )}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper data-testid="industry-brain-advanced-risk-stats-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>风险统计</Typography>
           <Button size="small" onClick={() => statsMut.mutate()} disabled={statsMut.isPending}>拉取 risk/stats</Button>
           {riskStats && (
@@ -527,19 +665,19 @@ function ExtensionsPanel() {
             </Typography>
           )}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper data-testid="industry-brain-advanced-synergy-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>五主播协同</Typography>
           <Button size="small" onClick={() => synergyMut.mutate()} disabled={synergyMut.isPending}>拉取 synergy</Button>
           {synergyJson ? <Typography variant="caption" component="pre" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{synergyJson}</Typography> : null}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper data-testid="industry-brain-advanced-style-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>风格一致性</Typography>
           <TextField size="small" label="hostCode" value={styleHost} onChange={e => setStyleHost(e.target.value)} sx={{ mr: 1 }} />
           <TextField size="small" label="content" value={styleContent} onChange={e => setStyleContent(e.target.value)} fullWidth sx={{ mt: 1 }} />
           <Button size="small" sx={{ mt: 1 }} onClick={() => styleMut.mutate()} disabled={styleMut.isPending}>计算</Button>
           {styleScore ? <Typography variant="caption">{styleScore}</Typography> : null}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper data-testid="industry-brain-advanced-ip-surface" variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" gutterBottom>IP 增长阶段 / 基线</Typography>
           <FormControl size="small" sx={{ minWidth: 160, mr: 1 }}>
             <InputLabel>ipType</InputLabel>
@@ -567,8 +705,17 @@ const SUB_TABS = ['趋势窗口', '主播趋势', '风险检测', '战略与增�
 export function IndustryBrainAdvancedTab() {
   const [sub, setSub] = useState(0)
   return (
-    <Box sx={{ mt: 1 }}>
-      <Tabs value={sub} onChange={(_, v) => setSub(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 1 }}>
+    <Box
+      data-testid="industry-brain-advanced-tab"
+      data-ready-endpoints={ADVANCED_READY_ENDPOINTS}
+      data-unsupported-endpoints={ADVANCED_UNSUPPORTED_ENDPOINTS}
+      data-no-local-trends="true"
+      data-no-static-risk="true"
+      data-no-local-graph="true"
+      data-no-static-strategy="true"
+      sx={{ mt: 1 }}
+    >
+      <Tabs data-testid="industry-brain-advanced-sub-tab-host" value={sub} onChange={(_, v) => setSub(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 1 }}>
         {SUB_TABS.map((label, i) => <Tab key={i} label={label} />)}
       </Tabs>
       {sub === 0 && <LifecyclePanel />}

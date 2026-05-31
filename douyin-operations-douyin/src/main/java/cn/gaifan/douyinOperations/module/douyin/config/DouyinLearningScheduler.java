@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.douyin.config;
 import cn.gaifan.douyinOperations.module.douyin.service.DouyinScriptLearningService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -16,11 +17,18 @@ public class DouyinLearningScheduler {
     @Autowired(required = false)
     private DouyinScriptLearningService douyinScriptLearningService;
 
+    @Value("${app.douyin.learning.scheduler.enabled:true}")
+    private boolean schedulerEnabled;
+
     /**
      * 每日 04:00 执行话术学习管线
      */
-    @Scheduled(cron = "0 0 4 * * ?")
+    @Scheduled(cron = "${app.douyin.learning.scheduler.cron:0 0 4 * * ?}")
     public void scheduledLearning() {
+        if (!schedulerEnabled) {
+            log.debug("[DouyinLearningScheduler] 定时任务已禁用，跳过");
+            return;
+        }
         if (douyinScriptLearningService == null) {
             log.debug("[DouyinLearningScheduler] 服务不可用，跳过");
             return;

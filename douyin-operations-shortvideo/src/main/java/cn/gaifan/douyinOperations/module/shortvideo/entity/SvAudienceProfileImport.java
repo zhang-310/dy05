@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.sql.Timestamp;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * N-3：受众画像 CSV/第三方导入快照（与 V093 sv_audience_profile_import 对应）
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_audience_profile_import")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvAudienceProfileImport {
 
     @Id

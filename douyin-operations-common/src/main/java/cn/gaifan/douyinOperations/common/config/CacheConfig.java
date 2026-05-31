@@ -34,6 +34,20 @@ public class CacheConfig {
     }
 
     /**
+     * P1-4: 账号查询 L1 本地缓存
+     * 缓存账号基本信息，减少数据库查询
+     * TTL: 5 分钟（账号信息变更频率低）
+     * 容量: 500 个账号
+     */
+    @Bean("accountQueryCache")
+    public Cache<Long, Object> accountQueryCache() {
+        return Caffeine.newBuilder()
+                .expireAfterWrite(5, TimeUnit.MINUTES)
+                .maximumSize(500)
+                .build();
+    }
+
+    /**
      * P2-5: 账号统计 L1 本地缓存
      * 配合 Redis L2 缓存使用，减少网络开销
      */

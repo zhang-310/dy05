@@ -41,7 +41,7 @@ public class ConfigServiceImpl implements ConfigService {
     private SysConfigRepository sysConfigRepository;
     @Resource
     private ConfigVersionHistoryRepository configVersionHistoryRepository;
-    @Resource
+    @Resource(name = "stringRedisTemplate")
     private StringRedisTemplate redisTemplate;
 
     // P1-8: L1 Caffeine 本地缓存

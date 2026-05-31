@@ -10,6 +10,7 @@ import cn.gaifan.douyinOperations.module.douyin.repository.DyFanProfileRepositor
 import cn.gaifan.douyinOperations.module.douyin.repository.DyFanProfileStatsRepository;
 import cn.gaifan.douyinOperations.module.douyin.service.FanProfileService;
 import cn.gaifan.douyinOperations.module.douyin.vo.FanProfileVO;
+import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -44,6 +45,9 @@ public class FanProfileServiceImpl implements FanProfileService {
     @Resource
     private DyFanProfileStatsRepository statsRepository;
 
+    @Resource
+    private OAuthTokenService oauthTokenService;
+
     @Value("${douyin.api.base-url}")
     private String douyinApiBaseUrl;
 
@@ -55,11 +59,7 @@ public class FanProfileServiceImpl implements FanProfileService {
         DouyinAccount account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_NOT_FOUND, "账号不存在"));
 
-        // Token 在 OAuthToken 表，此处仅检查账号存在；实际 API 调用需 OAuthTokenService
-        // 若需严格校验，可注入 OAuthTokenService.getToken(account.getUserId(), "douyin")
-
         try {
-            // 调用抖音 API 获取粉丝画像数据
             JSONObject fanData = fetchFanDataFromDouyin(account);
 
             if (fanData == null || fanData.isEmpty()) {
@@ -142,14 +142,40 @@ public class FanProfileServiceImpl implements FanProfileService {
 
     private JSONObject fetchFanDataFromDouyin(DouyinAccount account) {
         try {
-            // 模拟调用抖音 API（实际需要根据抖音开放平台文档实现）
-            // String url = douyinApiBaseUrl + "/fans/data?open_id=" + account.getOpenId();
-
-            // 这里返回模拟数据
-            return generateMockFanData();
+            String accessToken = oauthTokenService.getValidAccessToken(account.getOwnerId(), "douyin");
+            if (accessToken == null || accessToken.isBlank()) {
+                throw new BusinessException(ErrorCode.UNAUTHORIZED, "抖音账号未授权或 token 已失效，无法同步粉丝画像");
+            }
+            String url = douyinApiBaseUrl.replaceAll("/+$", "")
+                    + "/api/douyin/v1/fans/data/?open_id=" + account.getAccountId()
+                    + "&access_token=" + accessToken;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                        "抖音粉丝画像接口不可用: HTTP " + response.statusCode());
+            }
+            JSONObject root = JSON.parseObject(response.body());
+            JSONObject data = root.getJSONObject("data");
+            if (data == null) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "抖音粉丝画像接口未返回 data");
+            }
+            int errorCode = data.getIntValue("error_code", 0);
+            if (errorCode != 0) {
+                String desc = data.getString("description");
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                        "抖音粉丝画像接口失败: " + (desc != null ? desc : errorCode));
+            }
+            return data;
         } catch (Exception e) {
-            log.error("调用抖音 API 失败", e);
-            return null;
+            if (e instanceof BusinessException businessException) {
+                throw businessException;
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "调用抖音粉丝画像接口失败，请确认开放平台权限已开通: " + e.getMessage());
         }
     }
 
@@ -279,67 +305,4 @@ public class FanProfileServiceImpl implements FanProfileService {
         return account;
     }
 
-    // 生成模拟数据（用于测试）
-    private JSONObject generateMockFanData() {
-        JSONObject data = new JSONObject();
-
-        // 年龄分布
-        JSONArray ageData = new JSONArray();
-        ageData.add(createStatItem("18-24", "18-24岁", 3500L, 35.0));
-        ageData.add(createStatItem("25-30", "25-30岁", 2800L, 28.0));
-        ageData.add(createStatItem("31-40", "31-40岁", 2200L, 22.0));
-        ageData.add(createStatItem("41-50", "41-50岁", 1000L, 10.0));
-        ageData.add(createStatItem("50+", "50岁以上", 500L, 5.0));
-        data.put("age_distribution", ageData);
-
-        // 性别分布
-        JSONArray genderData = new JSONArray();
-        genderData.add(createStatItem("female", "女性", 6000L, 60.0));
-        genderData.add(createStatItem("male", "男性", 3500L, 35.0));
-        genderData.add(createStatItem("unknown", "未知", 500L, 5.0));
-        data.put("gender_distribution", genderData);
-
-        // 省份分布
-        JSONArray provinceData = new JSONArray();
-        provinceData.add(createStatItem("guangdong", "广东", 2000L, 20.0));
-        provinceData.add(createStatItem("beijing", "北京", 1500L, 15.0));
-        provinceData.add(createStatItem("shanghai", "上海", 1200L, 12.0));
-        provinceData.add(createStatItem("zhejiang", "浙江", 1000L, 10.0));
-        provinceData.add(createStatItem("jiangsu", "江苏", 800L, 8.0));
-        data.put("province_distribution", provinceData);
-
-        // 兴趣标签
-        JSONArray interestData = new JSONArray();
-        interestData.add(createStatItem("beauty", "美妆", 3000L, 30.0));
-        interestData.add(createStatItem("fashion", "时尚", 2500L, 25.0));
-        interestData.add(createStatItem("food", "美食", 2000L, 20.0));
-        interestData.add(createStatItem("travel", "旅游", 1500L, 15.0));
-        interestData.add(createStatItem("fitness", "健身", 1000L, 10.0));
-        data.put("interest_tags", interestData);
-
-        // 活跃时段
-        JSONArray activeTimeData = new JSONArray();
-        activeTimeData.add(createStatItem("morning", "早上(6-12点)", 2000L, 20.0));
-        activeTimeData.add(createStatItem("afternoon", "下午(12-18点)", 3000L, 30.0));
-        activeTimeData.add(createStatItem("evening", "晚上(18-24点)", 4000L, 40.0));
-        activeTimeData.add(createStatItem("night", "深夜(0-6点)", 1000L, 10.0));
-        data.put("active_time", activeTimeData);
-
-        // 设备类型
-        JSONArray deviceData = new JSONArray();
-        deviceData.add(createStatItem("ios", "iOS", 5500L, 55.0));
-        deviceData.add(createStatItem("android", "Android", 4500L, 45.0));
-        data.put("device_distribution", deviceData);
-
-        return data;
-    }
-
-    private JSONObject createStatItem(String key, String value, Long count, Double percentage) {
-        JSONObject item = new JSONObject();
-        item.put("key", key);
-        item.put("value", value);
-        item.put("count", count);
-        item.put("percentage", percentage);
-        return item;
-    }
 }

@@ -3,7 +3,8 @@ package cn.gaifan.douyinOperations.module.product.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -31,7 +32,8 @@ import java.time.LocalDateTime;
     @Index(name = "idx_script_regenerated_version_deleted", columnList = "deleted")
 })
 @SQLRestriction("deleted = 0")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder

@@ -1,6 +1,7 @@
 package cn.gaifan.douyinOperations.module.payment.service.impl;
 
-import cn.gaifan.douyinOperations.common.config.AuthTokenFilter;
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
+import cn.gaifan.douyinOperations.contract.commerce.PaymentCreditGrantPort;
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
@@ -20,6 +21,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +44,12 @@ public class OrderServiceImpl implements OrderService {
 
     @Resource
     private PaymentOrderRepository orderRepository;
+
+    @Resource
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
+    @Autowired(required = false)
+    private PaymentCreditGrantPort paymentCreditGrantPort;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -73,15 +81,14 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorCode.VALIDATION_FAIL, "实付金额不能大于订单金额");
         }
 
-        // P0-6: 获取 ownerId（简化实现：假设单租户，ownerId = 1）
-        // TODO: 实际应该从 AuthTokenFilter 或用户上下文获取 ownerId
-        Long ownerId = 1L;
+        Long ownerId = requireOwnerId(userId);
 
         // 创建订单
         PaymentOrder order = PaymentOrder.builder()
                 .orderNo(vo.getOrderNo())
                 .userId(userId)
                 .ownerId(ownerId)
+                .orgId(ownerId)
                 .productId(vo.getProductId())
                 .quantity(vo.getQuantity())
                 .amount(vo.getAmount())
@@ -118,6 +125,18 @@ public class OrderServiceImpl implements OrderService {
     public void confirmPayment(Long orderId, String transactionId, String paymentMethod) {
         PaymentOrder order = getOrderEntity(orderId);
 
+        confirmPayment(order, orderId, transactionId, paymentMethod);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmPayment(Long orderId, String transactionId, String paymentMethod, Long userId) {
+        PaymentOrder order = getOrderEntityForUser(orderId, userId);
+
+        confirmPayment(order, orderId, transactionId, paymentMethod);
+    }
+
+    private void confirmPayment(PaymentOrder order, Long orderId, String transactionId, String paymentMethod) {
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
             throw new BusinessException(ErrorCode.ORDER_STATUS_INVALID, "订单状态不允许支付");
         }
@@ -128,6 +147,16 @@ public class OrderServiceImpl implements OrderService {
         order.setPaidAt(LocalDateTime.now());
         orderRepository.save(order);
         log.info("Payment confirmed: orderId={}, transactionId={}", orderId, transactionId);
+        if (paymentCreditGrantPort != null && order.getActualAmount() != null) {
+            String tenantId = order.getOrgId() != null ? "org-" + order.getOrgId() : "user-" + order.getUserId();
+            paymentCreditGrantPort.grantOnPayment(
+                    tenantId,
+                    "user-" + order.getUserId(),
+                    order.getActualAmount(),
+                    "payment-order-" + orderId,
+                    "douyin-ops:订单支付履约发放积分"
+            );
+        }
     }
 
     @Override
@@ -138,9 +167,8 @@ public class OrderServiceImpl implements OrderService {
         if (!order.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
         }
-        // P0-6: 验证 ownerId（数据隔离）
-        Long ownerId = 1L; // TODO: 从上下文获取
-        if (!order.getOwnerId().equals(ownerId)) {
+        Long ownerId = requireOwnerId(userId);
+        if (!isSameOwner(order, ownerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
         }
         return convertToVO(order);
@@ -155,9 +183,8 @@ public class OrderServiceImpl implements OrderService {
         if (!order.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
         }
-        // P0-6: 验证 ownerId（数据隔离）
-        Long ownerId = 1L; // TODO: 从上下文获取
-        if (!order.getOwnerId().equals(ownerId)) {
+        Long ownerId = requireOwnerId(userId);
+        if (!isSameOwner(order, ownerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "无权限访问该订单");
         }
         return convertToVO(order);
@@ -170,8 +197,7 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
 
-        // P0-6: 使用 Specification 强制过滤 ownerId
-        Long ownerId = 1L; // TODO: 从上下文获取
+        Long ownerId = requireOwnerId(userId);
         Specification<PaymentOrder> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -204,6 +230,18 @@ public class OrderServiceImpl implements OrderService {
     public void shipOrder(Long orderId, String trackingNumber) {
         PaymentOrder order = getOrderEntity(orderId);
 
+        shipOrder(order, orderId, trackingNumber);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void shipOrder(Long orderId, String trackingNumber, Long userId) {
+        PaymentOrder order = getOrderEntityForUser(orderId, userId);
+
+        shipOrder(order, orderId, trackingNumber);
+    }
+
+    private void shipOrder(PaymentOrder order, Long orderId, String trackingNumber) {
         // P1-2: 状态转换验证
         validateStatusTransition(order.getStatus(), OrderStatus.SHIPPED);
 
@@ -219,6 +257,18 @@ public class OrderServiceImpl implements OrderService {
     public void completeOrder(Long orderId) {
         PaymentOrder order = getOrderEntity(orderId);
 
+        completeOrder(order, orderId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void completeOrder(Long orderId, Long userId) {
+        PaymentOrder order = getOrderEntityForUser(orderId, userId);
+
+        completeOrder(order, orderId);
+    }
+
+    private void completeOrder(PaymentOrder order, Long orderId) {
         // P1-2: 状态转换验证
         validateStatusTransition(order.getStatus(), OrderStatus.COMPLETED);
 
@@ -233,6 +283,18 @@ public class OrderServiceImpl implements OrderService {
     public void cancelOrder(Long orderId) {
         PaymentOrder order = getOrderEntity(orderId);
 
+        cancelOrder(order, orderId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelOrder(Long orderId, Long userId) {
+        PaymentOrder order = getOrderEntityForUser(orderId, userId);
+
+        cancelOrder(order, orderId);
+    }
+
+    private void cancelOrder(PaymentOrder order, Long orderId) {
         // P1-2: 状态转换验证
         validateStatusTransition(order.getStatus(), OrderStatus.CANCELLED);
 
@@ -252,6 +314,34 @@ public class OrderServiceImpl implements OrderService {
     private PaymentOrder getOrderEntity(Long orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "订单不存在"));
+    }
+
+    private PaymentOrder getOrderEntityForUser(Long orderId, Long userId) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户未登录");
+        }
+        PaymentOrder order = getOrderEntity(orderId);
+        if (!Objects.equals(order.getUserId(), userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限操作该订单");
+        }
+        Long ownerId = requireOwnerId(userId);
+        if (!isSameOwner(order, ownerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限操作该订单");
+        }
+        return order;
+    }
+
+    private Long requireOwnerId(Long userId) {
+        Long orgId = tenantOrgResolutionHelper.organizationIdForUser(userId);
+        if (orgId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "当前用户未绑定组织，无法访问支付数据");
+        }
+        return orgId;
+    }
+
+    private boolean isSameOwner(PaymentOrder order, Long ownerId) {
+        return Objects.equals(order.getOwnerId(), ownerId)
+                || (order.getOrgId() != null && Objects.equals(order.getOrgId(), ownerId));
     }
 
     // P1-2: 完整的状态机验证

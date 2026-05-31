@@ -21,13 +21,22 @@ interface EmptyStateProps {
  * - 间距：24px (spacing-lg)
  */
 export function EmptyState({
-  icon = <InboxOutlined sx={{ fontSize: 64, color: '#475569' }} />,
+  icon,
   title = '暂无数据',
   description,
   action,
 }: EmptyStateProps) {
+  const defaultIcon = (
+    <InboxOutlined
+      data-testid="empty-state-default-icon"
+      sx={{ fontSize: 64, color: 'text.secondary' }}
+    />
+  )
+
   return (
     <Box
+      data-testid="base-empty-state-surface"
+      data-empty-tone="neutral"
       sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -37,12 +46,13 @@ export function EmptyState({
         px: 2, // spacing-md
       }}
     >
-      {icon}
+      {icon ?? defaultIcon}
       <Typography
+        data-testid="empty-state-title"
         variant="h6"
         sx={{
           mt: 3, // spacing-lg (24px)
-          color: '#475569', // color-text-secondary
+          color: 'text.secondary',
           fontSize: '18px', // font-size-lg
           fontWeight: 600, // font-weight-semibold
         }}
@@ -51,10 +61,11 @@ export function EmptyState({
       </Typography>
       {description && (
         <Typography
+          data-testid="empty-state-description"
           variant="body2"
           sx={{
             mt: 1, // spacing-sm (8px)
-            color: '#475569', // color-text-secondary
+            color: 'text.secondary',
             fontSize: '14px', // font-size-base
             textAlign: 'center',
           }}

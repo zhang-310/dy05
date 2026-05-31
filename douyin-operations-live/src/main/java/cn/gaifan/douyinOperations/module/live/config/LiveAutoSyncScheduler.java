@@ -5,6 +5,7 @@ import cn.gaifan.douyinOperations.module.live.repository.LiveSessionRepository;
 import cn.gaifan.douyinOperations.module.live.service.LiveSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,12 +41,19 @@ public class LiveAutoSyncScheduler {
     @Resource
     private LiveSessionService liveSessionService;
 
+    @Value("${app.live.auto-sync.scheduler.enabled:true}")
+    private boolean schedulerEnabled;
+
     /**
      * 定时任务：每 5 分钟检查一次已超时的直播场次。
      */
-    @Scheduled(fixedDelay = 300_000)
+    @Scheduled(fixedDelayString = "${app.live.auto-sync.scheduler.fixed-delay-ms:300000}")
     @Transactional
     public void autoSyncEndedSessions() {
+        if (!schedulerEnabled) {
+            log.debug("LiveAutoSync: 调度已禁用，跳过");
+            return;
+        }
         Timestamp now = new Timestamp(System.currentTimeMillis());
 
         // 同时检查 scheduledEndTime 和 plannedEndTime

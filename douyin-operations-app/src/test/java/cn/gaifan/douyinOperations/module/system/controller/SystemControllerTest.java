@@ -277,4 +277,39 @@ class SystemControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(2001));
     }
+
+    @Test
+    @DisplayName("系统诊断报告 - 应返回后端快照")
+    void diagnosticReport_shouldReturnBackendSnapshot() throws Exception {
+        when(systemService.checkHealth()).thenReturn(Map.of(
+                "database", Map.of("status", "UP"),
+                "_overall", "UP"));
+        when(systemService.getSystemInfo()).thenReturn(Map.of(
+                "runtime", Map.of("javaVersion", "17")));
+        when(systemService.getApiLogStats(isNull(), isNull(), isNull())).thenReturn(Map.of(
+                "totalCalls", 100,
+                "successCount", 98,
+                "failCount", 2,
+                "avgDurationMs", 120));
+
+        mockMvc.perform(post("/api/v1/system/diagnostic/report")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.source").value("/system/diagnostic/report"))
+                .andExpect(jsonPath("$.data.health._overall").value("UP"))
+                .andExpect(jsonPath("$.data.apiStats.totalCalls").value(100))
+                .andExpect(jsonPath("$.data.degraded").value(false));
+    }
+
+    @Test
+    @DisplayName("系统诊断报告（非管理员）- 应返回 2002")
+    void diagnosticReport_nonAdmin_shouldReturn2002() throws Exception {
+        mockMvc.perform(post("/api/v1/system/diagnostic/report")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "user"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(2002));
+    }
 }

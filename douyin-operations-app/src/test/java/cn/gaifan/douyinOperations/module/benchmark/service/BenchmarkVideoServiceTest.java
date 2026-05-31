@@ -70,6 +70,7 @@ class BenchmarkVideoServiceTest {
 
         testVideo = new BenchmarkVideo();
         testVideo.setId(1L);
+        testVideo.setOwnerId(TEST_USER_ID);
         testVideo.setBenchmarkAccountId(1L);
         testVideo.setVideoId("test_video_123");
         testVideo.setTitle("测试视频");
@@ -92,6 +93,8 @@ class BenchmarkVideoServiceTest {
         searchVO.setBenchmarkAccountId(1L);
 
         Page<BenchmarkVideo> page = new PageImpl<>(List.of(testVideo), PageRequest.of(0, 10), 1);
+        when(accountRepository.findByOwnerIdAndPlatform(TEST_USER_ID, "douyin")).thenReturn(List.of(testAccount));
+        when(accountRepository.findById(1L)).thenReturn(Optional.of(testAccount));
         when(videoRepository.findAll(any(Specification.class), any(PageRequest.class))).thenReturn(page);
 
         PageResultVO<BenchmarkVideoVO> result = service.search(searchVO, TEST_USER_ID);
@@ -99,6 +102,38 @@ class BenchmarkVideoServiceTest {
         assertThat(result.getTotal()).isEqualTo(1);
         assertThat(result.getList()).hasSize(1);
         assertThat(result.getList().get(0).getTitle()).isEqualTo("测试视频");
+    }
+
+    @Test
+    @DisplayName("查询全部视频 - 应按 ownerId 过滤")
+    void search_withoutAccount_shouldStillUseOwnerFilter() {
+        BenchmarkVideoSearchVO searchVO = new BenchmarkVideoSearchVO();
+        searchVO.setPage(0);
+        searchVO.setRows(10);
+
+        Page<BenchmarkVideo> page = new PageImpl<>(List.of(testVideo), PageRequest.of(0, 10), 1);
+        when(accountRepository.findByOwnerIdAndPlatform(TEST_USER_ID, "douyin")).thenReturn(List.of(testAccount));
+        when(videoRepository.findAll(any(Specification.class), any(PageRequest.class))).thenReturn(page);
+
+        PageResultVO<BenchmarkVideoVO> result = service.search(searchVO, TEST_USER_ID);
+
+        assertThat(result.getTotal()).isEqualTo(1);
+        verify(videoRepository).findAll(any(Specification.class), any(PageRequest.class));
+    }
+
+    @Test
+    @DisplayName("查询指定账号视频 - 非 owner 应拒绝")
+    void search_accountOwnedByOtherUser_shouldThrow() {
+        BenchmarkVideoSearchVO searchVO = new BenchmarkVideoSearchVO();
+        searchVO.setBenchmarkAccountId(1L);
+
+        testAccount.setOwnerId(99L);
+        when(accountRepository.findByOwnerIdAndPlatform(TEST_USER_ID, "douyin")).thenReturn(List.of());
+        when(accountRepository.findById(1L)).thenReturn(Optional.of(testAccount));
+
+        assertThatThrownBy(() -> service.search(searchVO, TEST_USER_ID))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("无权访问该账号的视频");
     }
 
     @Test
@@ -111,6 +146,21 @@ class BenchmarkVideoServiceTest {
 
         assertThat(result).isNotNull();
         assertThat(result.getTitle()).isEqualTo("测试视频");
+    }
+
+    @Test
+    @DisplayName("按ID查询老数据视频 - 应按账号归属回填 ownerId")
+    void getById_legacyOwnerZero_shouldBackfillOwner() {
+        testVideo.setOwnerId(0L);
+        when(videoRepository.findById(1L)).thenReturn(Optional.of(testVideo));
+        when(accountRepository.findById(1L)).thenReturn(Optional.of(testAccount));
+        when(videoRepository.save(testVideo)).thenReturn(testVideo);
+
+        BenchmarkVideoVO result = service.getById(1L, TEST_USER_ID);
+
+        assertThat(result).isNotNull();
+        assertThat(testVideo.getOwnerId()).isEqualTo(TEST_USER_ID);
+        verify(videoRepository).save(testVideo);
     }
 
     @Test
@@ -145,17 +195,24 @@ class BenchmarkVideoServiceTest {
         scrapedVideo.setVideoUrl("https://www.douyin.com/video/123");
         scrapedVideo.setTitle("采集的视频");
         scrapedVideo.setLikeCount(5000L);
+        scrapedVideo.setCommentCount(88L);
+        scrapedVideo.setShareCount(9L);
+        scrapedVideo.setFavoriteCount(6L);
         scrapeResult.setVideos(List.of(scrapedVideo));
 
-        when(accountVideoScraper.scrapeAccountVideos(anyString())).thenReturn(scrapeResult);
+        when(accountVideoScraper.scrapeAccountVideos(anyString(), eq(TEST_USER_ID))).thenReturn(scrapeResult);
         when(videoRepository.findByVideoIdAndBenchmarkAccountId(anyString(), eq(1L))).thenReturn(Optional.empty());
-        when(videoRepository.save(any(BenchmarkVideo.class))).thenReturn(testVideo);
+        when(videoRepository.save(any(BenchmarkVideo.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(videoRepository.countByBenchmarkAccountId(1L)).thenReturn(1);
 
         List<BenchmarkVideoVO> result = service.collectAccountVideos(collectVO, TEST_USER_ID);
 
         assertThat(result).isNotEmpty();
-        verify(videoRepository, times(1)).save(any(BenchmarkVideo.class));
+        verify(videoRepository, times(1)).save(argThat(video ->
+                TEST_USER_ID.equals(video.getOwnerId())
+                        && Integer.valueOf(88).equals(video.getCommentCount())
+                        && Integer.valueOf(9).equals(video.getShareCount())
+                        && Integer.valueOf(6).equals(video.getFavoriteCount())));
         verify(metrics, times(1)).recordVideoCollected(eq(1L), anyInt());
     }
 

@@ -20,6 +20,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
+import { alpha } from '@mui/material/styles'
 import { refineSegment } from '@/api/live-ai'
 import { useToast } from '@/contexts/ToastContext'
 
@@ -107,7 +108,18 @@ export function SegmentRefinePanel({ scriptId, segmentText, onApply, modelId, co
           </Box>
 
           {/* 原文预览 */}
-          <Box sx={{ bgcolor: 'grey.50', p: 1, borderRadius: 0.5, mb: 1 }}>
+          <Box
+            data-testid="segment-refine-original-surface"
+            sx={(theme) => ({
+              bgcolor: theme.palette.mode === 'dark'
+                ? theme.palette.background.default
+                : alpha(theme.palette.common.black, 0.025),
+              border: `1px solid ${theme.palette.divider}`,
+              p: 1,
+              borderRadius: 0.5,
+              mb: 1,
+            })}
+          >
             <Typography variant="caption" color="text.secondary" display="block">原文</Typography>
             <Typography variant="body2" sx={{ fontSize: 12 }}>
               {segmentText.length > 100 ? segmentText.slice(0, 100) + '...' : segmentText}
@@ -155,8 +167,17 @@ export function SegmentRefinePanel({ scriptId, segmentText, onApply, modelId, co
           {/* 微调结果 */}
           {refined && (
             <Box sx={{ mt: 1.5 }}>
-              <Box sx={{ bgcolor: 'success.50', border: '1px solid', borderColor: 'success.light', borderRadius: 0.5, p: 1 }}>
-                <Typography variant="caption" color="success.dark" display="block" fontWeight={600} sx={{ mb: 0.5 }}>
+              <Box
+                data-testid="segment-refine-result-surface"
+                sx={(theme) => ({
+                  bgcolor: alpha(theme.palette.success.main, theme.palette.mode === 'dark' ? 0.18 : 0.08),
+                  border: '1px solid',
+                  borderColor: alpha(theme.palette.success.main, theme.palette.mode === 'dark' ? 0.5 : 0.28),
+                  borderRadius: 0.5,
+                  p: 1,
+                })}
+              >
+                <Typography variant="caption" color="success.main" display="block" fontWeight={600} sx={{ mb: 0.5 }}>
                   微调结果
                 </Typography>
                 <Typography variant="body2" sx={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 话术使用日志（效果归因反哺评分）
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "script_usage_log")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class ScriptUsageLog {
 
     @Id

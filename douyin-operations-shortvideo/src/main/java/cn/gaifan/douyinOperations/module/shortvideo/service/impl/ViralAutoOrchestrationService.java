@@ -7,7 +7,7 @@ import cn.gaifan.douyinOperations.module.shortvideo.repository.SvViralVideoRepos
 import cn.gaifan.douyinOperations.module.shortvideo.service.PersonaViralFusionService;
 import cn.gaifan.douyinOperations.module.shortvideo.service.SvContentCalendarService;
 import cn.gaifan.douyinOperations.module.shortvideo.service.ViralRemakeService;
-import cn.gaifan.douyinOperations.module.shortvideo.service.ViralVideoDeepAnalysisService;
+import cn.gaifan.douyinOperations.module.shortvideo.integration.VideoInsightIntegrationBridge;
 import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +41,7 @@ public class ViralAutoOrchestrationService {
     private SvViralVideoRepository viralVideoRepository;
 
     @Autowired(required = false)
-    private ViralVideoDeepAnalysisService deepAnalysisService;
+    private VideoInsightIntegrationBridge videoInsightIntegrationBridge;
 
     @Autowired(required = false)
     private PersonaViralFusionService personaFusionService;
@@ -101,7 +101,7 @@ public class ViralAutoOrchestrationService {
                     }
                 }
                 // 2. 深度分析：仅当 deep_analyze_status=completed 后才进入推荐，避免「已提交异步深度却立刻 recommend」竞态
-                if (deepAnalysisService != null) {
+                if (videoInsightIntegrationBridge != null) {
                     SvViralVideo deepState = viralVideoRepository.findById(viral.getId()).orElse(null);
                     if (deepState == null) {
                         continue;
@@ -113,7 +113,8 @@ public class ViralAutoOrchestrationService {
                             continue;
                         }
                         try {
-                            deepAnalysisService.startDeepAnalyze(viral.getId(), SYSTEM_USER_ID);
+                            videoInsightIntegrationBridge.requestDeepAnalyzeFromShortvideo(
+                                    viral.getId(), SYSTEM_USER_ID, null, "auto-orch-" + viral.getId());
                             analyzed++;
                             log.debug("[自动编排] viralId={} 已提交/重试深度分析（status={}）", viral.getId(), ds);
                         } catch (Exception e) {

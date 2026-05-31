@@ -1,19 +1,55 @@
+import { alpha, type Theme } from '@mui/material/styles'
+
 /** 直播话术构建页共享常量 */
 
+export type ProductTypeTone = 'error' | 'warning' | 'success' | 'info' | 'default'
+
+export const PRODUCT_TYPE_COLOR_TONES = {
+  hot: 'error',
+  control: 'warning',
+  profit: 'success',
+  loss: 'info',
+  flat: 'default',
+} as const satisfies Record<string, ProductTypeTone>
+
+export const PRODUCT_TYPE_COLOR_MAP: Record<string, { tone: ProductTypeTone; active: string; soft: string }> = {
+  hot: { tone: PRODUCT_TYPE_COLOR_TONES.hot, active: 'error.main', soft: 'error.soft' },
+  control: { tone: PRODUCT_TYPE_COLOR_TONES.control, active: 'warning.main', soft: 'warning.soft' },
+  profit: { tone: PRODUCT_TYPE_COLOR_TONES.profit, active: 'success.main', soft: 'success.soft' },
+  loss: { tone: PRODUCT_TYPE_COLOR_TONES.loss, active: 'info.main', soft: 'info.soft' },
+  flat: { tone: PRODUCT_TYPE_COLOR_TONES.flat, active: 'text.secondary', soft: 'action.hover' },
+}
+
 export const PRODUCT_TYPE_OPTIONS = [
-  { value: 'hot',     label: '爆品',   color: 'error'   as const, hint: '深度讲解 2-5 分钟' },
-  { value: 'control', label: '控单品', color: 'warning' as const, hint: '控单憋单 90-150 秒' },
-  { value: 'profit',  label: '利润品', color: 'success' as const, hint: '重点推介 60-90 秒' },
-  { value: 'loss',    label: '亏品',   color: 'info'   as const, hint: '快速过品 30-60 秒' },
-  { value: 'flat',    label: '平价品', color: 'default' as const, hint: '标准话术 45-75 秒' },
+  { value: 'hot',     label: '爆品',   color: PRODUCT_TYPE_COLOR_TONES.hot,     hint: '深度讲解 2-5 分钟' },
+  { value: 'control', label: '控单品', color: PRODUCT_TYPE_COLOR_TONES.control, hint: '控单憋单 90-150 秒' },
+  { value: 'profit',  label: '利润品', color: PRODUCT_TYPE_COLOR_TONES.profit,  hint: '重点推介 60-90 秒' },
+  { value: 'loss',    label: '亏品',   color: PRODUCT_TYPE_COLOR_TONES.loss,    hint: '快速过品 30-60 秒' },
+  { value: 'flat',    label: '平价品', color: PRODUCT_TYPE_COLOR_TONES.flat,    hint: '标准话术 45-75 秒' },
 ]
 
-export const PRODUCT_TYPE_COLOR_MAP: Record<string, string> = {
-  hot: '#ef5350',
-  control: '#ff9800',
-  profit: '#66bb6a',
-  loss: '#42a5f5',
-  flat: '#9e9e9e',
+export function getProductTypeThemeColor(
+  theme: Theme,
+  productType: string | undefined,
+  variant: 'main' | 'soft' | 'contrast' = 'main',
+): string {
+  const tone = PRODUCT_TYPE_COLOR_TONES[productType as keyof typeof PRODUCT_TYPE_COLOR_TONES] ?? PRODUCT_TYPE_COLOR_TONES.flat
+  if (tone === 'default') {
+    if (variant === 'soft') {
+      return theme.palette.mode === 'dark'
+        ? alpha(theme.palette.common.white, 0.08)
+        : theme.palette.action.hover
+    }
+    if (variant === 'contrast') return theme.palette.text.primary
+    return theme.palette.text.secondary
+  }
+
+  const palette = theme.palette[tone]
+  if (variant === 'soft') {
+    return alpha(palette.main, theme.palette.mode === 'dark' ? 0.22 : 0.12)
+  }
+  if (variant === 'contrast') return palette.contrastText
+  return theme.palette.mode === 'dark' ? palette.light : palette.main
 }
 
 export const PRODUCT_TYPE_DURATION_MAP: Record<string, number> = {

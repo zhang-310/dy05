@@ -138,5 +138,57 @@ class SvProjectServiceImplTest {
             assertThat(id).isEqualTo(200L);
             verify(projectRepository).save(argThat(p -> "新项目".equals(p.getTitle())));
         }
+
+        @Test
+        @DisplayName("save_existingPartial_shouldPreserveWorkflowLinks")
+        void save_existingPartial_shouldPreserveWorkflowLinks() {
+            sampleProject.setScriptId(11L);
+            sampleProject.setShotListId(22L);
+            sampleProject.setFinalVideoUrl("https://cdn.example.com/old.mp4");
+            sampleProject.setThumbnailUrl("https://cdn.example.com/cover.jpg");
+            sampleProject.setDuration(30);
+            sampleProject.setRelatedProductIds(List.of(7L));
+
+            SvProjectSaveVO vo = new SvProjectSaveVO();
+            vo.setId(TEST_PROJECT_ID);
+            vo.setTitle("测试项目");
+            vo.setProjectType("short_video");
+            vo.setFinalVideoUrl("https://cdn.example.com/final.mp4");
+
+            when(projectRepository.findById(TEST_PROJECT_ID)).thenReturn(Optional.of(sampleProject));
+            when(projectRepository.save(any(SvProject.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Long id = svProjectService.save(vo, TEST_OWNER_ID);
+
+            assertThat(id).isEqualTo(TEST_PROJECT_ID);
+            verify(projectRepository).save(argThat(p ->
+                    p.getScriptId().equals(11L)
+                            && p.getShotListId().equals(22L)
+                            && p.getFinalVideoUrl().equals("https://cdn.example.com/final.mp4")
+                            && p.getThumbnailUrl().equals("https://cdn.example.com/cover.jpg")
+                            && p.getDuration().equals(30)
+                            && p.getRelatedProductIds().equals(List.of(7L))
+            ));
+        }
+
+        @Test
+        @DisplayName("save_newWithRelatedProducts_shouldPersistProductIds")
+        void save_newWithRelatedProducts_shouldPersistProductIds() {
+            SvProjectSaveVO vo = new SvProjectSaveVO();
+            vo.setTitle("商品短视频");
+            vo.setProjectType("soft_ad");
+            vo.setRelatedProductIds(List.of(7L, 8L));
+
+            when(projectRepository.save(any(SvProject.class))).thenAnswer(inv -> {
+                SvProject p = inv.getArgument(0);
+                p.setId(201L);
+                return p;
+            });
+
+            Long id = svProjectService.save(vo, TEST_OWNER_ID);
+
+            assertThat(id).isEqualTo(201L);
+            verify(projectRepository).save(argThat(p -> p.getRelatedProductIds().equals(List.of(7L, 8L))));
+        }
     }
 }

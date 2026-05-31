@@ -1,7 +1,11 @@
 package cn.gaifan.douyinOperations.module.system.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.type.SqlTypes;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -10,10 +14,12 @@ import java.sql.Timestamp;
  * 外部 API 配置表
  * 与 V007 migration 中 external_api_config 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "external_api_config")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class ExternalApiConfig {
 
     @Id
@@ -81,6 +87,7 @@ public class ExternalApiConfig {
     private Float successRatePct;
 
     /** 扩展配置 JSON */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "extra_config", columnDefinition = "jsonb")
     private String extraConfig;
 

@@ -190,31 +190,87 @@ public class DouyinCookieServiceImpl implements DouyinCookieService {
 
     @Override
     public String getAvailableCookie(Long ownerId, String platform) {
+        return getAvailableCookie(ownerId, platform, null);
+    }
+
+    @Override
+    public String getAvailableCookie(Long ownerId, String platform, Long preferredCookieId) {
+        AvailableCookie cookie = getAvailableCookieForUse(ownerId, platform, preferredCookieId);
+        return cookie != null ? cookie.cookieValue() : null;
+    }
+
+    @Override
+    @Transactional
+    public AvailableCookie getAvailableCookieForUse(Long ownerId, String platform, Long preferredCookieId) {
+        if (preferredCookieId != null) {
+            DouyinCookie preferred = cookieRepository.findById(preferredCookieId).orElse(null);
+            if (preferred != null
+                    && ownerId.equals(preferred.getOwnerId())
+                    && (preferred.getDeleted() == null || preferred.getDeleted() == 0)
+                    && platform.equals(preferred.getPlatform())
+                    && Boolean.TRUE.equals(preferred.getIsValid())) {
+                return useCookie(preferred);
+            }
+            log.warn("指定抖音 Cookie 不可用或已失效: ownerId={}, platform={}, cookieId={}",
+                    ownerId, platform, preferredCookieId);
+            return null;
+        }
+
         List<DouyinCookie> cookies = cookieRepository.findByOwnerIdAndPlatformAndIsValid(
                 ownerId, platform, true
         );
-        // 无「已标记有效」记录时，仍允许用该平台任意一条（含弱校验保存后未过验证的），否则 Playwright 采集永远拿不到库内 Cookie
-        if (cookies.isEmpty()) {
-            cookies = cookieRepository.findByOwnerIdAndPlatform(ownerId, platform);
-        }
         if (cookies.isEmpty()) {
             return null;
         }
 
         DouyinCookie selectedCookie = cookies.stream()
-                .min((c1, c2) -> Integer.compare(c1.getUsageCount(), c2.getUsageCount()))
+                .min((c1, c2) -> Integer.compare(
+                        c1.getUsageCount() == null ? 0 : c1.getUsageCount(),
+                        c2.getUsageCount() == null ? 0 : c2.getUsageCount()))
                 .orElse(cookies.get(0));
 
-        selectedCookie.setUsageCount(selectedCookie.getUsageCount() + 1);
+        return useCookie(selectedCookie);
+    }
+
+    private AvailableCookie useCookie(DouyinCookie selectedCookie) {
+        selectedCookie.setUsageCount((selectedCookie.getUsageCount() == null ? 0 : selectedCookie.getUsageCount()) + 1);
         selectedCookie.setLastUsedTime(LocalDateTime.now());
         cookieRepository.save(selectedCookie);
-
         try {
-            return decrypt(selectedCookie.getCookieValue());
+            return new AvailableCookie(selectedCookie.getId(), decrypt(selectedCookie.getCookieValue()));
         } catch (Exception e) {
             log.error("Cookie解密失败: {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    @Override
+    @Transactional
+    public void markUnavailable(Long id, Long ownerId, String platform, String reason) {
+        if (id == null || ownerId == null || !StringUtils.hasText(platform)) {
+            return;
+        }
+        DouyinCookie cookie = cookieRepository.findById(id).orElse(null);
+        if (cookie == null
+                || !ownerId.equals(cookie.getOwnerId())
+                || !platform.equals(cookie.getPlatform())
+                || (cookie.getDeleted() != null && cookie.getDeleted() != 0)) {
+            log.warn("标记 Cookie 失效被跳过: ownerId={}, platform={}, cookieId={}", ownerId, platform, id);
+            return;
+        }
+        String finalReason = StringUtils.hasText(reason) ? reason.trim() : "采集时检测到 Cookie 不可用";
+        if (finalReason.length() > 500) {
+            finalReason = finalReason.substring(0, 500);
+        }
+        cookie.setIsValid(false);
+        cookie.setCheckStatus("blocked");
+        cookie.setLastCheckTime(LocalDateTime.now());
+        String oldNotes = cookie.getNotes();
+        String newNote = "[" + LocalDateTime.now() + "] " + finalReason;
+        cookie.setNotes(StringUtils.hasText(oldNotes) ? oldNotes + "\n" + newNote : newNote);
+        cookieRepository.save(cookie);
+        log.warn("抖音 Cookie 已标记为不可用: ownerId={}, platform={}, cookieId={}, reason={}",
+                ownerId, platform, id, finalReason);
     }
 
     /**

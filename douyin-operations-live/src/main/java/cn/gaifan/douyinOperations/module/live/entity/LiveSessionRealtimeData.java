@@ -2,7 +2,8 @@ package cn.gaifan.douyinOperations.module.live.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
@@ -18,7 +19,8 @@ import java.time.LocalDateTime;
     @Index(name = "idx_live_session_realtime_data_session_id", columnList = "live_session_id")
 })
 @SQLRestriction("deleted = 0")
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class LiveSessionRealtimeData {

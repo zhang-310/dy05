@@ -144,7 +144,9 @@ public class DanmakuAnalysisServiceImpl implements DanmakuAnalysisService {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> cachedResult = objectMapper.readValue(cached, Map.class);
                     return cachedResult;
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // 缓存反序列化失败，重新分析
+                }
             }
         }
 
@@ -156,7 +158,9 @@ public class DanmakuAnalysisServiceImpl implements DanmakuAnalysisService {
             try {
                 String json = objectMapper.writeValueAsString(result);
                 redisTemplate.opsForValue().set(cacheKey, json, Duration.ofSeconds(60));
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // 缓存写入失败，不影响返回结果
+            }
         }
 
         return result;

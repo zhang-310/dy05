@@ -128,7 +128,22 @@ public class KnowledgeEvolutionServiceImpl implements KnowledgeEvolutionService 
 
         Map<String, Object> results = new HashMap<>();
         results.put("executionId", "exec_" + System.currentTimeMillis());
+        if (ruleEngineService == null) {
+            log.warn("EvolutionRuleEngineService 未注入，跳过自动优化");
+            results.put("status", "DEGRADED");
+            results.put("degraded", true);
+            results.put("results", Map.of());
+            results.put("summary", Map.of(
+                    "totalProcessed", 0,
+                    "qualityImprovement", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                    "estimatedUserBenefit", "规则引擎未启用，本次未执行任何优化动作"
+            ));
+            results.put("executedAt", LocalDate.now().format(DATE_FORMATTER));
+            return results;
+        }
+
         results.put("status", "COMPLETED");
+        results.put("degraded", false);
 
         Map<String, Map<String, Object>> execResults = new HashMap<>();
 

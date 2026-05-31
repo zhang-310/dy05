@@ -6,6 +6,7 @@ import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.ai.entity.AiKnowledgeBase;
 import cn.gaifan.douyinOperations.module.ai.repository.AiKnowledgeBaseRepository;
 import cn.gaifan.douyinOperations.module.ai.service.EvolutionDashboardService;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.douyinapi.client.DouyinApiClient;
 import cn.gaifan.douyinOperations.module.douyinapi.service.OAuthTokenService;
 import cn.gaifan.douyinOperations.module.douyin.entity.DouyinAccount;
@@ -15,22 +16,22 @@ import cn.gaifan.douyinOperations.module.shortvideo.entity.SvViralVideo;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvAccountCollectTaskRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvViralVideoRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.service.AccountVideoCollectService;
-import cn.gaifan.douyinOperations.module.shortvideo.service.ViralVideoDeepAnalysisService;
+import cn.gaifan.douyinOperations.module.shortvideo.integration.VideoInsightIntegrationBridge;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectTaskSaveVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectTaskSearchVO;
 import cn.gaifan.douyinOperations.module.shortvideo.vo.AccountCollectTaskVO;
 import jakarta.persistence.criteria.Predicate;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriUtils;
 
@@ -71,7 +72,7 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
     private AccountVideoScraper accountVideoScraper;
 
     @Autowired(required = false)
-    private ViralVideoDeepAnalysisService deepAnalysisService;
+    private VideoInsightIntegrationBridge videoInsightIntegrationBridge;
 
     @Autowired(required = false)
     private EvolutionDashboardService evolutionDashboardService;
@@ -83,13 +84,28 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
     private VideoBreakdownKbFormatter kbFormatter;
 
     @Autowired(required = false)
+    private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
+
+    @Autowired(required = false)
+    private ViralPatternKnowledgeFormatter viralPatternKnowledgeFormatter;
+
+    @Autowired(required = false)
     private cn.gaifan.douyinOperations.module.shortvideo.service.SvAccountService svAccountService;
 
     @Autowired
-    private AccountCollectAsyncRunner asyncRunner;
+    private ObjectProvider<AccountCollectAsyncRunner> asyncRunnerProvider;
 
     @Autowired
     private DouyinUrlResolver douyinUrlResolver;
+
+    @Value("${app.shortvideo.account-collect.dispatch-immediately:false}")
+    private boolean dispatchImmediately;
+
+    @Value("${app.shortvideo.account-collect.default-max-count:100}")
+    private int defaultMaxCount;
+
+    @Value("${app.shortvideo.account-collect.hard-max-count:500}")
+    private int hardMaxCount;
 
     // ─── 阶段一：采集列表 ──────────────────────────────────────
 
@@ -177,6 +193,7 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         task.setOriginalInput(rawInput.length() > 1024 ? rawInput.substring(0, 1024) : rawInput);
         task.setInputType(resolved.inputType());
         task.setStatus("pending");
+        task.setMaxCount(resolveMaxCount(vo.getMaxCount()));
 
         if (StringUtils.hasText(resolved.accountUrl())) {
             task.setAccountUrl(resolved.accountUrl());
@@ -206,8 +223,7 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         log.info("账号采集任务已创建: taskId={}, inputType={}, accountUrl={}",
                 task.getId(), resolved.inputType(), task.getAccountUrl());
 
-        // 必须在事务提交后再异步执行，否则子线程 findById 可能读不到未提交行，任务会永远停在 pending
-        scheduleRunCollectAfterCommit(task.getId(), userId);
+        maybeDispatchImmediately(task.getId(), userId);
 
         return toVO(task);
     }
@@ -236,7 +252,7 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         task.setIndexedVideos(0);
         taskRepository.save(task);
 
-        asyncRunner.runAnalyzeAsync(taskId, viralVideoIds, userId);
+        asyncRunnerProvider.getObject().runAnalyzeAsync(taskId, viralVideoIds, userId);
 
         return toVO(task);
     }
@@ -287,6 +303,8 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         }
         task.setStatus("failed");
         task.setErrorMessage("用户取消");
+        task.setLeaseUntil(null);
+        task.setFinishedAt(new Timestamp(System.currentTimeMillis()));
         taskRepository.save(task);
     }
 
@@ -303,9 +321,16 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         }
         task.setStatus("pending");
         task.setErrorMessage(null);
+        task.setWorkerId(null);
+        task.setWorkerRegion(null);
+        task.setLeaseUntil(null);
+        task.setClaimedAt(null);
+        task.setFinishedAt(null);
+        task.setNextRunAt(new Timestamp(System.currentTimeMillis()));
+        task.setRetryCount(0);
         taskRepository.save(task);
 
-        scheduleRunCollectAfterCommit(task.getId(), userId);
+        maybeDispatchImmediately(task.getId(), userId);
         return toVO(task);
     }
 
@@ -368,22 +393,59 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         } catch (Exception e) {
             log.error("账号采集管线异常: taskId={}", taskId, e);
             try {
-                taskRepository.updateStatus(taskId, "failed", truncateError(e.getMessage()));
-            } catch (Exception ignored) {}
+                handleCollectFailure(taskId, e);
+            } catch (Exception ignored) {
+                // 任务状态更新失败，已记录主异常日志
+            }
         }
     }
 
-    private void scheduleRunCollectAfterCommit(Long taskId, Long userId) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    asyncRunner.runCollectAsync(taskId, userId);
-                }
-            });
-        } else {
-            asyncRunner.runCollectAsync(taskId, userId);
+    private void maybeDispatchImmediately(Long taskId, Long userId) {
+        if (dispatchImmediately) {
+            asyncRunnerProvider.getObject().runCollectAsync(taskId, userId);
         }
+    }
+
+    private void handleCollectFailure(Long taskId, Exception e) {
+        String msg = truncateError(e.getMessage());
+        SvAccountCollectTask task = taskRepository.findById(taskId).orElse(null);
+        if (task == null) {
+            return;
+        }
+        int retryCount = task.getRetryCount() == null ? 0 : task.getRetryCount();
+        int maxRetryCount = task.getMaxRetryCount() == null ? 3 : task.getMaxRetryCount();
+        if ("failed".equals(task.getStatus()) && "用户取消".equals(task.getErrorMessage())) {
+            log.info("账号采集任务已被用户取消，不再重试: taskId={}", taskId);
+            return;
+        }
+        if (isNonRetryableCollectFailure(msg)) {
+            taskRepository.markFailedTerminal(taskId, truncateError("采集失败且不可自动重试: " + msg));
+            log.warn("账号采集任务遇到不可重试错误，已终止: taskId={}, error={}", taskId, msg);
+            return;
+        }
+        if (retryCount < maxRetryCount) {
+            long backoffSeconds = Math.min(3600L, (long) Math.pow(2, retryCount) * 60L);
+            Timestamp nextRunAt = new Timestamp(System.currentTimeMillis() + backoffSeconds * 1000L);
+            taskRepository.releaseForRetry(taskId, nextRunAt,
+                    truncateError("采集失败，已等待重试(" + (retryCount + 1) + "/" + maxRetryCount + "): " + msg));
+            log.warn("账号采集任务将退避重试: taskId={}, retry={}/{}, nextRunAt={}",
+                    taskId, retryCount + 1, maxRetryCount, nextRunAt);
+            return;
+        }
+        taskRepository.markFailedTerminal(taskId,
+                truncateError("采集失败且已达到最大重试次数(" + maxRetryCount + "): " + msg));
+    }
+
+    private boolean isNonRetryableCollectFailure(String msg) {
+        if (!StringUtils.hasText(msg)) {
+            return false;
+        }
+        return msg.contains("未找到有效抖音 Cookie")
+                || msg.contains("请更新有效 Cookie")
+                || msg.contains("登录/安全验证/风控页")
+                || msg.contains("验证码")
+                || msg.contains("安全验证")
+                || msg.toLowerCase(Locale.ROOT).contains("captcha");
     }
 
     private void doRunCollectPipeline(Long taskId, Long userId) {
@@ -402,6 +464,11 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         }
 
         List<VideoInfo> videoInfos = collectVideoList(task, userId);
+        if (isTaskCancelled(taskId)) {
+            log.info("账号采集任务已取消，停止写入结果: taskId={}", taskId);
+            return;
+        }
+        videoInfos = applyMaxCount(videoInfos, task.getMaxCount());
 
         if (videoInfos.isEmpty()) {
             boolean anyChannelAvailable = isAnyCollectChannelAvailable(task, userId);
@@ -423,6 +490,24 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
         taskRepository.save(task);
 
         log.info("账号视频列表采集完成，等待用户选择: taskId={}, total={}", taskId, videoInfos.size());
+    }
+
+    private int resolveMaxCount(Integer requested) {
+        int fallback = defaultMaxCount > 0 ? defaultMaxCount : 100;
+        int hardLimit = hardMaxCount > 0 ? hardMaxCount : 500;
+        int value = requested != null && requested > 0 ? requested : fallback;
+        return Math.max(1, Math.min(value, hardLimit));
+    }
+
+    private List<VideoInfo> applyMaxCount(List<VideoInfo> videos, Integer maxCount) {
+        if (videos == null || videos.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int limit = maxCount != null && maxCount > 0 ? Math.min(maxCount, videos.size()) : videos.size();
+        if (limit >= videos.size()) {
+            return videos;
+        }
+        return new ArrayList<>(videos.subList(0, limit));
     }
 
     private void handleSingleVideoFallback(SvAccountCollectTask task, Long taskId, Long userId) {
@@ -461,7 +546,9 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
             log.error("视频分析管线异常: taskId={}", taskId, e);
             try {
                 taskRepository.updateStatus(taskId, "failed", truncateError(e.getMessage()));
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // 任务状态更新失败，已记录主异常日志
+            }
         }
     }
 
@@ -622,6 +709,7 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
                 }
             } catch (Exception e) {
                 log.error("Playwright 采集失败: {}", e.getMessage(), e);
+                throw new BusinessException(ErrorCode.SYNC_FAILED, "Playwright 采集失败: " + e.getMessage());
             }
         }
 
@@ -720,8 +808,8 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
      * 实际分析结果可通过爆款库 /viral/deep-analyze/status 或 SSE 查看。
      */
     private void analyzeVideos(List<SvViralVideo> videos, Long taskId, Long userId) {
-        if (deepAnalysisService == null) {
-            log.warn("ViralVideoDeepAnalysisService 不可用，跳过深度分析");
+        if (videoInsightIntegrationBridge == null) {
+            log.warn("VideoInsightIntegrationBridge 不可用，跳过深度分析");
             return;
         }
         for (SvViralVideo viral : videos) {
@@ -734,7 +822,8 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
                 continue;
             }
             try {
-                deepAnalysisService.startDeepAnalyze(viral.getId(), userId);
+                videoInsightIntegrationBridge.requestDeepAnalyzeFromShortvideo(
+                        viral.getId(), userId, null, "collect-task-" + taskId + "-" + viral.getId());
                 // 触发即计入，无需阻塞等待完成
                 taskRepository.incrementAnalyzedVideos(taskId);
                 log.debug("已发起深度分析 viralId={}", viral.getId());
@@ -793,11 +882,32 @@ public class AccountVideoCollectServiceImpl implements AccountVideoCollectServic
                 String content = kbFormatter.format(latest);
                 evolutionDashboardService.enqueueIndex(
                         "account_video_breakdown", latest.getId(), content, 3, targetKbId);
+                writeViralPatternKnowledge(latest, content, userId);
                 taskRepository.incrementIndexedVideos(taskId);
                 log.debug("视频拆解已入队知识库: viralId={}", latest.getId());
             } catch (Exception e) {
                 log.warn("入库知识库失败 viralId={}: {}", latest.getId(), e.getMessage());
             }
+        }
+    }
+
+    private void writeViralPatternKnowledge(SvViralVideo viral, String breakdownContent, Long userId) {
+        if (operationalStrategyKnowledgeService == null || viralPatternKnowledgeFormatter == null
+                || viral == null || userId == null || userId <= 0
+                || !StringUtils.hasText(breakdownContent)) {
+            return;
+        }
+        try {
+            ViralPatternKnowledgeFormatter.PatternDocument doc = viralPatternKnowledgeFormatter.build(
+                    viral, "account_collect", breakdownContent);
+            operationalStrategyKnowledgeService.writeViralPatternKnowledge(
+                    userId,
+                    doc.title(),
+                    doc.content(),
+                    doc.metadata()
+            );
+        } catch (Exception e) {
+            log.debug("爆款模式知识库沉淀跳过 viralId={}, err={}", viral.getId(), e.getMessage());
         }
     }
 

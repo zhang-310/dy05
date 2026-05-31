@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.sql.Date;
 import java.sql.Timestamp;
+import java.util.List;
 
 /**
  * 短视频项目 VO
@@ -27,6 +28,7 @@ public class SvProjectVO {
     private String characterReferenceUrl;
     private String sceneReferenceUrl;
     private Integer duration;
+    private List<Long> relatedProductIds;
     private String publishTitle;
     private String publishPlatforms;
     private Timestamp publishTime;

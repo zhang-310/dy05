@@ -16,27 +16,33 @@ describe('config API', () => {
   })
 
   it('list posts config query payload', async () => {
-    mockPost.mockResolvedValue({ total: 0, list: [] })
-    await configApi.list({ page: 0, rows: 20, configKey: 'APP_TOKEN_SECRET' })
+    mockPost.mockResolvedValue({ data: { records: [{ id: 1, configKey: 'APP_TOKEN_SECRET' }], totalElements: 3 } })
+    const res = await configApi.list({ page: 0, rows: 20, configKey: 'APP_TOKEN_SECRET' })
     expect(mockPost).toHaveBeenCalledWith('/config/list', {
       page: 0,
       rows: 20,
       configKey: 'APP_TOKEN_SECRET',
     })
+    expect(res.total).toBe(3)
+    expect(res.list[0]).toEqual(expect.objectContaining({ configKey: 'APP_TOKEN_SECRET' }))
   })
 
-  it('get posts config id payload', async () => {
+  it('get posts config key payload', async () => {
     mockPost.mockResolvedValue({ id: 1 })
-    await configApi.get(1)
-    expect(mockPost).toHaveBeenCalledWith('/config/get', { id: 1 })
+    await configApi.get('feature.enabled')
+    expect(mockPost).toHaveBeenCalledWith('/config/get', { key: 'feature.enabled' })
   })
 
   it('save posts config save payload', async () => {
     mockPost.mockResolvedValue(undefined)
-    await configApi.save({ configKey: 'feature.enabled', configValue: 'true' })
+    await configApi.save({ configKey: 'feature.enabled', configValue: 'true', configName: '功能开关', configType: 'feature', valueType: 'boolean', isSensitive: 0 })
     expect(mockPost).toHaveBeenCalledWith('/config/save', {
       configKey: 'feature.enabled',
       configValue: 'true',
+      configName: '功能开关',
+      configType: 'feature',
+      valueType: 'boolean',
+      isSensitive: 0,
     })
   })
 })

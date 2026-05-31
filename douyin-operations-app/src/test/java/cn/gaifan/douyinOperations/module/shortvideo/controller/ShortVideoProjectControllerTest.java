@@ -24,6 +24,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -75,6 +76,33 @@ class ShortVideoProjectControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data.total").value(10));
+    }
+
+    @Test
+    @DisplayName("普通用户项目列表 - 应只传入当前用户可见 ownerId")
+    void list_userScope_shouldUseVisibleOwnerIds() throws Exception {
+        SvProjectSearchVO vo = new SvProjectSearchVO();
+        vo.setPage(0);
+        vo.setRows(8);
+
+        PageResultVO<SvProjectVO> pageResult = new PageResultVO<>();
+        pageResult.setTotal(1L);
+        pageResult.setList(List.of());
+
+        when(dataScopeService.getVisibleUserIds(eq(9L), eq("user"))).thenReturn(List.of(9L));
+        when(projectService.search(any(), eq(9L), eq(List.of(9L)))).thenReturn(pageResult);
+
+        mockMvc.perform(post("/api/v1/short-video/project/list")
+                        .requestAttr("userId", 9L)
+                        .requestAttr("roleCode", "user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(vo)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.total").value(1));
+
+        verify(dataScopeService).getVisibleUserIds(9L, "user");
+        verify(projectService).search(any(SvProjectSearchVO.class), eq(9L), eq(List.of(9L)));
     }
 
     @Test

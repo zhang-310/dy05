@@ -6,6 +6,7 @@ import {
   CardContent,
   Typography,
   Button,
+  Alert,
   Grid,
   TextField,
   MenuItem,
@@ -15,20 +16,40 @@ import {
   ListItem,
   ListItemText,
   Divider,
+  Stack,
   Tab,
   Tabs,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   Search as SearchIcon,
   AutoAwesome as AutoAwesomeIcon,
   TrendingUp as TrendingUpIcon,
   Schedule as ScheduleIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import { useSnackbar } from 'notistack';
-import { PageHeader } from '@/components/base/PageHeader';
+import { PageHeader, ErrorAlert } from '@/components/base';
 import { benchmarkScriptRecommendationApi } from '@/api/benchmark';
+import { shortvideoBenchmarkQualityScriptPath } from '@/constants/shortvideoRoutes';
 import type { BenchmarkScriptSimilarityVO, SmartRecommendVO } from '@/types/benchmark';
+
+const RECOMMENDATION_ROUTE = '/admin/shortvideo/benchmark/recommendation';
+const RECOMMENDATION_ENDPOINTS = {
+  requirement: '/benchmark/script-recommendation/recommend-by-requirement',
+  smart: '/benchmark/script-recommendation/smart-recommend',
+  popular: '/benchmark/script-recommendation/get-popular-scripts',
+  latest: '/benchmark/script-recommendation/get-latest-quality-scripts',
+} as const;
+
+const RECOMMENDATION_READY_ENDPOINTS = Object.values(RECOMMENDATION_ENDPOINTS).join('|');
+const RECOMMENDATION_UNSUPPORTED_ENDPOINTS = [
+  '/benchmark/script-recommendation/mock',
+  '/benchmark/script-recommendation/local-list',
+  '/benchmark/script-recommendation/static-scripts',
+  '/benchmark/script-recommendation/local-vector-search',
+].join('|');
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -45,6 +66,19 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
+function errorText(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function requirementContext(requirement: string, topK = 10) {
+  return `route=${RECOMMENDATION_ROUTE}; endpoint=${RECOMMENDATION_ENDPOINTS.requirement}; requirementLength=${requirement.trim().length}; topK=${topK}`;
+}
+
+function smartContext(filters: SmartRecommendVO) {
+  const f = filters.filters ?? {};
+  return `route=${RECOMMENDATION_ROUTE}; endpoint=${RECOMMENDATION_ENDPOINTS.smart}; industry=${f.industry || '全部'}; sceneType=${f.sceneType || '全部'}; scriptType=${f.scriptType || '全部'}; minQualityScore=${f.minQualityScore ?? '未设置'}; referenceTextLength=${filters.referenceText?.trim().length ?? 0}; topK=${filters.topK ?? 10}`;
+}
+
 export default function BenchmarkScriptRecommendationPage() {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
@@ -53,6 +87,8 @@ export default function BenchmarkScriptRecommendationPage() {
   // 需求推荐
   const [requirement, setRequirement] = useState('');
   const [requirementResults, setRequirementResults] = useState<BenchmarkScriptSimilarityVO[]>([]);
+  const [requirementError, setRequirementError] = useState('');
+  const [requirementLoading, setRequirementLoading] = useState(false);
 
   // 智能推荐
   const [smartFilters, setSmartFilters] = useState<SmartRecommendVO>({
@@ -66,15 +102,27 @@ export default function BenchmarkScriptRecommendationPage() {
     topK: 10,
   });
   const [smartResults, setSmartResults] = useState<BenchmarkScriptSimilarityVO[]>([]);
+  const [smartError, setSmartError] = useState('');
+  const [smartLoading, setSmartLoading] = useState(false);
 
-  // 热门脚本
-  const { data: popularScripts } = useQuery({
+  const {
+    data: popularScripts,
+    isFetching: popularFetching,
+    isError: popularIsError,
+    error: popularError,
+    refetch: refetchPopular,
+  } = useQuery({
     queryKey: ['popularScripts'],
     queryFn: () => benchmarkScriptRecommendationApi.getPopularScripts(10),
   });
 
-  // 最新高质量脚本
-  const { data: latestScripts } = useQuery({
+  const {
+    data: latestScripts,
+    isFetching: latestFetching,
+    isError: latestIsError,
+    error: latestError,
+    refetch: refetchLatest,
+  } = useQuery({
     queryKey: ['latestQualityScripts'],
     queryFn: () => benchmarkScriptRecommendationApi.getLatestQualityScripts(10, 70),
   });
@@ -86,6 +134,8 @@ export default function BenchmarkScriptRecommendationPage() {
     }
 
     try {
+      setRequirementLoading(true);
+      setRequirementError('');
       const results = await benchmarkScriptRecommendationApi.recommendByRequirement({
         requirement,
         topK: 10,
@@ -93,31 +143,54 @@ export default function BenchmarkScriptRecommendationPage() {
       setRequirementResults(results);
       enqueueSnackbar(`找到 ${results.length} 个推荐脚本`, { variant: 'success' });
     } catch (error) {
+      const message = errorText(error, '推荐失败，请检查向量嵌入、Milvus 索引或质量脚本库是否为空。');
+      setRequirementError(`${message}（${requirementContext(requirement)}）`);
       enqueueSnackbar('推荐失败', { variant: 'error' });
+    } finally {
+      setRequirementLoading(false);
     }
   };
 
   const handleSmartRecommend = async () => {
     try {
+      setSmartLoading(true);
+      setSmartError('');
       const results = await benchmarkScriptRecommendationApi.smartRecommend(smartFilters);
       setSmartResults(results);
       enqueueSnackbar(`找到 ${results.length} 个推荐脚本`, { variant: 'success' });
     } catch (error) {
+      const message = errorText(error, '智能推荐失败，请检查筛选条件、向量索引和质量脚本库。');
+      setSmartError(`${message}（${smartContext(smartFilters)}）`);
       enqueueSnackbar('推荐失败', { variant: 'error' });
+    } finally {
+      setSmartLoading(false);
     }
   };
 
-  const renderScriptList = (scripts: BenchmarkScriptSimilarityVO[] | undefined) => {
+  const renderScriptList = (scripts: BenchmarkScriptSimilarityVO[] | undefined, loading = false) => {
     if (!scripts || scripts.length === 0) {
       return (
-        <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
-          暂无推荐结果
+        <Typography
+          data-testid="benchmark-recommendation-empty"
+          data-no-static-script-fallback="true"
+          variant="body2"
+          color="text.secondary"
+          align="center"
+          sx={{ py: 4 }}
+        >
+          {loading ? '正在读取推荐结果...' : '暂无推荐结果；请确认质量脚本已入库并完成向量嵌入/索引'}
         </Typography>
       );
     }
 
     return (
-      <List>
+      <List
+        data-testid="benchmark-recommendation-result-list"
+        data-contract-scope="benchmark-script-recommendation-real-results"
+        data-ready-endpoints={RECOMMENDATION_READY_ENDPOINTS}
+        data-no-static-script-fallback="true"
+        data-result-count={scripts.length}
+      >
         {scripts.map((script) => (
           <ListItem
             key={script.scriptId}
@@ -129,7 +202,7 @@ export default function BenchmarkScriptRecommendationPage() {
               cursor: 'pointer',
               '&:hover': { bgcolor: 'action.hover' },
             }}
-            onClick={() => navigate(`/benchmark/quality-script/${script.scriptId}`)}
+            onClick={() => navigate(shortvideoBenchmarkQualityScriptPath(script.scriptId))}
           >
             <ListItemText
               primary={
@@ -185,11 +258,65 @@ export default function BenchmarkScriptRecommendationPage() {
     );
   };
 
-  return (
-    <Box sx={{ p: 3 }}>
-      <PageHeader title="脚本推荐引擎" subtitle="基于语义相似度和质量评分的智能推荐" />
+  const popularErrorMessage = `${errorText(popularError, '热门脚本加载失败')}（route=${RECOMMENDATION_ROUTE}; endpoint=${RECOMMENDATION_ENDPOINTS.popular}; topK=10）`;
+  const latestErrorMessage = `${errorText(latestError, '最新高质量脚本加载失败')}（route=${RECOMMENDATION_ROUTE}; endpoint=${RECOMMENDATION_ENDPOINTS.latest}; topK=10; minQualityScore=70）`;
+  const popularCount = popularScripts?.length ?? 0;
+  const latestCount = latestScripts?.length ?? 0;
+  const totalReady = popularCount + latestCount;
 
-      <Card>
+  return (
+    <Box
+      data-testid="benchmark-script-recommendation-page"
+      data-contract-scope="benchmark-script-vector-recommendation"
+      data-ready-endpoints={RECOMMENDATION_READY_ENDPOINTS}
+      data-unsupported-endpoints={RECOMMENDATION_UNSUPPORTED_ENDPOINTS}
+      data-no-local-recommendation-fallback="true"
+      data-no-static-script-fallback="true"
+      data-popular-error={popularIsError ? 'true' : 'false'}
+      data-latest-error={latestIsError ? 'true' : 'false'}
+      sx={{ p: 3 }}
+    >
+      <PageHeader
+        title="脚本推荐引擎"
+        subtitle="基于质量脚本库、向量嵌入和 Milvus 相似检索推荐可复用脚本。"
+        actions={
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={() => {
+              void refetchPopular();
+              void refetchLatest();
+            }}
+            disabled={popularFetching || latestFetching}
+          >
+            刷新
+          </Button>
+        }
+      />
+
+      {(popularIsError || latestIsError) && (
+        <Stack
+          data-testid="benchmark-recommendation-inventory-error"
+          data-no-local-recommendation-fallback="true"
+          data-no-static-script-fallback="true"
+          spacing={1}
+          sx={{ mb: 2 }}
+        >
+          {popularIsError && <ErrorAlert title="热门脚本加载失败" message={popularErrorMessage} onRetry={() => void refetchPopular()} />}
+          {latestIsError && <ErrorAlert title="最新脚本加载失败" message={latestErrorMessage} onRetry={() => void refetchLatest()} />}
+        </Stack>
+      )}
+
+      <Alert severity={totalReady > 0 ? 'info' : 'warning'} variant="outlined" sx={{ mb: 2 }}>
+        当前可直接展示的推荐样本 {totalReady} 条；若为 0，优先检查质量脚本入库、embedding 生成和 Milvus 索引任务。
+      </Alert>
+
+      <Card
+        data-testid="benchmark-recommendation-workbench"
+        data-contract-scope="benchmark-recommendation-tabs"
+        data-ready-endpoints={RECOMMENDATION_READY_ENDPOINTS}
+        data-no-static-script-fallback="true"
+      >
         <CardContent>
           <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
             <Tab icon={<SearchIcon />} label="需求推荐" iconPosition="start" />
@@ -199,7 +326,20 @@ export default function BenchmarkScriptRecommendationPage() {
           </Tabs>
 
           <TabPanel value={tabValue} index={0}>
-            <Paper sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
+            <Paper
+              data-testid="benchmark-requirement-panel-surface"
+              data-contract-scope="benchmark-recommendation-requirement"
+              data-ready-endpoints={RECOMMENDATION_ENDPOINTS.requirement}
+              data-no-local-recommendation-fallback="true"
+              data-input-retained={requirementError ? 'true' : 'false'}
+              sx={(theme) => ({
+                p: 2,
+                mb: 3,
+                bgcolor: theme.palette.mode === 'dark' ? alpha(theme.palette.common.white, 0.04) : alpha(theme.palette.common.black, 0.025),
+                border: '1px solid',
+                borderColor: 'divider',
+              })}
+            >
               <Typography variant="subtitle2" gutterBottom>
                 描述您的需求
               </Typography>
@@ -212,16 +352,34 @@ export default function BenchmarkScriptRecommendationPage() {
                 onChange={(e) => setRequirement(e.target.value)}
                 sx={{ mb: 2 }}
               />
-              <Button variant="contained" startIcon={<SearchIcon />} onClick={handleRequirementSearch}>
-                搜索推荐
+              {requirementError && (
+                <Box data-testid="benchmark-requirement-error" data-input-retained="true" data-no-static-script-fallback="true">
+                  <ErrorAlert title="需求推荐失败" message={requirementError} severity="warning" />
+                </Box>
+              )}
+              <Button variant="contained" startIcon={<SearchIcon />} onClick={handleRequirementSearch} disabled={requirementLoading}>
+                {requirementLoading ? '推荐中...' : '搜索推荐'}
               </Button>
             </Paper>
 
-            {renderScriptList(requirementResults)}
+            {renderScriptList(requirementResults, requirementLoading)}
           </TabPanel>
 
           <TabPanel value={tabValue} index={1}>
-            <Paper sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
+            <Paper
+              data-testid="benchmark-smart-panel-surface"
+              data-contract-scope="benchmark-recommendation-smart"
+              data-ready-endpoints={RECOMMENDATION_ENDPOINTS.smart}
+              data-no-local-recommendation-fallback="true"
+              data-input-retained={smartError ? 'true' : 'false'}
+              sx={(theme) => ({
+                p: 2,
+                mb: 3,
+                bgcolor: theme.palette.mode === 'dark' ? alpha(theme.palette.common.white, 0.04) : alpha(theme.palette.common.black, 0.025),
+                border: '1px solid',
+                borderColor: 'divider',
+              })}
+            >
               <Typography variant="subtitle2" gutterBottom>
                 设置筛选条件
               </Typography>
@@ -304,12 +462,17 @@ export default function BenchmarkScriptRecommendationPage() {
                 sx={{ mb: 2 }}
               />
 
-              <Button variant="contained" startIcon={<AutoAwesomeIcon />} onClick={handleSmartRecommend}>
-                智能推荐
+              {smartError && (
+                <Box data-testid="benchmark-smart-error" data-input-retained="true" data-no-static-script-fallback="true">
+                  <ErrorAlert title="智能推荐失败" message={smartError} severity="warning" />
+                </Box>
+              )}
+              <Button variant="contained" startIcon={<AutoAwesomeIcon />} onClick={handleSmartRecommend} disabled={smartLoading}>
+                {smartLoading ? '推荐中...' : '智能推荐'}
               </Button>
             </Paper>
 
-            {renderScriptList(smartResults)}
+            {renderScriptList(smartResults, smartLoading)}
           </TabPanel>
 
           <TabPanel value={tabValue} index={2}>
@@ -317,7 +480,7 @@ export default function BenchmarkScriptRecommendationPage() {
               基于引用次数和质量评分的热门脚本
             </Typography>
             <Divider sx={{ my: 2 }} />
-            {renderScriptList(popularScripts)}
+            {renderScriptList(popularScripts, popularFetching)}
           </TabPanel>
 
           <TabPanel value={tabValue} index={3}>
@@ -325,7 +488,7 @@ export default function BenchmarkScriptRecommendationPage() {
               最近入库的高质量脚本（质量评分 ≥ 70）
             </Typography>
             <Divider sx={{ my: 2 }} />
-            {renderScriptList(latestScripts)}
+            {renderScriptList(latestScripts, latestFetching)}
           </TabPanel>
         </CardContent>
       </Card>

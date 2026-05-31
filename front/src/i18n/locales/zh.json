@@ -141,10 +141,16 @@
     "collapse": "收起",
     "show": "显示新手清单",
     "go": "前往",
+    "guide": "步骤向导",
+    "backToWorkbench": "返回工作台",
     "live": "创建或查看一场直播场次",
     "readiness": "维护商品与话术就绪度",
     "sv": "短视频：从脚本策划到成片",
-    "kpi": "打开统一 KPI 看板"
+    "kpi": "打开统一 KPI 看板",
+    "adminOnlyGuideNote": "完整初始化向导目前仅管理员端开放。",
+    "adminOnlyReadinessNote": "商品就绪度页面仅管理员端开放，当前角色返回工作台查看可用入口。",
+    "orgShortvideoFallbackNote": "机构端暂未开放短视频项目页，当前降级回机构工作台。",
+    "talentKpiFallbackNote": "达人端暂未开放统一 KPI 页，当前降级回达人工作台。"
   },
   "whatsNew": {
     "tooltip": "更新说明",

@@ -78,6 +78,12 @@ export interface PanelInitVO {
   slots: LiveSessionScriptSlotVO[]
   /** 当前话术段落序号 */
   currentSlotIndex: number
+  /** 本场直播目标 GMV（后端提供时展示目标进度） */
+  targetGmv?: number | string
+  /** 兼容历史或聚合接口里的目标 GMV 字段名 */
+  gmvTarget?: number | string
+  /** 兼容目标销售额字段名 */
+  targetSalesAmount?: number | string
   /** 实时数据 */
   realtimeData: LiveSessionRealtimeDataVO
 }

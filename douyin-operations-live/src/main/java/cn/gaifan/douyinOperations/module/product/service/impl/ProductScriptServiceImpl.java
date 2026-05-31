@@ -701,7 +701,9 @@ public class ProductScriptServiceImpl implements ProductScriptService {
                 log.error("SSE 生成异常", e);
                 try {
                     emitter.send(SseEmitter.event().name("error").data(Map.of("error", e.getMessage()), MediaType.APPLICATION_JSON));
-                } catch (Exception ignored) {}
+                } catch (Exception ex) {
+                    log.debug("SSE error事件发送失败: {}", ex.getMessage());
+                }
                 emitter.complete();
             }
         });

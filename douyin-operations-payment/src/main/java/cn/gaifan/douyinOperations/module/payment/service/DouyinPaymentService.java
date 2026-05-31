@@ -9,6 +9,14 @@ import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import cn.gaifan.douyinOperations.module.payment.entity.*;
+import cn.gaifan.douyinOperations.module.payment.config.PaymentGatewayProperties;
+import cn.gaifan.douyinOperations.module.payment.repository.PaymentOrderRepository;
+import cn.gaifan.douyinOperations.module.payment.repository.PaymentTransactionLogRepository;
+import cn.gaifan.douyinOperations.module.payment.vo.OrderSaveVO;
+import cn.gaifan.douyinOperations.contract.commerce.PaymentCreditGrantPort;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.StringUtils;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -24,6 +32,14 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class DouyinPaymentService {
+
+    private final OrderService orderService;
+    private final PaymentOrderRepository orderRepository;
+    private final PaymentTransactionLogRepository transactionLogRepository;
+    private final PaymentGatewayProperties paymentGatewayProperties;
+
+    @Autowired(required = false)
+    private PaymentCreditGrantPort paymentCreditGrantPort;
 
     /**
      * 支付配置常量
@@ -54,53 +70,30 @@ public class DouyinPaymentService {
         log.info("📦 创建订单：userId={}, productId={}", request.userId, request.productId);
 
         try {
-            // 1. 验证商品价格（P0-2 修复）
-            BigDecimal productPrice = getProductPrice(request.productId);
-            if (productPrice == null) {
-                log.warn("商品不存在: productId={}", request.productId);
-                return PaymentResponse.builder()
-                        .success(false)
-                        .errorMessage("商品不存在")
-                        .build();
+            if (request.userId == null || request.productId == null || request.amount == null) {
+                return PaymentResponse.builder().success(false).errorMessage("参数不完整").build();
             }
 
-            // 2. 验证客户端提交的金额是否与商品价格一致
-            BigDecimal expectedAmount = productPrice.multiply(BigDecimal.valueOf(request.quantity != null ? request.quantity : 1));
-            if (request.amount.compareTo(expectedAmount) != 0) {
-                // P1-3: 敏感信息脱敏 - 不记录金额到日志
-                log.warn("订单金额不匹配: productId={}", request.productId);
-                return PaymentResponse.builder()
-                        .success(false)
-                        .errorMessage("订单金额不正确")
-                        .build();
-            }
-
-            // 3. 生成订单号（幂等性保证）
-            String orderNo = generateOrderNo(request.userId);
-
-            // 4. 验证幂等性：检查订单是否已存在
-            PaymentOrder existingOrder = getOrderByOrderNo(orderNo);
-            if (existingOrder != null && existingOrder.getStatus() == OrderStatus.PENDING_PAYMENT) {
+            String orderNo = StringUtils.hasText(request.orderNo) ? request.orderNo : generateOrderNo(request.userId);
+            PaymentOrder existingOrder = orderRepository.findByOrderNo(orderNo).orElse(null);
+            if (existingOrder != null) {
                 log.info("✓ 订单已存在（幂等）：orderNo={}", orderNo);
                 return createPaymentLink(existingOrder);
             }
 
-            // 5. 创建订单（使用服务端验证后的金额）
-            PaymentOrder order = PaymentOrder.builder()
+            int quantity = request.quantity != null ? request.quantity : 1;
+            BigDecimal actualAmount = calculateActualAmount(request.amount, request.discountCode);
+            OrderSaveVO vo = OrderSaveVO.builder()
                     .orderNo(orderNo)
-                    .userId(request.userId)
                     .productId(request.productId)
-                    .amount(expectedAmount)  // 使用服务端计算的金额
-                    .actualAmount(calculateActualAmount(expectedAmount, request.discountCode))
-                    .quantity(request.quantity)
-                    .status(OrderStatus.PENDING_PAYMENT)
+                    .quantity(quantity)
+                    .amount(request.amount)
+                    .actualAmount(actualAmount)
                     .remark(request.remark)
                     .build();
-
-            // 保存订单（这里省略 repository 保存）
-            // orderRepository.save(order);
-
-            // 6. 调用抖音支付 API 创建支付链接
+            long orderId = orderService.createOrder(vo, request.userId);
+            PaymentOrder order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new IllegalStateException("订单创建后未找到: " + orderId));
             PaymentResponse response = createPaymentLink(order);
 
             log.info("✓ 订单创建成功：orderNo={}, paymentUrl={}", orderNo, response.paymentUrl);
@@ -119,6 +112,19 @@ public class DouyinPaymentService {
         log.info("💳 创建抖音支付链接：orderId={}", order.getId());
 
         try {
+            boolean mockMode = paymentGatewayProperties == null
+                    || "mock".equalsIgnoreCase(paymentGatewayProperties.getGatewayMode());
+            if (!mockMode && (!StringUtils.hasText(PaymentConfig.MERCHANT_ID)
+                    || !StringUtils.hasText(PaymentConfig.MERCHANT_SECRET)
+                    || !StringUtils.hasText(PaymentConfig.APP_ID))) {
+                return PaymentResponse.builder()
+                        .success(false)
+                        .orderNo(order.getOrderNo())
+                        .amount(order.getActualAmount())
+                        .errorMessage("抖音支付未配置商户凭证，无法创建真实支付链接")
+                        .build();
+            }
+
             // 构建支付请求
             Map<String, Object> paymentRequest = new HashMap<>();
             paymentRequest.put("out_order_no", order.getOrderNo());
@@ -129,19 +135,20 @@ public class DouyinPaymentService {
             paymentRequest.put("merchant_id", PaymentConfig.MERCHANT_ID);
             paymentRequest.put("app_id", PaymentConfig.APP_ID);
 
-            // 生成签名
-            String signature = generateSignature(paymentRequest);
-            paymentRequest.put("sign", signature);
+            if (!mockMode) {
+                String signature = generateSignature(paymentRequest);
+                paymentRequest.put("sign", signature);
+                String paymentUrl = PaymentConfig.API_ENDPOINT + "/v1/order/create";
+                log.debug("调用抖音支付 API：url={}", paymentUrl);
+                return PaymentResponse.builder()
+                        .success(false)
+                        .orderNo(order.getOrderNo())
+                        .amount(order.getActualAmount())
+                        .errorMessage("抖音支付 HTTP 客户端未接入，订单已创建但未生成支付链接")
+                        .build();
+            }
 
-            // 调用抖音支付 API（模拟）
-            String paymentUrl = PaymentConfig.API_ENDPOINT + "/v1/order/create";
-            log.debug("调用抖音支付 API：url={}", paymentUrl);
-
-            // 实际实现需要使用 HttpClient 调用 API
-            // String response = douyinPaymentClient.createOrder(paymentRequest);
-
-            // 返回支付链接
-            String douyinPaymentUrl = "https://payment.douyin.com/pages/pay?order_token=" +
+            String douyinPaymentUrl = "/mock-payment/douyin?order_token=" +
                     generateOrderToken(order.getOrderNo());
 
             return PaymentResponse.builder()
@@ -178,7 +185,7 @@ public class DouyinPaymentService {
                 }
 
                 // 2. 获取订单
-                PaymentOrder order = getOrderByOrderNo(callback.orderId);
+                PaymentOrder order = orderRepository.findByOrderNo(callback.orderId).orElse(null);
                 if (order == null) {
                     log.error("✗ 订单不存在：orderId={}", callback.orderId);
                     throw new RuntimeException("订单不存在");
@@ -199,7 +206,7 @@ public class DouyinPaymentService {
                     order.setTransactionId(callback.transactionId);
 
                     // 保存订单更新
-                    // orderRepository.save(order);
+                    orderRepository.save(order);
 
                     // 记录交易日志
                     recordTransaction(order.getId(), TransactionType.PAYMENT,
@@ -213,6 +220,7 @@ public class DouyinPaymentService {
 
                 } else if ("FAILED".equals(callback.status)) {
                     order.setStatus(OrderStatus.CANCELLED);
+                    orderRepository.save(order);
 
                     // 记录失败事务
                     recordTransaction(order.getId(), TransactionType.PAYMENT,
@@ -250,6 +258,9 @@ public class DouyinPaymentService {
             for (PaymentOrder order : yesterdayOrders) {
                 // 调用抖音支付 API 查询订单状态
                 PaymentQueryResponse queryResult = queryPaymentStatus(order.getOrderNo());
+                if (queryResult == null || queryResult.status == null) {
+                    continue;
+                }
 
                 // 3. 对比本地状态和支付方返回的状态
                 if ("SUCCESS".equals(queryResult.status) &&
@@ -261,7 +272,7 @@ public class DouyinPaymentService {
 
                     order.setStatus(OrderStatus.PAID);
                     order.setPaidAt(queryResult.paidAt);
-                    // orderRepository.save(order);
+                    orderRepository.save(order);
 
                     // 生成对账差异报告
                     recordReconciliationDifference(order.getId(), "status_mismatch");
@@ -284,20 +295,20 @@ public class DouyinPaymentService {
         log.info("📧 触发支付成功事件：orderId={}", order.getId());
 
         try {
-            // 1. 发送支付确认邮件
-            // emailService.sendPaymentConfirmation(order);
-
-            // 2. 更新用户配额
-            // userQuotaService.addQuota(order.getUserId(), calculateQuota(order));
-
-            // 3. 记录订单日志
-            // orderLogService.log(order.getId(), "支付成功");
-
-            // 4. 发布事件
-            // eventPublisher.publishEvent(new PaymentSuccessEvent(order));
-
+            if (paymentCreditGrantPort != null && order.getActualAmount() != null
+                    && order.getActualAmount().signum() > 0) {
+                String tenantId = order.getOrgId() != null ? "org-" + order.getOrgId() : "user-" + order.getUserId();
+                String productHint = "douyin-ops";
+                paymentCreditGrantPort.grantOnPayment(
+                        tenantId,
+                        "user-" + order.getUserId(),
+                        order.getActualAmount(),
+                        "payment-callback-" + order.getOrderNo(),
+                        productHint + ":支付回调履约发放积分"
+                );
+            }
         } catch (Exception e) {
-            log.error("✗ 支付成功事件处理失败", e);
+            log.error("✗ 支付履约积分发放失败", e);
         }
     }
 
@@ -328,14 +339,25 @@ public class DouyinPaymentService {
      * 辅助方法：生成签名
      */
     private String generateSignature(Map<String, Object> params) {
+        if (!StringUtils.hasText(PaymentConfig.MERCHANT_SECRET)) {
+            throw new IllegalStateException("DOUYIN_MERCHANT_SECRET 未配置");
+        }
         // 实现签名算法（MD5 / SHA256）
         // 这里是示例实现
         StringBuilder sb = new StringBuilder();
         params.forEach((k, v) -> sb.append(k).append(v));
         sb.append(PaymentConfig.MERCHANT_SECRET);
 
-        // 实际应该使用 MD5 或 SHA256
-        return "signature_" + System.currentTimeMillis();
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            javax.crypto.spec.SecretKeySpec secretKey = new javax.crypto.spec.SecretKeySpec(
+                    PaymentConfig.MERCHANT_SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    "HmacSHA256");
+            mac.init(secretKey);
+            return bytesToHex(mac.doFinal(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException("支付签名生成失败", e);
+        }
     }
 
     /**
@@ -406,59 +428,40 @@ public class DouyinPaymentService {
         return sb.toString();
     }
 
-    /**
-     * 模拟方法：获取商品价格
-     */
-    private BigDecimal getProductPrice(Long productId) {
-        // 实际应该从 product repository 查询
-        // return productRepository.findById(productId).map(Product::getPrice).orElse(null);
-
-        // 模拟数据
-        if (productId == null) return null;
-        return BigDecimal.valueOf(99.00); // 示例价格
-    }
-
-    /**
-     * 模拟方法：获取订单
-     */
-    private PaymentOrder getOrderByOrderNo(String orderNo) {
-        return null; // 实际应该从 repository 查询
-    }
-
-    /**
-     * 模拟方法：获取日期范围内的订单
-     */
     private List<PaymentOrder> getOrdersByDateRange(LocalDateTime start, LocalDateTime end) {
-        return new ArrayList<>();
+        return orderRepository.findAll((root, query, cb) -> cb.and(
+                cb.greaterThanOrEqualTo(root.get("createdAt"), start),
+                cb.lessThanOrEqualTo(root.get("createdAt"), end)
+        ));
     }
 
     /**
-     * 模拟方法：查询支付状态
+     * 查询支付方状态。未接入支付方查询接口时返回 null，不伪造支付成功。
      */
     private PaymentQueryResponse queryPaymentStatus(String orderNo) {
-        return new PaymentQueryResponse();
+        log.debug("抖音支付状态查询接口未配置，跳过远端状态查询: orderNo={}", orderNo);
+        return null;
     }
 
-    /**
-     * 模拟方法：记录交易
-     */
     private void recordTransaction(Long orderId, TransactionType type, BigDecimal amount,
                                    TransactionStatus status, String txId) {
-        log.debug("记录交易：orderId={}, type={}, status={}", orderId, type, status);
+        PaymentTransactionLog logEntity = PaymentTransactionLog.builder()
+                .orderId(orderId)
+                .type(type)
+                .amount(amount)
+                .status(status)
+                .externalTransactionId(txId)
+                .createdAt(LocalDateTime.now())
+                .build();
+        transactionLogRepository.save(logEntity);
     }
 
-    /**
-     * 模拟方法：记录对账差异
-     */
     private void recordReconciliationDifference(Long orderId, String reason) {
         log.warn("记录对账差异：orderId={}, reason={}", orderId, reason);
     }
 
-    /**
-     * 模拟方法：发送对账失败通知
-     */
     private void notifyReconciliationFailure(Exception e) {
-        log.error("发送对账失败通知");
+        log.error("支付对账失败，需接入告警通道", e);
     }
 
     // DTO 类
@@ -466,6 +469,7 @@ public class DouyinPaymentService {
     @lombok.Builder
     public static class CreateOrderRequest {
         private Long userId;
+        private String orderNo;
         private Long productId;
         private BigDecimal amount;
         private Integer quantity;

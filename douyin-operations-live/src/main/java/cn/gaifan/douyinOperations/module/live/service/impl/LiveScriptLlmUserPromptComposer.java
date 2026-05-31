@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.live.service.impl;
 
 import cn.gaifan.douyinOperations.common.config.BusinessParamConfig;
 import cn.gaifan.douyinOperations.module.ai.service.KnowledgeBaseService;
+import cn.gaifan.douyinOperations.module.ai.service.OperationalStrategyKnowledgeService;
 import cn.gaifan.douyinOperations.module.ai.service.brain.IndustryCausalEngine;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
 import cn.gaifan.douyinOperations.module.guiguiya.client.GuiguiyaHotClient;
@@ -48,15 +49,24 @@ public class LiveScriptLlmUserPromptComposer {
     @Autowired(required = false) private LivePromptContextBuilderImpl livePromptContextBuilder;
     @Autowired(required = false) private CrossSessionLearningService crossSessionLearningService;
     @Autowired(required = false) private IndustryCausalEngine causalEngine;
+    @Autowired(required = false) private OperationalStrategyKnowledgeService operationalStrategyKnowledgeService;
     @Autowired(required = false) private cn.gaifan.douyinOperations.module.live.service.LivePromptAbTestService promptAbTestService;
 
     @Value("${app.live.generation.causal-enrichment:false}")
     private boolean causalEnrichmentEnabled;
 
-    public record AugmentedUserPrompt(String userPrompt, List<KnowledgeBaseService.SearchResult> ragRefs) {
+    public record AugmentedUserPrompt(
+            String userPrompt,
+            List<KnowledgeBaseService.SearchResult> ragRefs,
+            List<OperationalStrategyKnowledgeService.OfficialReference> officialReferences
+    ) {
+        public AugmentedUserPrompt(String userPrompt, List<KnowledgeBaseService.SearchResult> ragRefs) {
+            this(userPrompt, ragRefs, List.of());
+        }
+
         /** 兼容旧调用（无变体 ID） */
         public AugmentedUserPrompt(String userPrompt, List<KnowledgeBaseService.SearchResult> ragRefs, Long _ignored) {
-            this(userPrompt, ragRefs);
+            this(userPrompt, ragRefs, List.of());
         }
     }
 
@@ -66,6 +76,7 @@ public class LiveScriptLlmUserPromptComposer {
     public record AugmentedUserPromptWithVariant(
             String userPrompt,
             List<KnowledgeBaseService.SearchResult> ragRefs,
+            List<OperationalStrategyKnowledgeService.OfficialReference> officialReferences,
             /** 命中的 A/B 变体 ID（null 表示走默认 prompt） */
             Long abVariantId
     ) {}
@@ -75,7 +86,7 @@ public class LiveScriptLlmUserPromptComposer {
      */
     public AugmentedUserPrompt augmentAfterBasePrompt(String scriptType, LiveSession session, DyPersona persona, LiveAiGenerateVO vo) {
         var result = augmentAfterBasePromptWithVariant(scriptType, session, persona, vo);
-        return new AugmentedUserPrompt(result.userPrompt(), result.ragRefs());
+        return new AugmentedUserPrompt(result.userPrompt(), result.ragRefs(), result.officialReferences());
     }
 
     /**
@@ -122,10 +133,32 @@ public class LiveScriptLlmUserPromptComposer {
                 ? productRepository.findById(vo.getProductId()).orElse(null) : null;
         LiveScriptPromptService.RagContextResult ragResult = useRag
                 ? liveScriptPromptService.buildRagContext(session.getUserId(), productForRag, scriptType,
-                promptBuilder.resolveStyle(vo), prompt.length(), vo.getRequirement()) : null;
+                promptBuilder.resolveStyle(vo), prompt.length(), vo.getRequirement(), vo.getMaterialType()) : null;
         List<KnowledgeBaseService.SearchResult> ragRefs = ragResult != null ? ragResult.refs() : List.of();
+        List<OperationalStrategyKnowledgeService.OfficialReference> officialReferences = List.of();
         if (ragResult != null && ragResult.xml() != null && !ragResult.xml().isBlank()) {
             prompt = prompt + "\n\n" + ragResult.xml() + "\n请参考以上案例的表达方式，生成原创话术。\n";
+        }
+
+        if (operationalStrategyKnowledgeService != null && session.getUserId() != null) {
+            try {
+                String opsQuery = buildOperationalStrategyQuery(scriptType, session, productForRag, vo);
+                OperationalStrategyKnowledgeService.PromptContext opsContext =
+                        operationalStrategyKnowledgeService.buildLiveGenerationContext(
+                                session.getUserId(), opsQuery, vo.getMaterialType(), 2600);
+                if (opsContext != null && opsContext.hasText()) {
+                    prompt = prompt + "\n\n" + opsContext.promptBlock()
+                            + "\n请把以上 AI 学习中心策略作为排品、时长、官方规则和违规红线约束；生成内容必须原创、可执行、合规。\n";
+                    if (opsContext.refs() != null && !opsContext.refs().isEmpty()) {
+                        ragRefs = mergeRefs(ragRefs, opsContext.refs());
+                    }
+                    if (opsContext.officialReferences() != null && !opsContext.officialReferences().isEmpty()) {
+                        officialReferences = mergeOfficialReferences(officialReferences, opsContext.officialReferences());
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("[Composer] 运营策略知识注入跳过: {}", e.getMessage());
+            }
         }
 
         // P0-2: 竞品差异化 — 从同品类洞察生成差异化话术方向
@@ -196,7 +229,77 @@ public class LiveScriptLlmUserPromptComposer {
             }
         }
 
-        return new AugmentedUserPromptWithVariant(prompt, ragRefs, abVariantId);
+        return new AugmentedUserPromptWithVariant(prompt, ragRefs, officialReferences, abVariantId);
+    }
+
+    private static List<OperationalStrategyKnowledgeService.OfficialReference> mergeOfficialReferences(
+            List<OperationalStrategyKnowledgeService.OfficialReference> first,
+            List<OperationalStrategyKnowledgeService.OfficialReference> second) {
+        if ((first == null || first.isEmpty()) && (second == null || second.isEmpty())) {
+            return List.of();
+        }
+        List<OperationalStrategyKnowledgeService.OfficialReference> merged = new ArrayList<>();
+        java.util.Set<Long> seen = new java.util.LinkedHashSet<>();
+        if (first != null) {
+            for (OperationalStrategyKnowledgeService.OfficialReference ref : first) {
+                if (ref == null) continue;
+                Long key = ref.chunkId() != null ? ref.chunkId() : ref.docId();
+                if (key == null || seen.add(key)) merged.add(ref);
+            }
+        }
+        if (second != null) {
+            for (OperationalStrategyKnowledgeService.OfficialReference ref : second) {
+                if (ref == null) continue;
+                Long key = ref.chunkId() != null ? ref.chunkId() : ref.docId();
+                if (key == null || seen.add(key)) merged.add(ref);
+            }
+        }
+        return merged;
+    }
+
+    private static List<KnowledgeBaseService.SearchResult> mergeRefs(
+            List<KnowledgeBaseService.SearchResult> first,
+            List<KnowledgeBaseService.SearchResult> second) {
+        if ((first == null || first.isEmpty()) && (second == null || second.isEmpty())) {
+            return List.of();
+        }
+        List<KnowledgeBaseService.SearchResult> merged = new ArrayList<>();
+        java.util.Set<Long> seen = new java.util.LinkedHashSet<>();
+        if (first != null) {
+            for (KnowledgeBaseService.SearchResult ref : first) {
+                if (ref == null) continue;
+                Long key = ref.chunkId() != null ? ref.chunkId() : ref.docId();
+                if (key == null || seen.add(key)) merged.add(ref);
+            }
+        }
+        if (second != null) {
+            for (KnowledgeBaseService.SearchResult ref : second) {
+                if (ref == null) continue;
+                Long key = ref.chunkId() != null ? ref.chunkId() : ref.docId();
+                if (key == null || seen.add(key)) merged.add(ref);
+            }
+        }
+        return merged;
+    }
+
+    private String buildOperationalStrategyQuery(String scriptType, LiveSession session, DyProduct product, LiveAiGenerateVO vo) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(scriptType != null ? scriptType : "直播话术").append(' ');
+        sb.append("直播排品 商品角色 讲解时长 官方规则 违规风险 ");
+        if (product != null) {
+            if (StringUtils.hasText(product.getProductName())) sb.append(product.getProductName()).append(' ');
+            if (StringUtils.hasText(product.getProductCategory())) sb.append(product.getProductCategory()).append(' ');
+            if (StringUtils.hasText(product.getAiSellingPoints())) sb.append(product.getAiSellingPoints()).append(' ');
+        }
+        if (session != null) {
+            if (StringUtils.hasText(session.getLiveFormat())) sb.append(session.getLiveFormat()).append(' ');
+            if (StringUtils.hasText(session.getSessionType())) sb.append(session.getSessionType()).append(' ');
+        }
+        if (vo != null) {
+            if (StringUtils.hasText(vo.getRequirement())) sb.append(vo.getRequirement()).append(' ');
+            if (StringUtils.hasText(vo.getMaterialType())) sb.append(vo.getMaterialType()).append(' ');
+        }
+        return sb.toString();
     }
 
     /** LF-02：与 product 类似、需要商品上下文的 RAG */

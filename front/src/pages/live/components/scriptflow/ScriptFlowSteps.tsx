@@ -15,6 +15,7 @@ import {
   Chip,
   Tooltip,
 } from '@mui/material'
+import { alpha, type Theme } from '@mui/material/styles'
 import EditIcon from '@mui/icons-material/Edit'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import PlayCircleIcon from '@mui/icons-material/PlayCircle'
@@ -46,18 +47,30 @@ const SCRIPT_EDIT_H = 220
 const SCRIPT_GAP = 12
 const SECTION_PAD_Y = 56
 export const SCRIPT_NODE_W = 420
+const READY_ENDPOINTS = '/live/script/by-session|/live/script/save|/live/script/delete|/live/script/executed|/live/ai/check-violation|/live/ai/refine-script|/live/ai/generate-slot'
+const UNSUPPORTED_ACTIONS = 'direct-api-request|local-script-fallback|mock-product-header|mock-script-card'
 
 /* ══════════════════════════════════════
    Node theme colors
    ══════════════════════════════════════ */
-const THEME: Record<string, { c: string; bg: string; border: string; Icon: React.ElementType; label: string }> = {
-  opening:    { c: '#1565c0', bg: '#e8f0fe', border: '#90baf9', Icon: PlayCircleIcon,  label: '开场话术' },
-  product:    { c: '#2e7d32', bg: '#e6f4ea', border: '#81c784', Icon: ShoppingBagIcon, label: '产品话术' },
-  transition: { c: '#e65100', bg: '#fff3e0', border: '#ffb74d', Icon: SwapHorizIcon,   label: '衔接话术' },
-  emotional:  { c: '#c2185b', bg: '#fce4ec', border: '#f48fb1', Icon: FavoriteIcon,    label: '情绪话术' },
-  closing:    { c: '#7b1fa2', bg: '#f3e5f5', border: '#ce93d8', Icon: StopCircleIcon,  label: '结尾话术' },
+export type FlowTone = 'primary' | 'success' | 'warning' | 'error' | 'secondary'
+
+const THEME: Record<string, { tone: FlowTone; Icon: React.ElementType; label: string }> = {
+  opening:    { tone: 'primary',   Icon: PlayCircleIcon,  label: '开场话术' },
+  product:    { tone: 'success',   Icon: ShoppingBagIcon, label: '产品话术' },
+  transition: { tone: 'warning',   Icon: SwapHorizIcon,   label: '衔接话术' },
+  emotional:  { tone: 'error',     Icon: FavoriteIcon,    label: '情绪话术' },
+  closing:    { tone: 'secondary', Icon: StopCircleIcon,  label: '结尾话术' },
 }
-const FALLBACK = { c: '#757575', bg: '#fafafa', border: '#bdbdbd', Icon: PlayCircleIcon, label: '话术' }
+const FALLBACK = { tone: 'primary' as FlowTone, Icon: PlayCircleIcon, label: '话术' }
+
+export function flowToneColor(tone: FlowTone, theme?: Theme): string {
+  return theme ? theme.palette[tone].main : `var(--script-flow-tone-${tone}, currentColor)`
+}
+
+function flowToneContrastColor(tone: FlowTone, theme: Theme): string {
+  return theme.palette[tone].contrastText
+}
 
 function themeOf(key: string, st?: string) {
   if (key.startsWith('product-')) return THEME.product
@@ -100,44 +113,68 @@ interface SectionHeaderData {
 }
 
 const SectionHeaderNode = memo(function SectionHeaderNode({ data }: { data: SectionHeaderData }) {
-  const { c, bg, border, Icon } = themeOf(data.sectionKey, data.firstScriptType)
+  const { tone, Icon } = themeOf(data.sectionKey, data.firstScriptType)
   return (
-    <Box>
+    <Box
+      data-testid="script-flow-section-header-node"
+      data-contract-scope="live-script-flow-section-header-node"
+      data-contract-source="buildFlowData-section-data"
+      data-ready-endpoints={READY_ENDPOINTS}
+      data-unsupported-actions={UNSUPPORTED_ACTIONS}
+      data-section-key={data.sectionKey}
+      data-section-title={data.title}
+      data-script-count={data.scriptCount}
+      data-tone={tone}
+      data-no-direct-api="true"
+      data-no-local-script-fallback="true"
+      sx={(theme) => {
+        const main = theme.palette[tone].main
+        return {
+          '--script-flow-accent': main,
+          '--script-flow-handle-border': alpha(main, theme.palette.mode === 'dark' ? 0.3 : 0.14),
+        }
+      }}
+    >
       <Handle type="target" position={Position.Top}
-        style={{ background: c, width: 10, height: 10, border: `2px solid ${bg}` }} />
-      <Card variant="outlined" sx={{
+        style={{ background: 'var(--script-flow-accent)', width: 10, height: 10, border: '2px solid var(--script-flow-handle-border)' }} />
+      <Card variant="outlined" sx={(theme) => ({
         width: 260, borderRadius: 3,
-        borderColor: border, borderWidth: 2,
-        boxShadow: `0 3px 16px ${c}20`,
+        borderColor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.55 : 0.32),
+        borderWidth: 2,
+        boxShadow: `0 3px 16px ${alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.22 : 0.12)}`,
         overflow: 'hidden',
-      }}>
-        <Box sx={{
+      })}>
+        <Box
+          data-testid="script-flow-section-header-surface"
+          sx={(theme) => ({
           display: 'flex', alignItems: 'center', gap: 1,
           px: 1.5, py: 1,
-          background: `linear-gradient(135deg, ${bg} 0%, #fff 100%)`,
-        }}>
-          <Box sx={{
-            width: 32, height: 32, borderRadius: '50%', bgcolor: c,
+          background: `linear-gradient(135deg, ${alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.22 : 0.09)} 0%, ${theme.palette.background.paper} 100%)`,
+        })}
+        >
+          <Box sx={(theme) => ({
+            width: 32, height: 32, borderRadius: '50%', bgcolor: theme.palette[tone].main,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: `0 2px 6px ${c}40`,
+            boxShadow: `0 2px 6px ${alpha(theme.palette[tone].main, 0.28)}`,
             flexShrink: 0,
-          }}>
-            <Icon sx={{ fontSize: 17, color: '#fff' }} />
+          })}>
+            <Icon sx={(theme: Theme) => ({ fontSize: 17, color: flowToneContrastColor(tone, theme) })} />
           </Box>
-          <Typography sx={{ fontSize: 15, fontWeight: 700, color: c, flex: 1 }} noWrap>
+          <Typography sx={{ fontSize: 15, fontWeight: 700, color: `${tone}.main`, flex: 1 }} noWrap>
             {data.title}
           </Typography>
-          <Chip label={`${data.scriptCount} 条`} size="small" sx={{
+          <Chip label={`${data.scriptCount} 条`} size="small" data-testid="script-flow-section-count-chip-surface" sx={(theme) => ({
             height: 22, fontSize: 12, fontWeight: 600,
-            bgcolor: `${c}15`, color: c,
+            bgcolor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.18 : 0.1),
+            color: `${tone}.main`,
             '& .MuiChip-label': { px: 0.75 },
-          }} />
+          })} />
         </Box>
       </Card>
       <Handle type="source" position={Position.Bottom}
-        style={{ background: c, width: 10, height: 10, border: `2px solid ${bg}` }} />
+        style={{ background: 'var(--script-flow-accent)', width: 10, height: 10, border: '2px solid var(--script-flow-handle-border)' }} />
       <Handle type="source" position={Position.Right} id="branch"
-        style={{ background: c, width: 8, height: 8, border: `2px solid ${bg}`, top: '50%' }} />
+        style={{ background: 'var(--script-flow-accent)', width: 8, height: 8, border: '2px solid var(--script-flow-handle-border)', top: '50%' }} />
     </Box>
   )
 })
@@ -152,40 +189,67 @@ interface ProductHeaderData {
 }
 
 const ProductHeaderNode = memo(function ProductHeaderNode({ data }: { data: ProductHeaderData }) {
-  const { c, bg, border } = THEME.product
+  const { tone } = THEME.product
   const p = data.product
   const productTypes = parseProductTypes(p.productType)
   const category = p.productCategory ? String(p.productCategory) : ''
   const costPrice = p.costPrice != null ? Number(p.costPrice) : 0
   const profitPct = p.profitMarginPct != null ? Number(p.profitMarginPct) : 0
   return (
-    <Box>
+    <Box
+      data-testid="script-flow-product-header-node"
+      data-contract-scope="live-script-flow-product-header-node"
+      data-contract-source="buildFlowData-product-data"
+      data-ready-endpoints="/live/product/by-session|/live/script/by-session"
+      data-unsupported-actions={UNSUPPORTED_ACTIONS}
+      data-product-id={String(p.productId ?? p.id ?? '')}
+      data-product-name={String(p.productName ?? '')}
+      data-script-count={data.scriptCount}
+      data-product-type={String(p.productType ?? '')}
+      data-has-image={p.imageUrl ? 'true' : 'false'}
+      data-no-direct-api="true"
+      data-no-local-product-fallback="true"
+      sx={(theme) => {
+        const main = theme.palette[tone].main
+        return {
+          '--script-flow-accent': main,
+          '--script-flow-handle-border': alpha(main, theme.palette.mode === 'dark' ? 0.3 : 0.14),
+        }
+      }}
+    >
       <Handle type="target" position={Position.Top}
-        style={{ background: c, width: 10, height: 10, border: `2px solid ${bg}` }} />
-      <Card variant="outlined" sx={{
+        style={{ background: 'var(--script-flow-accent)', width: 10, height: 10, border: '2px solid var(--script-flow-handle-border)' }} />
+      <Card variant="outlined" sx={(theme) => ({
         width: 340, borderRadius: 3,
-        borderColor: border, borderWidth: 2,
-        boxShadow: `0 3px 20px ${c}22`,
+        borderColor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.55 : 0.32),
+        borderWidth: 2,
+        boxShadow: `0 3px 20px ${alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.22 : 0.12)}`,
         overflow: 'hidden',
-      }}>
+      })}>
         {/* Top row: large image + name + price + tags */}
-        <Box sx={{
+        <Box
+          data-testid="script-flow-product-header-surface"
+          sx={(theme) => ({
           display: 'flex', gap: 1.25, p: 1.25, alignItems: 'flex-start',
-          background: `linear-gradient(135deg, ${bg} 0%, #fff 100%)`,
-        }}>
+          background: `linear-gradient(135deg, ${alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.2 : 0.08)} 0%, ${theme.palette.background.paper} 100%)`,
+        })}
+        >
           {p.imageUrl ? (
             <Box component="img" src={cdnThumb(p.imageUrl as string, 300, 250)} alt=""
               sx={{
                 width: 80, height: 80, borderRadius: 2, objectFit: 'cover', flexShrink: 0,
-                border: `1.5px solid ${border}60`, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                border: '1.5px solid',
+                borderColor: `${tone}.main`,
+                boxShadow: (theme) => `0 2px 8px ${alpha(theme.palette.common.black, theme.palette.mode === 'dark' ? 0.22 : 0.08)}`,
               }} />
           ) : (
-            <Box sx={{
-              width: 80, height: 80, borderRadius: 2, bgcolor: `${c}06`,
+            <Box sx={(theme) => ({
+              width: 80, height: 80, borderRadius: 2, bgcolor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.16 : 0.06),
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              border: `1.5px solid ${border}30`,
-            }}>
-              <ShoppingBagIcon sx={{ fontSize: 32, color: c, opacity: 0.3 }} />
+              border: '1.5px solid',
+              borderColor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.32 : 0.18),
+            })}>
+              <ShoppingBagIcon sx={{ fontSize: 32, color: `${tone}.main`, opacity: 0.55 }} />
             </Box>
           )}
           <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -199,7 +263,7 @@ const ProductHeaderNode = memo(function ProductHeaderNode({ data }: { data: Prod
             )}
             <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
               {p.price != null && Number(p.price) > 0 && (
-                <Typography sx={{ fontSize: 18, fontWeight: 800, color: '#d32f2f', letterSpacing: -0.5 }}>
+                <Typography sx={{ fontSize: 18, fontWeight: 800, color: 'error.main' }}>
                   ¥{Number(p.price).toFixed(2)}
                 </Typography>
               )}
@@ -223,26 +287,28 @@ const ProductHeaderNode = memo(function ProductHeaderNode({ data }: { data: Prod
           </Box>
         </Box>
         {/* Bottom bar: script count */}
-        <Box sx={{
+        <Box sx={(theme) => ({
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           px: 1.25, py: 0.5,
-          borderTop: `1px solid ${border}40`,
-          bgcolor: `${c}04`,
-        }}>
+          borderTop: '1px solid',
+          borderColor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.32 : 0.18),
+          bgcolor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.12 : 0.04),
+        })}>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', fontWeight: 500 }}>
             话术数量
           </Typography>
-          <Chip label={`${data.scriptCount} 条`} size="small" sx={{
+          <Chip label={`${data.scriptCount} 条`} size="small" data-testid="script-flow-product-count-chip-surface" sx={(theme) => ({
             height: 24, fontSize: 13, fontWeight: 600,
-            bgcolor: `${c}15`, color: c,
+            bgcolor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.18 : 0.1),
+            color: `${tone}.main`,
             '& .MuiChip-label': { px: 0.75 },
-          }} />
+          })} />
         </Box>
       </Card>
       <Handle type="source" position={Position.Bottom}
-        style={{ background: c, width: 10, height: 10, border: `2px solid ${bg}` }} />
+        style={{ background: 'var(--script-flow-accent)', width: 10, height: 10, border: '2px solid var(--script-flow-handle-border)' }} />
       <Handle type="source" position={Position.Right} id="branch"
-        style={{ background: c, width: 8, height: 8, border: `2px solid ${bg}`, top: '50%' }} />
+        style={{ background: 'var(--script-flow-accent)', width: 8, height: 8, border: '2px solid var(--script-flow-handle-border)', top: '50%' }} />
     </Box>
   )
 })
@@ -254,11 +320,12 @@ interface ScriptBranchData {
   row: Record<string, unknown>
   idx: number
   accent: string
+  tone?: FlowTone
   [key: string]: unknown
 }
 
 const ScriptBranchNode = memo(function ScriptBranchNode({ data }: { data: ScriptBranchData }) {
-  const { row, idx, accent } = data
+  const { row, idx, accent, tone = 'primary' } = data
   const sp = useSP()
   const id = row.id as number
   const isEditing = sp.editingId === id
@@ -278,31 +345,56 @@ const ScriptBranchNode = memo(function ScriptBranchNode({ data }: { data: Script
         seqNo={seqNo}
         typeLabel={typeLabel}
         accent={accent}
+        accentTone={tone}
       />
     )
   }
 
   return (
-    <Box sx={{ width: SCRIPT_NODE_W }} className="nopan nodrag nowheel"
+    <Box
+      data-testid="script-flow-script-branch-node"
+      data-contract-scope="live-script-flow-script-branch-node"
+      data-contract-source="buildFlowData-script-data|SectionPropsProvider-context"
+      data-ready-endpoints={READY_ENDPOINTS}
+      data-unsupported-actions={UNSUPPORTED_ACTIONS}
+      data-script-id={id}
+      data-script-type={String(row.scriptType ?? '')}
+      data-sequence-no={seqNo}
+      data-status={statusLabel}
+      data-focused={focused ? 'true' : 'false'}
+      data-editing={isEditing ? 'true' : 'false'}
+      data-tone={tone}
+      data-no-direct-api="true"
+      data-no-local-script-fallback="true"
+      sx={(theme) => ({
+        width: SCRIPT_NODE_W,
+        '--script-flow-accent': theme.palette[tone].main,
+        '--script-flow-handle-border': alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.3 : 0.14),
+      })}
+      className="nopan nodrag nowheel"
       onPointerDown={stopRFCapture} onMouseDown={stopRFCapture}>
       <Handle type="target" position={Position.Left}
-        style={{ background: accent, width: 8, height: 8, border: '2px solid #fff' }} />
+        style={{ background: 'var(--script-flow-accent)', width: 8, height: 8, border: '2px solid var(--script-flow-handle-border)' }} />
       <Card
         variant="outlined"
         onClick={() => sp.onFocusScript?.(id)}
-        sx={{
+        sx={(theme) => ({
           cursor: 'pointer', borderRadius: 2.5,
-          border: '1.5px solid', borderColor: focused ? accent : 'divider',
+          border: '1.5px solid',
+          borderColor: focused ? alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.72 : 0.55) : 'divider',
           borderWidth: focused ? 2 : 1.5,
-          bgcolor: focused ? `${accent}08` : 'background.paper',
+          bgcolor: focused ? alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.16 : 0.06) : 'background.paper',
           transition: 'border-color 0.15s, box-shadow 0.15s',
-          '&:hover': { borderColor: `${accent}88`, boxShadow: `0 3px 14px ${accent}1a` },
+          '&:hover': {
+            borderColor: alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.78 : 0.55),
+            boxShadow: `0 3px 14px ${alpha(theme.palette[tone].main, theme.palette.mode === 'dark' ? 0.22 : 0.1)}`,
+          },
           overflow: 'hidden',
-        }}
+        })}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', px: 1, pt: 0.75, gap: 0.75 }}>
-          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: accent, flexShrink: 0 }} />
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: accent }} noWrap>
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: `${tone}.main`, flexShrink: 0 }} />
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: `${tone}.main` }} noWrap>
             #{seqNo} {typeLabel}
           </Typography>
           {estSec > 0 && <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>~{estSec}s</Typography>}
@@ -319,25 +411,34 @@ const ScriptBranchNode = memo(function ScriptBranchNode({ data }: { data: Script
           {content || '(待生成)'}
         </Typography>
         {/* Always-visible action toolbar */}
-        <Box sx={{
-          display: 'flex', alignItems: 'center', gap: '2px',
-          px: 0.75, py: 0.25,
-          borderTop: '1px solid', borderColor: 'divider',
-          bgcolor: 'action.hover',
-        }}>
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: '2px',
+            px: 0.75, py: 0.25,
+            borderTop: '1px solid', borderColor: 'divider',
+            bgcolor: 'action.hover',
+          }}>
           {([
-            { tip: '编辑', icon: EditIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onEdit(id, (row.scriptContent as string) ?? '', row) } },
-            { tip: '重新生成', icon: RefreshIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onRegenerateSingle?.(id) } },
-            { tip: '分析', icon: PsychologyIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onOpenAnalyst?.(row) }, color: sp.analystScriptId === id ? 'primary' as const : undefined },
-            { tip: 'AI修改', icon: AutoAwesomeIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onRefineOpen({ scriptId: id }) } },
-            { tip: Number(row.executed) ? '已执行' : '标记执行', icon: Number(row.executed) ? CheckCircleIcon : PlayCircleIcon,
+            { testId: 'script-flow-branch-edit-button', source: '/live/script/save', owner: 'onEdit-prop', tip: '编辑', icon: EditIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onEdit(id, (row.scriptContent as string) ?? '', row) } },
+            { testId: 'script-flow-branch-regenerate-button', source: '/live/ai/generate-slot', owner: 'onRegenerateSingle-prop', tip: '重新生成', icon: RefreshIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onRegenerateSingle?.(id) } },
+            { testId: 'script-flow-branch-analyst-button', source: 'onOpenAnalyst-prop', owner: 'onOpenAnalyst-prop', tip: '分析', icon: PsychologyIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onOpenAnalyst?.(row) }, color: sp.analystScriptId === id ? 'primary' as const : undefined },
+            { testId: 'script-flow-branch-refine-button', source: '/live/ai/refine-script', owner: 'onRefineOpen-prop', tip: 'AI修改', icon: AutoAwesomeIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onRefineOpen({ scriptId: id }) } },
+            { testId: 'script-flow-branch-executed-button', source: '/live/script/executed', owner: 'onMarkExecuted-prop', tip: Number(row.executed) ? '已执行' : '标记执行', icon: Number(row.executed) ? CheckCircleIcon : PlayCircleIcon,
               fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onMarkExecuted(id, (row.executed as number) ?? 0) },
               color: Number(row.executed) ? 'success' as const : undefined },
-            { tip: '存入话术库', icon: SaveIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onSaveToLibrary(id) } },
-            { tip: '删除', icon: DeleteIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onDelete(row) }, color: 'error' as const },
+            { testId: 'script-flow-branch-save-library-button', source: '/live/script/save-to-library', owner: 'onSaveToLibrary-prop', tip: '存入话术库', icon: SaveIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onSaveToLibrary(id) } },
+            { testId: 'script-flow-branch-delete-button', source: '/live/script/delete', owner: 'onDelete-prop', tip: '删除', icon: DeleteIcon, fn: (e: React.MouseEvent) => { e.stopPropagation(); sp.onDelete(row) }, color: 'error' as const },
           ] as const).map(a => (
             <Tooltip key={a.tip} title={a.tip} placement="top">
-              <IconButton size="small" onClick={a.fn} color={'color' in a && a.color ? a.color : 'default'} sx={{ p: '3px' }}>
+              <IconButton
+                data-testid={a.testId}
+                data-contract-source={a.source}
+                data-action-owner={a.owner}
+                data-script-id={id}
+                size="small"
+                onClick={a.fn}
+                color={'color' in a && a.color ? a.color : 'default'}
+                sx={{ p: '3px' }}
+              >
                 <a.icon sx={{ fontSize: 14 }} />
               </IconButton>
             </Tooltip>
@@ -346,8 +447,14 @@ const ScriptBranchNode = memo(function ScriptBranchNode({ data }: { data: Script
       </Card>
       {/* Right handle for AI connection (shown on focused card) */}
       {focused && (
-        <Handle type="source" position={Position.Right} id="to-ai"
-          style={{ background: '#1976d2', width: 8, height: 8, border: '2px solid #e8f0fe' }} />
+        <Box
+          data-testid="script-flow-branch-ai-handle-surface"
+          data-contract-source="focusedScriptId-prop"
+          data-script-id={id}
+        >
+          <Handle type="source" position={Position.Right} id="to-ai"
+            style={{ background: 'var(--script-flow-accent)', width: 8, height: 8, border: '2px solid var(--script-flow-handle-border)' }} />
+        </Box>
       )}
     </Box>
   )
@@ -367,7 +474,7 @@ export const nodeTypes: NodeTypes = {
    ══════════════════════════════════════ */
 export const defaultEdgeOptions: DefaultEdgeOptions = {
   type: 'default',
-  style: { stroke: '#94a3b8', strokeWidth: 2 },
+  style: { stroke: 'var(--script-flow-edge-muted, currentColor)', strokeWidth: 2 },
   animated: false,
 }
 
@@ -388,15 +495,15 @@ function branchEdgeStyle(color: string): React.CSSProperties {
 /* ══════════════════════════════════════
    MiniMap node color
    ══════════════════════════════════════ */
-export function miniMapNodeColor(node: Node): string {
-  if (node.type === 'productHeader') return THEME.product.c
+export function miniMapNodeColor(node: Node, theme?: Theme): string {
+  if (node.type === 'productHeader') return flowToneColor(THEME.product.tone, theme)
   if (node.type === 'scriptBranch') {
-    const d = node.data as { accent?: string }
-    return d.accent ?? '#94a3b8'
+    const d = node.data as { accent?: string; tone?: FlowTone }
+    return d.accent ?? flowToneColor(d.tone ?? FALLBACK.tone, theme)
   }
   const d = node.data as { sectionKey?: string }
-  if (d.sectionKey) return THEME[d.sectionKey]?.c ?? '#94a3b8'
-  return '#94a3b8'
+  if (d.sectionKey) return flowToneColor(THEME[d.sectionKey]?.tone ?? FALLBACK.tone, theme)
+  return 'var(--script-flow-edge-muted, currentColor)'
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -407,6 +514,7 @@ export function miniMapNodeColor(node: Node): string {
 export function buildFlowData(
   scriptSections: ScriptSectionData[],
   editingId: number | null,
+  theme?: Theme,
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
@@ -416,7 +524,7 @@ export function buildFlowData(
   for (let i = 0; i < scriptSections.length; i++) {
     const sec = scriptSections[i]
     const isProd = sec.key.startsWith('product-') && sec.product
-    const theme = themeOf(sec.key, sec.scripts[0]?.scriptType as string | undefined)
+    const sectionTheme = themeOf(sec.key, sec.scripts[0]?.scriptType as string | undefined)
 
     const scriptCount = sec.scripts.length
     const scriptsFanH = scriptCount > 0
@@ -463,7 +571,8 @@ export function buildFlowData(
         source: prevKey,
         target: sec.key,
         type: 'straight',
-        style: trunkEdgeStyle(theme.c),
+        data: { edgeTone: sectionTheme.tone },
+        style: trunkEdgeStyle(flowToneColor(sectionTheme.tone, theme)),
       })
     }
 
@@ -481,7 +590,7 @@ export function buildFlowData(
         type: 'scriptBranch',
         position: { x: SCRIPT_X, y: scriptY },
         draggable: false,
-        data: { row: s, idx: j, accent: sTheme.c },
+        data: { row: s, idx: j, accent: theme ? flowToneColor(sTheme.tone, theme) : undefined, tone: sTheme.tone },
       })
 
       edges.push({
@@ -490,7 +599,8 @@ export function buildFlowData(
         sourceHandle: 'branch',
         target: sId,
         type: 'smoothstep',
-        style: branchEdgeStyle(sTheme.c),
+        data: { edgeTone: sTheme.tone },
+        style: branchEdgeStyle(flowToneColor(sTheme.tone, theme)),
       })
 
       scriptY += (isEd ? SCRIPT_EDIT_H : SCRIPT_CARD_H) + SCRIPT_GAP

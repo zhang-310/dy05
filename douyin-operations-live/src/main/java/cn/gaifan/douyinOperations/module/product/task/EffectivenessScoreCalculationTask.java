@@ -5,6 +5,7 @@ import cn.gaifan.douyinOperations.module.product.repository.ProductScriptVersion
 import cn.gaifan.douyinOperations.module.product.service.EffectivenessScoreService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -30,13 +31,20 @@ public class EffectivenessScoreCalculationTask {
     @Resource
     private EffectivenessScoreService scoreService;
 
+    @Value("${app.product.effectiveness-score.scheduler.enabled:true}")
+    private boolean schedulerEnabled;
+
     /**
      * 定时计算评分任务
      * 每天 02:00 执行
      */
-    @Scheduled(cron = "0 0 2 * * ?")
+    @Scheduled(cron = "${app.product.effectiveness-score.scheduler.cron:0 0 2 * * ?}")
     @Transactional(rollbackFor = Exception.class)
     public void calculateEffectivenessScoresScheduled() {
+        if (!schedulerEnabled) {
+            log.debug("效果评分定时计算已禁用，跳过");
+            return;
+        }
         log.info("开始执行定时效果评分计算任务");
         long startTime = System.currentTimeMillis();
 

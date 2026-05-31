@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.auth.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import jakarta.persistence.*;
 import java.sql.Timestamp;
@@ -9,9 +11,11 @@ import java.sql.Timestamp;
  * 登录记录表（设备/方式：Web、iOS、安卓）
  * 与 sql/auth/schema.sql 中 auth_login_log 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "auth_login_log")
+@NoArgsConstructor
 public class AuthLoginLog {
 
     @Id

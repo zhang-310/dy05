@@ -54,7 +54,8 @@ export function usePageContext(): PageContext {
       }
     }
 
-    const wb = matchPath({ path: '/admin/live/workbench/:id', end: false }, pathname)
+    const wb = matchPath({ path: '/org/live/sessions/:id', end: false }, pathname)
+      || matchPath({ path: '/talent/live/sessions/:id', end: false }, pathname)
       || matchPath({ path: '/org/live/workbench/:id', end: false }, pathname)
       || matchPath({ path: '/talent/live/workbench/:id', end: false }, pathname)
     if (wb?.params?.id) {

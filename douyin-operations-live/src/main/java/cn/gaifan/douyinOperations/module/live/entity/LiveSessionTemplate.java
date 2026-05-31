@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.sql.Timestamp;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 用户自定义场次槽位结构模板（M-1/M-2）。{@code structure_json} 为槽位序列 JSON 数组。
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_session_template")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveSessionTemplate {
 
     @Id

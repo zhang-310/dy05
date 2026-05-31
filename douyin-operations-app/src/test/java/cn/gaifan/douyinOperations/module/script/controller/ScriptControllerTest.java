@@ -34,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @DisplayName("ScriptController 集成测试")
 class ScriptControllerTest {
+    private static final Long USER_ID = 1L;
 
     @Autowired
     private MockMvc mockMvc;
@@ -94,7 +95,7 @@ class ScriptControllerTest {
         scriptVO.setContent("欢迎来到直播间");
         scriptVO.setCategory("开场");
 
-        when(scriptLibraryService.getById(1L)).thenReturn(scriptVO);
+        when(scriptLibraryService.getById(1L, USER_ID)).thenReturn(scriptVO);
 
         mockMvc.perform(post("/api/v1/script/get")
                         .requestAttr("userId", 1L)

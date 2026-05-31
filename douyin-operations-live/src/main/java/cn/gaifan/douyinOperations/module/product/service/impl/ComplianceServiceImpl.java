@@ -18,7 +18,7 @@ import java.util.Map;
  * 产品话术合规检测：绝对化用语、医疗功效 + 违规词库
  * 词库优先从 DB 加载（ComplianceWordService），无配置时 fallback 到硬编码默认值
  */
-@Service
+@Service("productComplianceService")
 public class ComplianceServiceImpl implements ComplianceService {
 
     private static final Logger log = LoggerFactory.getLogger(ComplianceServiceImpl.class);

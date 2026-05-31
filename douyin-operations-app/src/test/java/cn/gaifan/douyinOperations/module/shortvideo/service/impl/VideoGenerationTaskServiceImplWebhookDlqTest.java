@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.shortvideo.service.impl;
 
 import cn.gaifan.douyinOperations.common.vo.BasicQueryDto;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
+import cn.gaifan.douyinOperations.module.shortvideo.entity.SvVideoGenerationTask;
 import cn.gaifan.douyinOperations.module.shortvideo.entity.SvWebhookDlq;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvVideoGenerationTaskRepository;
 import cn.gaifan.douyinOperations.module.shortvideo.repository.SvWebhookDlqRepository;
@@ -19,6 +20,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -65,5 +67,34 @@ class VideoGenerationTaskServiceImplWebhookDlqTest {
         assertThat(vo.getTaskId()).isEqualTo(99L);
         assertThat(vo.getLastHttpStatus()).isEqualTo(500);
         assertThat(vo.getAttemptCount()).isEqualTo(4);
+    }
+
+    @Test
+    void listTasks_exposesCompletedVideoResultUrl() {
+        SvVideoGenerationTask task = new SvVideoGenerationTask();
+        task.setId(11L);
+        task.setOwnerId(7L);
+        task.setProjectId(3L);
+        task.setShotListId(5L);
+        task.setStatus("completed");
+        task.setProgressCurrent(1);
+        task.setProgressTotal(1);
+        task.setResultJson("[{\"shotId\":9,\"shotNumber\":1,\"videoUrl\":\"https://cdn.example.com/shot-1.mp4\",\"bosKey\":\"sv/shot-1.mp4\",\"duration\":6}]");
+        task.setCreateTime(new Timestamp(1_700_000_000_000L));
+
+        when(taskRepository.findByOwnerIdAndProjectIdOrderByCreateTimeDesc(eq(7L), eq(3L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(task), PageRequest.of(0, 20), 1L));
+
+        PageResultVO<Map<String, Object>> res = service.listTasks(7L, 0, 20, 3L);
+
+        assertThat(res.getTotal()).isEqualTo(1);
+        Map<String, Object> row = res.getList().get(0);
+        assertThat(row.get("progress")).isEqualTo(100);
+        assertThat(row.get("outputUrl")).isEqualTo("https://cdn.example.com/shot-1.mp4");
+        assertThat(row.get("videoCount")).isEqualTo(1);
+        assertThat(row.get("videos")).asList()
+                .first()
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("videoUrl", "https://cdn.example.com/shot-1.mp4");
     }
 }

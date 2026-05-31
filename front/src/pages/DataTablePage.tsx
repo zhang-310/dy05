@@ -21,6 +21,10 @@ import {
   Checkbox,
   Card,
   CardContent,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -41,6 +45,13 @@ export interface ColumnDef {
   chipColorMap?: Record<string, 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'>
 }
 
+const DATATABLE_UNSUPPORTED_ACTIONS = [
+  'direct-api-call',
+  'local-row-fallback',
+  'server-export',
+  'implicit-mutation',
+]
+
 interface DataTablePageProps {
   title: string
   /** 副标题（与 toolbarVariant='live' 配合使用） */
@@ -58,6 +69,29 @@ interface DataTablePageProps {
   topActions?: React.ReactNode
   /** 批量删除（需配合 onDelete 使用） */
   onBatchDelete?: (ids: unknown[]) => Promise<void>
+}
+
+interface NormalizedTableResult {
+  total: number
+  list: Record<string, unknown>[]
+  issue?: string
+}
+
+function normalizeTableResult(result: unknown): NormalizedTableResult {
+  if (Array.isArray(result)) {
+    return { total: result.length, list: result as Record<string, unknown>[] }
+  }
+  if (result && typeof result === 'object') {
+    const data = result as { total?: unknown; list?: unknown }
+    const list = Array.isArray(data.list) ? data.list as Record<string, unknown>[] : []
+    const total = Number(data.total ?? list.length)
+    return {
+      total: Number.isFinite(total) ? total : list.length,
+      list,
+      issue: Array.isArray(data.list) ? undefined : '列表接口未返回 list 数组，已降级为空列表。',
+    }
+  }
+  return { total: 0, list: [], issue: '列表接口返回非对象结构，已降级为空列表。' }
 }
 
 export function DataTablePage({
@@ -80,21 +114,31 @@ export function DataTablePage({
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [dataIssue, setDataIssue] = useState('')
   const { enqueueSnackbar } = useSnackbar()
   const [keyword, setKeyword] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [selected, setSelected] = useState<Set<unknown>>(new Set())
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
+  const [batchDeleting, setBatchDeleting] = useState(false)
+  const [batchDeleteError, setBatchDeleteError] = useState('')
 
   const loadData = useCallback(() => {
     setLoading(true)
     setError('')
+    setDataIssue('')
     fetchData({ page, rows: rowsPerPage, keyword: keyword || undefined })
       .then((res) => {
-        setData(res.list || [])
-        setTotal(res.total || 0)
+        const normalized = normalizeTableResult(res)
+        setData(normalized.list)
+        setTotal(normalized.total)
+        setDataIssue(normalized.issue ?? '')
+        setSelected(new Set())
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : '加载失败')
+        setData([])
+        setTotal(0)
       })
       .finally(() => {
         setLoading(false)
@@ -134,9 +178,42 @@ export function DataTablePage({
 
   const hasActions = onAdd || onEdit || onDelete
   const allSelected = data.length > 0 && selected.size === data.length
+  const selectedIds = Array.from(selected)
+  const headerCellSx = {
+    bgcolor: (theme: import('@mui/material/styles').Theme) =>
+      theme.palette.mode === 'dark' ? theme.palette.background.default : theme.palette.grey[50],
+    fontWeight: 600,
+  }
+
+  const handleConfirmBatchDelete = async () => {
+    if (!onBatchDelete || selectedIds.length === 0) return
+    setBatchDeleting(true)
+    setBatchDeleteError('')
+    try {
+      await onBatchDelete(selectedIds)
+      setSelected(new Set())
+      setBatchDeleteOpen(false)
+      enqueueSnackbar(`已删除 ${selectedIds.length} 条记录`, { variant: 'success' })
+      loadData()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setBatchDeleteError(message)
+      enqueueSnackbar(`批量删除失败: ${message}`, { variant: 'error' })
+    } finally {
+      setBatchDeleting(false)
+    }
+  }
 
   const actionsContent = (
-    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+    <Box
+      sx={{ display: 'flex', gap: 1, alignItems: 'center' }}
+      data-testid="datatable-actions-surface"
+      data-contract-source="props-actions"
+      data-has-add={String(Boolean(onAdd))}
+      data-has-batch-delete={String(Boolean(onBatchDelete))}
+      data-selected-count={selected.size}
+      data-no-direct-api="true"
+    >
       {topActions}
       {toolbarVariant === 'default' && (
         <Tooltip title="导出 CSV">
@@ -154,6 +231,9 @@ export function DataTablePage({
                 URL.revokeObjectURL(a.href)
               }}
               disabled={data.length === 0}
+              data-testid="datatable-client-export-button"
+              data-contract-source="client-csv-current-page"
+              data-disabled-reason={data.length === 0 ? 'empty-current-page' : 'none'}
             >
               <DownloadIcon />
             </IconButton>
@@ -165,21 +245,23 @@ export function DataTablePage({
           variant="outlined"
           color="error"
           size="small"
-          onClick={() => {
-            const ids = Array.from(selected)
-            if (ids.length && confirm(`确定删除选中的 ${ids.length} 条记录？`)) {
-              onBatchDelete(ids).then(() => {
-                setSelected(new Set())
-                loadData()
-              }).catch((e) => enqueueSnackbar(`批量删除失败: ${e instanceof Error ? e.message : String(e)}`, { variant: 'error' }))
-            }
-          }}
+          onClick={() => { setBatchDeleteError(''); setBatchDeleteOpen(true) }}
+          data-testid="datatable-batch-delete-open-button"
+          data-contract-source="onBatchDelete-prop"
+          data-selected-count={selected.size}
         >
           批量删除 ({selected.size})
         </Button>
       )}
       {onAdd && (
-        <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={onAdd}>
+        <Button
+          size="small"
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={onAdd}
+          data-testid="datatable-add-button"
+          data-contract-source="onAdd-prop"
+        >
           新增
         </Button>
       )}
@@ -196,6 +278,16 @@ export function DataTablePage({
       <Card sx={{ mb: 2 }}>
         <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
           <FilterPanel onSearch={handleSearch} onReset={handleReset}>
+            <Box
+              data-testid="datatable-live-filter-contract"
+              data-contract-source="fetchData-prop"
+              data-keyword={searchInput.trim() || 'empty'}
+              data-applied-keyword={keyword || 'empty'}
+              data-page={page}
+              data-page-size={rowsPerPage}
+              data-no-direct-api="true"
+              sx={{ display: 'contents' }}
+            />
             <TextField
               size="small"
               label="关键词"
@@ -229,6 +321,16 @@ export function DataTablePage({
         {actionsContent}
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2, alignItems: 'center' }}>
+        <Box
+          data-testid="datatable-default-filter-contract"
+          data-contract-source="fetchData-prop"
+          data-keyword={searchInput.trim() || 'empty'}
+          data-applied-keyword={keyword || 'empty'}
+          data-page={page}
+          data-page-size={rowsPerPage}
+          data-no-direct-api="true"
+          sx={{ display: 'contents' }}
+        />
         <TextField
           placeholder={searchPlaceholder}
           value={searchInput}
@@ -258,18 +360,72 @@ export function DataTablePage({
   )
 
   return (
-    <Box>
+    <Box
+      data-testid="datatable-page-shell"
+      data-contract-scope="shared-data-table-props-grid"
+      data-contract-source="fetchData-prop"
+      data-toolbar-variant={toolbarVariant}
+      data-ready-actions="fetchData|search|reset|refresh|select|client-export|add|edit|delete|batch-delete"
+      data-unsupported-actions={DATATABLE_UNSUPPORTED_ACTIONS.join('|')}
+      data-row-count={data.length}
+      data-total-count={total}
+      data-page={page}
+      data-page-size={rowsPerPage}
+      data-keyword={keyword || 'empty'}
+      data-search-input={searchInput.trim() || 'empty'}
+      data-selected-count={selected.size}
+      data-loading={String(loading)}
+      data-has-error={String(Boolean(error))}
+      data-has-data-issue={String(Boolean(dataIssue))}
+      data-no-direct-api="true"
+      data-no-local-row-fallback="true"
+      data-no-server-export="true"
+    >
       {toolbarContent}
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          onClose={() => setError('')}
+          action={<Button color="inherit" size="small" onClick={loadData}>重试</Button>}
+          data-testid="datatable-load-error"
+          data-contract-source="fetchData-prop"
+          data-no-local-row-fallback="true"
+          data-filter-context={`keyword=${keyword || 'empty'};page=${page};rows=${rowsPerPage}`}
+        >
           {error}
         </Alert>
       )}
 
-      <Paper sx={{ overflow: 'hidden' }}>
+      {dataIssue && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          onClose={() => setDataIssue('')}
+          data-testid="datatable-data-issue"
+          data-contract-source="normalizeTableResult"
+          data-no-local-row-fallback="true"
+        >
+          {dataIssue}
+        </Alert>
+      )}
+
+      <Paper
+        sx={{ overflow: 'hidden' }}
+        data-testid="datatable-table-surface"
+        data-contract-source="fetchData-prop"
+        data-row-count={data.length}
+        data-total-count={total}
+        data-selected-count={selected.size}
+        data-no-local-row-fallback="true"
+      >
         {loading ? (
-          <Box sx={{ p: 6, display: 'flex', justifyContent: 'center' }}>
+          <Box
+            sx={{ p: 6, display: 'flex', justifyContent: 'center' }}
+            data-testid="datatable-loading-state"
+            data-contract-source="fetchData-prop"
+          >
             <CircularProgress />
           </Box>
         ) : (
@@ -278,7 +434,7 @@ export function DataTablePage({
               <Table size="medium" stickyHeader>
                 <TableHead>
                   <TableRow>
-                    <TableCell padding="checkbox" sx={{ bgcolor: 'grey.50', fontWeight: 600 }}>
+                    <TableCell padding="checkbox" data-testid="datatable-header-cell" sx={headerCellSx}>
                       <Checkbox
                         indeterminate={selected.size > 0 && selected.size < data.length}
                         checked={allSelected}
@@ -286,12 +442,12 @@ export function DataTablePage({
                       />
                     </TableCell>
                     {columns.map((col) => (
-                      <TableCell key={col.key} sx={{ fontWeight: 600, bgcolor: 'grey.50', minWidth: col.width }}>
+                      <TableCell key={col.key} data-testid="datatable-header-cell" sx={{ ...headerCellSx, minWidth: col.width }}>
                         {col.label}
                       </TableCell>
                     ))}
                     {hasActions && (
-                      <TableCell sx={{ fontWeight: 600, bgcolor: 'grey.50', width: 80, textAlign: 'center' }}>
+                      <TableCell data-testid="datatable-header-cell" sx={{ ...headerCellSx, width: 80, textAlign: 'center' }}>
                         操作
                       </TableCell>
                     )}
@@ -300,7 +456,14 @@ export function DataTablePage({
                 <TableBody>
                   {data.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={columns.length + (hasActions ? 1 : 0) + 1} align="center" sx={{ py: 6, color: 'text.secondary' }}>
+                      <TableCell
+                        colSpan={columns.length + (hasActions ? 1 : 0) + 1}
+                        align="center"
+                        sx={{ py: 6, color: 'text.secondary' }}
+                        data-testid="datatable-empty-state"
+                        data-contract-source="fetchData-prop"
+                        data-no-local-row-fallback="true"
+                      >
                         暂无数据
                       </TableCell>
                     </TableRow>
@@ -310,7 +473,15 @@ export function DataTablePage({
                       const rowId = (typeof rawId === 'number' || typeof rawId === 'string') ? rawId : `row-${index}`
                       const isSelectedRow = selected.has(rowId)
                       return (
-                        <TableRow key={String(rowId)} hover selected={isSelectedRow}>
+                        <TableRow
+                          key={String(rowId)}
+                          hover
+                          selected={isSelectedRow}
+                          data-testid="datatable-body-row"
+                          data-row-id={String(rowId)}
+                          data-selected={String(isSelectedRow)}
+                          data-contract-source="fetchData-prop"
+                        >
                           <TableCell padding="checkbox">
                             <Checkbox checked={isSelectedRow} onChange={(_, c) => handleSelectOne(rowId, c)} />
                           </TableCell>
@@ -331,14 +502,25 @@ export function DataTablePage({
                             <TableCell sx={{ textAlign: 'center' }}>
                               {onEdit && (
                                 <Tooltip title="编辑">
-                                  <IconButton size="small" onClick={() => onEdit(row)}>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => onEdit(row)}
+                                    data-testid="datatable-row-edit-button"
+                                    data-contract-source="onEdit-prop"
+                                  >
                                     <EditIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
                               )}
                               {onDelete && (
                                 <Tooltip title="删除">
-                                  <IconButton size="small" color="error" onClick={() => onDelete(row)}>
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => onDelete(row)}
+                                    data-testid="datatable-row-delete-button"
+                                    data-contract-source="onDelete-prop"
+                                  >
                                     <DeleteIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
@@ -370,6 +552,52 @@ export function DataTablePage({
           </>
         )}
       </Paper>
+
+      <Dialog
+        open={batchDeleteOpen}
+        onClose={() => !batchDeleting && setBatchDeleteOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          'data-testid': 'datatable-batch-delete-dialog',
+          'data-contract-source': 'onBatchDelete-prop',
+          'data-selected-count': selectedIds.length,
+          'data-loading': String(batchDeleting),
+          'data-input-retained': batchDeleteError ? 'true' : 'false',
+          'data-no-direct-api': 'true',
+        } as never}
+      >
+        <DialogTitle>批量删除</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            确定删除选中的 {selectedIds.length} 条记录吗？删除后会自动刷新列表。
+          </Typography>
+          {batchDeleteError && (
+            <Alert
+              severity="error"
+              sx={{ mt: 2 }}
+              data-testid="datatable-batch-delete-error"
+              data-contract-source="onBatchDelete-prop"
+              data-selected-retained="true"
+            >
+              批量删除失败：{batchDeleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBatchDeleteOpen(false)} disabled={batchDeleting} data-testid="datatable-batch-delete-cancel-button">取消</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleConfirmBatchDelete}
+            disabled={batchDeleting}
+            data-testid="datatable-batch-delete-confirm-button"
+            data-disabled-reason={batchDeleting ? 'batch-delete-pending' : 'none'}
+          >
+            {batchDeleting ? '删除中...' : '确认删除'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

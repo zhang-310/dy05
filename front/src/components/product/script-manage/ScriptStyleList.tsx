@@ -20,6 +20,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import VideoLibraryIcon from '@mui/icons-material/VideoLibrary'
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
@@ -47,10 +48,10 @@ function MiniStat({ icon, value, label, color = 'text.secondary' }: {
 }
 
 /* ── Script Card ── */
-function ScriptCard({ script: s, isActive, isExpanded, onToggleExpand, onActivate, onDelete, onHistory, onRefine, onCopy }: {
+function ScriptCard({ script: s, isActive, isExpanded, onToggleExpand, onActivate, onDelete, onHistory, onExportShortVideo, onRefine, onCopy }: {
   script: ProductScript; isActive: boolean; isExpanded: boolean
   onToggleExpand: () => void; onActivate: () => void; onDelete: () => void
-  onHistory: () => void; onRefine: () => void; onCopy: () => void
+  onHistory: () => void; onExportShortVideo?: () => void; onRefine: () => void; onCopy: () => void
 }) {
   const dur = estimateDurationFromText(s.scriptContent)
 
@@ -109,6 +110,9 @@ function ScriptCard({ script: s, isActive, isExpanded, onToggleExpand, onActivat
             <Tooltip title="AI 精修"><IconButton size="small" onClick={(e) => { e.stopPropagation(); onRefine() }}><EditNoteIcon fontSize="small" /></IconButton></Tooltip>
             <Tooltip title="复制"><IconButton size="small" onClick={(e) => { e.stopPropagation(); onCopy() }}><ContentCopyIcon fontSize="small" /></IconButton></Tooltip>
             <Tooltip title="版本历史"><IconButton size="small" onClick={(e) => { e.stopPropagation(); onHistory() }}><HistoryIcon fontSize="small" /></IconButton></Tooltip>
+            {onExportShortVideo && (
+              <Tooltip title="导出为短视频项目"><IconButton size="small" color="primary" onClick={(e) => { e.stopPropagation(); onExportShortVideo() }}><VideoLibraryIcon fontSize="small" /></IconButton></Tooltip>
+            )}
             {!isActive && (
               <Tooltip title="设为激活"><IconButton size="small" color="success" onClick={(e) => { e.stopPropagation(); onActivate() }}><RadioButtonUncheckedIcon fontSize="small" /></IconButton></Tooltip>
             )}
@@ -139,11 +143,12 @@ export function ScriptStyleList({
   onActivate,
   onDelete,
   onHistory,
+  onExportShortVideo,
   onRefine,
   onCopy,
 }: ScriptStyleListProps) {
   return (
-    <Box sx={{ width: '55%', borderRight: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
 
       {/* Tab + stats row */}
       <Box sx={{ px: 2, pt: 1.5 }}>
@@ -238,6 +243,7 @@ export function ScriptStyleList({
                         onActivate={() => onActivate(s)}
                         onDelete={() => onDelete(s)}
                         onHistory={() => onHistory(s)}
+                        onExportShortVideo={onExportShortVideo ? () => onExportShortVideo(s) : undefined}
                         onRefine={() => onRefine(s)}
                         onCopy={() => onCopy(s)}
                       />

@@ -1,7 +1,9 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 
 import java.sql.Timestamp;
 
@@ -10,9 +12,11 @@ import java.sql.Timestamp;
  * 表: sv_workflow_task
  * 用于 Redis 不可用或应用重启后恢复任务状态
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_workflow_task")
+@NoArgsConstructor
 public class SvWorkflowTask {
 
     @Id

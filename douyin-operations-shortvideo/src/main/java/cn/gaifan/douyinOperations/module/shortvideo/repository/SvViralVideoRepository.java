@@ -23,6 +23,24 @@ public interface SvViralVideoRepository extends JpaRepository<SvViralVideo, Long
 
     List<SvViralVideo> findByIdInAndDeleted(java.util.List<Long> ids, Integer deleted);
 
+    long countByDeleted(Integer deleted);
+
+    long countByOwnerIdAndDeleted(Long ownerId, Integer deleted);
+
+    long countByDeepAnalyzeStatusAndDeleted(String deepAnalyzeStatus, Integer deleted);
+
+    long countByOwnerIdAndDeepAnalyzeStatusAndDeleted(Long ownerId, String deepAnalyzeStatus, Integer deleted);
+
+    long countByAutoCollectedAndDeleted(boolean autoCollected, Integer deleted);
+
+    long countByOwnerIdAndAutoCollectedAndDeleted(Long ownerId, boolean autoCollected, Integer deleted);
+
+    @Query("SELECT MAX(v.createTime) FROM SvViralVideo v WHERE v.deleted = 0")
+    java.sql.Timestamp findLastCreateTime();
+
+    @Query("SELECT MAX(v.createTime) FROM SvViralVideo v WHERE v.ownerId = :ownerId AND v.deleted = 0")
+    java.sql.Timestamp findLastCreateTimeByOwnerId(@Param("ownerId") Long ownerId);
+
     List<SvViralVideo> findByOwnerIdAndDeletedOrderByViewCountDesc(Long ownerId, Integer deleted, Pageable pageable);
 
     /** 深度分析超时检测：status=processing 且 createTime < cutoff */

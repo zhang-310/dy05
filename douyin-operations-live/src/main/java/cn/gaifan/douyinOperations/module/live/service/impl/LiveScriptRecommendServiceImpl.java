@@ -218,14 +218,18 @@ public class LiveScriptRecommendServiceImpl implements LiveScriptRecommendServic
                         query.append(" ").append(s.getLiveTitle());
                     }
                 });
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // 查询场次失败，不影响推荐
+            }
         }
         if (req.getProductId() != null && liveProductRepository != null) {
             try {
                 liveProductRepository.findById(req.getProductId()).ifPresent(p -> {
                     if (p.getProductName() != null) query.append(" ").append(p.getProductName());
                 });
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // 查询商品失败，不影响推荐
+            }
         }
         // 时段提示
         if (req.getTimeElapsed() != null) {

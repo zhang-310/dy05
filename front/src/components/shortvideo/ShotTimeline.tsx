@@ -17,7 +17,14 @@ export function ShotTimeline({ shots, totalDuration, onDurationChange }: ShotTim
   if (shots.length === 0) return null
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+    <Paper
+      variant="outlined"
+      data-testid="shortvideo-shot-timeline"
+      sx={(theme) => ({
+        p: 2,
+        bgcolor: theme.palette.mode === 'dark' ? theme.palette.background.paper : theme.palette.grey[50],
+      })}
+    >
       <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
         时间轴 · 总时长 {totalDuration}s · 拖拽调整每镜时长
       </Typography>

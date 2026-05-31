@@ -27,6 +27,9 @@ public class AccountCollectTaskSaveVO {
     /** 目标知识库 ID（可选，不传则自动选择用户首个话术知识库） */
     private Long targetKbId;
 
+    /** 本次最多采集多少条视频，避免一次任务无限滚动 */
+    private Integer maxCount;
+
     /** 获取有效输入（优先 input，回退 accountUrl） */
     public String getEffectiveInput() {
         if (input != null && !input.isBlank()) return input.trim();

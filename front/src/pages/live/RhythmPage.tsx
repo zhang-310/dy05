@@ -1,145 +1,331 @@
-import { useState } from 'react'
-import { Box, Card, CardContent, Typography, Stack, Button, TextField, Slider, Divider, LinearProgress, Chip } from '@mui/material'
-import SaveIcon from '@mui/icons-material/Save'
+import { useMemo, useState } from 'react'
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, LinearProgress, Stack, TextField, Typography } from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh'
+import DeleteIcon from '@mui/icons-material/Delete'
+import SaveIcon from '@mui/icons-material/Save'
+import { alpha } from '@mui/material/styles'
+import { useMutation } from '@tanstack/react-query'
 import { liveApi } from '@/api/live'
+import { PageHeader } from '@/components/base/PageHeader'
 import { useToast } from '@/contexts/ToastContext'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { getErrorMessage } from '@/utils/errorHandler'
 
-interface TimeSlot {
-  label?: string
-  duration?: number
-  [key: string]: unknown
+interface RhythmSlot {
+  scriptId: string
+  sequenceNo: string
+  durationLimitSec: string
 }
 
-interface TopicRatio {
-  topic?: string
-  ratio?: number
-  [key: string]: unknown
+const RHYTHM_READY_ENDPOINTS = {
+  optimize: '/live/rhythm/optimize',
+  save: '/live/rhythm/save-rhythm',
+} as const
+
+const RHYTHM_CONTEXT_ENDPOINTS = [
+  RHYTHM_READY_ENDPOINTS.optimize,
+  RHYTHM_READY_ENDPOINTS.save,
+]
+
+const RHYTHM_UNSUPPORTED_ACTIONS = [
+  'rhythm-get-rhythm',
+  'rhythm-suggest-legacy',
+  'local-plan-fallback',
+  'script-search-autofill',
+  'product-strategy',
+  'batch-order',
+  'shortvideo-export',
+]
+
+function parseSlots(slots: RhythmSlot[]) {
+  return slots
+    .map((slot) => ({
+      scriptId: Number(slot.scriptId),
+      sequenceNo: Number(slot.sequenceNo),
+      durationLimitSec: Number(slot.durationLimitSec),
+    }))
+    .filter((slot) => slot.scriptId > 0)
 }
 
-interface RhythmData {
-  timeSlots?: TimeSlot[]
-  topicRatios?: TopicRatio[]
-  [key: string]: unknown
+function slotContext(slots: Array<{ scriptId: number; sequenceNo: number; durationLimitSec: number }>) {
+  return slots.map((slot) => `${slot.scriptId}:${slot.sequenceNo}/${slot.durationLimitSec}s`).join(',') || '空'
 }
 
 export default function RhythmPage() {
   const toast = useToast()
-  const [sessionId, setSessionId] = useState<number>(0)
-  const [draftId, setDraftId] = useState('')
+  const [sessionId, setSessionId] = useState('')
+  const [slots, setSlots] = useState<RhythmSlot[]>([
+    { scriptId: '', sequenceNo: '1', durationLimitSec: '60' },
+  ])
 
-  const { data: rhythm, isLoading, refetch } = useQuery({
-    queryKey: ['live-rhythm', sessionId],
-    queryFn: () => liveApi.rhythmGet(sessionId),
-    enabled: sessionId > 0,
+  const parsedSessionId = Number(sessionId)
+  const payloadSlots = useMemo(() => parseSlots(slots), [slots])
+  const hasInvalidSlot = slots.some((slot) => {
+    if (!slot.scriptId) return false
+    return Number(slot.scriptId) <= 0 || Number(slot.sequenceNo) <= 0 || Number(slot.durationLimitSec) <= 0
+  })
+
+  const optimizeMut = useMutation({
+    mutationFn: (sid: number) => liveApi.rhythmOptimize(sid),
+    onSuccess: () => toast('节奏优化建议已生成', 'success'),
+    onError: (error: Error) => toast(`${RHYTHM_READY_ENDPOINTS.optimize} ${getErrorMessage(error)}`, 'error'),
   })
 
   const saveMut = useMutation({
-    mutationFn: (p: Record<string, unknown>) => liveApi.rhythmSave(p),
-    onSuccess: () => { toast('节奏配置已保存', 'success'); refetch() },
-    onError: (e: Error) => toast(e.message, 'error'),
-  })
-  const suggestMut = useMutation({
-    mutationFn: (sid: number) => liveApi.rhythmSuggest(sid),
-    onSuccess: () => { toast('AI 建议已生成', 'success'); refetch() },
-    onError: (e: Error) => toast(e.message, 'error'),
+    mutationFn: () => liveApi.rhythmSave({ sessionId: parsedSessionId, slots: payloadSlots }),
+    onSuccess: (result) => toast(`节奏槽位已保存：${String(result.updatedSlots ?? payloadSlots.length)} 条`, 'success'),
+    onError: (error: Error) => toast(`${RHYTHM_READY_ENDPOINTS.save} ${getErrorMessage(error)}`, 'error'),
   })
 
-  const handleLoad = () => {
-    const id = Number(draftId)
-    if (id > 0) setSessionId(id)
-    else toast('请输入有效的场次 ID', 'error')
+  const addSlot = () => {
+    setSlots((current) => [
+      ...current,
+      { scriptId: '', sequenceNo: String(current.length + 1), durationLimitSec: '60' },
+    ])
   }
 
-  const rhythmData = (rhythm ?? undefined) as RhythmData | undefined
+  const updateSlot = (index: number, field: keyof RhythmSlot, value: string) => {
+    setSlots((current) => current.map((slot, i) => i === index ? { ...slot, [field]: value } : slot))
+  }
+
+  const removeSlot = (index: number) => {
+    setSlots((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))
+  }
+
+  const canSubmit = parsedSessionId > 0 && payloadSlots.length > 0 && !hasInvalidSlot && !saveMut.isPending
+  const optimizeContext = `上下文：route=/admin/live/rhythm; sessionId=${parsedSessionId || '空'}`
+  const saveContext = `上下文：route=/admin/live/rhythm; sessionId=${parsedSessionId || '空'}; slotCount=${payloadSlots.length}; slots=${slotContext(payloadSlots)}`
 
   return (
-    <Box sx={{ maxWidth: 800, mx: 'auto', py: 2 }}>
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <TextField size="small" label="直播场次 ID" value={draftId}
-              onChange={e => setDraftId(e.target.value)} sx={{ width: 160 }} />
-            <Button variant="outlined" size="small" onClick={handleLoad}>加载场次节奏</Button>
-          </Stack>
-        </CardContent>
-      </Card>
+    <Box
+      sx={{ py: 1 }}
+      data-testid="live-rhythm-workbench"
+      data-contract-scope="live-rhythm-slot-editor"
+      data-ready-endpoints={Object.values(RHYTHM_READY_ENDPOINTS).join('|')}
+      data-context-endpoints={RHYTHM_CONTEXT_ENDPOINTS.join('|')}
+      data-unsupported-actions={RHYTHM_UNSUPPORTED_ACTIONS.join('|')}
+      data-session-id={parsedSessionId > 0 ? parsedSessionId : 0}
+      data-slot-count={slots.length}
+      data-valid-slot-count={payloadSlots.length}
+      data-has-invalid-slot={String(hasInvalidSlot)}
+    >
+      <PageHeader
+        title="直播节奏编排"
+        subtitle="对齐真实 `/live/rhythm/optimize` 与 `/save-rhythm`；当前后端没有独立读取节奏方案接口。"
+        breadcrumbs={[{ label: '直播' }, { label: '节奏编排' }]}
+      />
 
-      {isLoading && <LinearProgress />}
+      <Stack spacing={2}>
+        <Alert
+          severity="warning"
+          data-testid="live-rhythm-contract-alert"
+          data-contract-source={RHYTHM_CONTEXT_ENDPOINTS.join('|')}
+          data-no-get-rhythm="true"
+          data-no-suggest-legacy="true"
+          data-no-local-plan-fallback="true"
+          data-no-script-search-autofill="true"
+          data-no-shortvideo-export="true"
+        >
+          当前控制器只提供优化建议和保存槽位。保存动作会更新该场次话术的 `sequenceNo` 与 `durationLimitSec`，不会单独生成可读取的节奏方案记录。
+        </Alert>
 
-      {rhythmData && (
-        <Card variant="outlined">
+        <Card
+          variant="outlined"
+          data-testid="live-rhythm-control-card"
+          data-contract-source={RHYTHM_CONTEXT_ENDPOINTS.join('|')}
+          data-optimize-source={RHYTHM_READY_ENDPOINTS.optimize}
+          data-save-source={RHYTHM_READY_ENDPOINTS.save}
+          data-no-read-before-edit="true"
+        >
           <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6">节奏配置</Typography>
-              <Stack direction="row" spacing={1}>
-                <Button size="small" variant="outlined" startIcon={<AutoFixHighIcon />}
-                  onClick={() => suggestMut.mutate(sessionId)} disabled={suggestMut.isPending}>
-                  AI 建议
-                </Button>
-                <Button size="small" variant="contained" startIcon={<SaveIcon />}
-                  onClick={() => saveMut.mutate({ ...rhythmData, sessionId })} disabled={saveMut.isPending}>
-                  保存
-                </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
+              <TextField
+                size="small"
+                label="直播场次 ID"
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+                sx={{ width: { xs: '100%', sm: 180 } }}
+                inputProps={{ inputMode: 'numeric' }}
+              />
+              <Button
+                variant="outlined"
+                startIcon={<AutoFixHighIcon />}
+                disabled={parsedSessionId <= 0 || optimizeMut.isPending}
+                onClick={() => optimizeMut.mutate(parsedSessionId)}
+                data-testid="live-rhythm-optimize-button"
+              >
+                AI 优化建议
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<SaveIcon />}
+                disabled={!canSubmit}
+                onClick={() => saveMut.mutate()}
+                data-testid="live-rhythm-save-button"
+              >
+                保存槽位
+              </Button>
+              {parsedSessionId > 0 && <Chip label={`场次 #${parsedSessionId}`} color="primary" variant="outlined" />}
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {(optimizeMut.isPending || saveMut.isPending) && <LinearProgress sx={{ borderRadius: 1 }} />}
+
+        {optimizeMut.isError && (
+          <Alert
+            severity="error"
+            data-testid="live-rhythm-optimize-error"
+            data-contract-source={RHYTHM_READY_ENDPOINTS.optimize}
+            data-no-local-optimization-fallback="true"
+            action={<Button color="inherit" size="small" onClick={() => optimizeMut.mutate(parsedSessionId)}>重试</Button>}
+          >
+            {RHYTHM_READY_ENDPOINTS.optimize} 节奏优化失败：{getErrorMessage(optimizeMut.error)}。{optimizeContext}
+          </Alert>
+        )}
+        {saveMut.isError && (
+          <Alert
+            severity="error"
+            data-testid="live-rhythm-save-error"
+            data-contract-source={RHYTHM_READY_ENDPOINTS.save}
+            data-no-local-save-fallback="true"
+            data-input-retained="true"
+          >
+            {RHYTHM_READY_ENDPOINTS.save} 保存节奏失败：{getErrorMessage(saveMut.error)}。{saveContext}。失败会保留当前槽位输入，不会本地伪造保存成功。
+          </Alert>
+        )}
+        {saveMut.data && (
+          <Alert
+            severity="success"
+            data-testid="live-rhythm-save-success"
+            data-contract-source={RHYTHM_READY_ENDPOINTS.save}
+            data-updated-slots={String(saveMut.data.updatedSlots ?? payloadSlots.length)}
+            data-no-local-save-fallback="true"
+          >
+            {RHYTHM_READY_ENDPOINTS.save} 已确认保存 {String(saveMut.data.updatedSlots ?? payloadSlots.length)} 个槽位。
+          </Alert>
+        )}
+
+        {optimizeMut.data && (
+          <Card
+            variant="outlined"
+            data-testid="live-rhythm-optimization-card"
+            data-contract-source={RHYTHM_READY_ENDPOINTS.optimize}
+            data-no-local-optimization-fallback="true"
+          >
+            <CardContent>
+              <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+                <Typography variant="subtitle2">AI 优化返回</Typography>
+                {optimizeMut.data.status != null && <Chip size="small" label={String(optimizeMut.data.status)} />}
               </Stack>
+              {optimizeMut.data.message != null && (
+                <Alert severity={optimizeMut.data.status === 'success' ? 'success' : 'info'} sx={{ mb: 1 }}>
+                  {String(optimizeMut.data.message)}
+                </Alert>
+              )}
+              <Box
+                component="pre"
+                data-testid="live-rhythm-optimization-surface"
+                data-contract-source={RHYTHM_READY_ENDPOINTS.optimize}
+                sx={(theme) => ({
+                  fontSize: 12,
+                  bgcolor: theme.palette.mode === 'dark'
+                    ? theme.palette.background.default
+                    : alpha(theme.palette.common.black, 0.025),
+                  border: `1px solid ${theme.palette.divider}`,
+                  p: 2,
+                  borderRadius: 1,
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                })}
+              >
+                {String(optimizeMut.data.optimization ?? JSON.stringify(optimizeMut.data, null, 2))}
+              </Box>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card
+          variant="outlined"
+          data-testid="live-rhythm-slot-editor"
+          data-contract-source={RHYTHM_READY_ENDPOINTS.save}
+          data-slot-count={slots.length}
+          data-valid-slot-count={payloadSlots.length}
+          data-no-extra-fields="true"
+        >
+          <CardContent>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1} mb={2}>
+              <Box>
+                <Typography variant="h6">槽位编排</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  只提交后端消费的 `scriptId / sequenceNo / durationLimitSec`，避免保存无效字段。
+                </Typography>
+              </Box>
+              <Button size="small" startIcon={<AddIcon />} onClick={addSlot}>新增槽位</Button>
             </Stack>
             <Divider sx={{ mb: 2 }} />
 
-            {/* 时间段配置 */}
-            {Array.isArray(rhythmData.timeSlots) && (
-              <Box mb={3}>
-                <Typography variant="subtitle2" mb={1}>时间段分配</Typography>
-                <Stack spacing={2}>
-                  {(rhythmData.timeSlots ?? []).map((slot, i) => (
-                    <Box key={i}>
-                      <Stack direction="row" justifyContent="space-between" mb={0.5}>
-                        <Chip label={String(slot.label ?? `时段 ${i + 1}`)} size="small" />
-                        <Typography variant="caption">{String(slot.duration ?? 0)} 分钟</Typography>
-                      </Stack>
-                      <Slider
-                        value={Number(slot.duration ?? 0)}
-                        min={0} max={120} step={5}
-                        valueLabelDisplay="auto"
-                        size="small"
-                      />
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
+            {hasInvalidSlot && (
+              <Alert
+                severity="error"
+                sx={{ mb: 2 }}
+                data-testid="live-rhythm-validation-error"
+                data-no-local-plan-fallback="true"
+              >
+                已填写的话术 ID、顺序、时长必须是大于 0 的数字。
+              </Alert>
             )}
 
-            {/* 话题占比 */}
-            {Array.isArray(rhythmData.topicRatios) && (
-              <Box>
-                <Typography variant="subtitle2" mb={1}>话题占比</Typography>
-                <Stack spacing={2}>
-                  {(rhythmData.topicRatios ?? []).map((topic, i) => (
-                    <Box key={i}>
-                      <Stack direction="row" justifyContent="space-between" mb={0.5}>
-                        <Typography variant="body2">{String(topic.topic ?? `话题 ${i + 1}`)}</Typography>
-                        <Typography variant="caption">{String(topic.ratio ?? 0)}%</Typography>
+            <Grid container spacing={2}>
+              {slots.map((slot, index) => (
+                <Grid item xs={12} md={4} key={index}>
+                  <Card
+                    variant="outlined"
+                    sx={{ height: '100%' }}
+                    data-testid="live-rhythm-slot-card"
+                    data-slot-index={index}
+                    data-script-id={slot.scriptId || 'empty'}
+                    data-sequence-no={slot.sequenceNo || 'empty'}
+                    data-duration-limit-sec={slot.durationLimitSec || 'empty'}
+                  >
+                    <CardContent>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                        <Typography variant="subtitle2">槽位 {index + 1}</Typography>
+                        <Button size="small" color="error" startIcon={<DeleteIcon />} disabled={slots.length === 1} onClick={() => removeSlot(index)}>
+                          删除
+                        </Button>
                       </Stack>
-                      <LinearProgress variant="determinate" value={Number(topic.ratio ?? 0)} sx={{ borderRadius: 1, height: 8 }} />
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
-            )}
-
-            {/* 原始数据展示（当无结构化字段时） */}
-            {!Array.isArray(rhythmData.timeSlots) && !Array.isArray(rhythmData.topicRatios) && (
-              <Box component="pre" sx={{ fontSize: 12, bgcolor: 'grey.100', p: 2, borderRadius: 1, overflow: 'auto' }}>
-                {JSON.stringify(rhythmData, null, 2)}
-              </Box>
-            )}
+                      <Stack spacing={1.5}>
+                        <TextField
+                          size="small"
+                          label="话术 ID"
+                          value={slot.scriptId}
+                          onChange={(e) => updateSlot(index, 'scriptId', e.target.value)}
+                          inputProps={{ inputMode: 'numeric' }}
+                        />
+                        <TextField
+                          size="small"
+                          label="顺序"
+                          value={slot.sequenceNo}
+                          onChange={(e) => updateSlot(index, 'sequenceNo', e.target.value)}
+                          inputProps={{ inputMode: 'numeric' }}
+                        />
+                        <TextField
+                          size="small"
+                          label="时长上限（秒）"
+                          value={slot.durationLimitSec}
+                          onChange={(e) => updateSlot(index, 'durationLimitSec', e.target.value)}
+                          inputProps={{ inputMode: 'numeric' }}
+                        />
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
           </CardContent>
         </Card>
-      )}
-
-      {!rhythmData && !isLoading && sessionId > 0 && (
-        <Typography color="text.secondary">该场次暂无节奏配置</Typography>
-      )}
+      </Stack>
     </Box>
   )
 }

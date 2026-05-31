@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -13,10 +15,12 @@ import java.sql.Timestamp;
  * 统一管理所有采集的账号信息，支持账号级别的数据分析和统计。
  * 一个账号（sec_uid）对应多个采集任务和多个爆款视频。
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_account")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvAccount {
 
     @Id

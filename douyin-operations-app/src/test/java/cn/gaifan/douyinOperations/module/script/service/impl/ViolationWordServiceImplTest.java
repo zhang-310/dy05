@@ -86,7 +86,7 @@ class ViolationWordServiceImplTest {
 
         // Assert
         assertThat(result).isNotNull();
-        assertThat(result.getHasViolation()).isTrue();
+        assertThat(result.isHasViolation()).isTrue();
         assertThat(result.getViolations()).hasSize(1);
         assertThat(result.getViolations().get(0).getWord()).isEqualTo("违规词");
         assertThat(result.getViolations().get(0).getLevel()).isEqualTo(3);
@@ -105,7 +105,7 @@ class ViolationWordServiceImplTest {
 
         // Assert
         assertThat(result).isNotNull();
-        assertThat(result.getHasViolation()).isFalse();
+        assertThat(result.isHasViolation()).isFalse();
         assertThat(result.getViolations()).isEmpty();
     }
 
@@ -122,7 +122,7 @@ class ViolationWordServiceImplTest {
 
         // Assert
         assertThat(result).isNotNull();
-        assertThat(result.getHasViolation()).isTrue();
+        assertThat(result.isHasViolation()).isTrue();
         assertThat(result.getViolations()).hasSize(1);
         assertThat(result.getViolations().get(0).getWord()).isEqualTo("自定义违规词");
     }
@@ -134,7 +134,7 @@ class ViolationWordServiceImplTest {
 
         // Assert
         assertThat(result).isNotNull();
-        assertThat(result.getHasViolation()).isFalse();
+        assertThat(result.isHasViolation()).isFalse();
         assertThat(result.getViolations()).isEmpty();
     }
 
@@ -145,7 +145,7 @@ class ViolationWordServiceImplTest {
 
         // Assert
         assertThat(result).isNotNull();
-        assertThat(result.getHasViolation()).isFalse();
+        assertThat(result.isHasViolation()).isFalse();
         assertThat(result.getViolations()).isEmpty();
     }
 

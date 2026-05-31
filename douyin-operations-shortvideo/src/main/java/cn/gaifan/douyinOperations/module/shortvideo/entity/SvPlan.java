@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.shortvideo.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -9,10 +11,12 @@ import java.sql.Timestamp;
 /**
  * 创作方案表，与 sql/shortvideo/schema.sql 中 sv_plan 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "sv_plan")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class SvPlan {
 
     @Id

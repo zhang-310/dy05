@@ -28,4 +28,20 @@ describe('EmptyState', () => {
     renderWithProviders(<EmptyState title="空列表" />)
     expect(screen.getByText('空列表')).toBeInTheDocument()
   })
+
+  it('uses theme-aware neutral tone for the default surface', () => {
+    renderWithProviders(<EmptyState title="空列表" description="暂无可展示内容" />)
+
+    const surface = screen.getByTestId('base-empty-state-surface')
+    const title = screen.getByTestId('empty-state-title')
+    const description = screen.getByTestId('empty-state-description')
+    const defaultIcon = screen.getByTestId('empty-state-default-icon')
+
+    expect(surface).toHaveAttribute('data-empty-tone', 'neutral')
+    expect(title).toHaveStyle({ color: 'rgba(0, 0, 0, 0.6)' })
+    expect(description).toHaveStyle({ color: 'rgba(0, 0, 0, 0.6)' })
+    expect(title.outerHTML).not.toContain('#475569')
+    expect(description.outerHTML).not.toContain('#475569')
+    expect(defaultIcon.getAttribute('style') ?? '').not.toContain('#475569')
+  })
 })

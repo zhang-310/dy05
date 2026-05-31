@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.product.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * 商品话术使用记录表
  * 记录某个产品话术版本被应用到直播脚本及其效果
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "dy_product_script_usage")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class ProductScriptUsage {
 
     @Id

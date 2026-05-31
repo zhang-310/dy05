@@ -4,7 +4,7 @@ import {
   FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip,
   Divider, Tabs, Tab, FormGroup, FormControlLabel, Checkbox,
   CircularProgress, List, ListItemButton, ListItemText, Collapse,
-  Menu,
+  Menu, Alert,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ChatIcon from '@mui/icons-material/Chat'
@@ -22,11 +22,16 @@ import SmartToyIcon from '@mui/icons-material/SmartToy'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import type { GridColDef } from '@mui/x-data-grid'
 import { StandardDataGrid, ConfirmDialog } from '@/components/base'
-import { agentApi, type AgentSave, type ChatMessage as ApiChatMessage, type ToolCall as ApiToolCall } from '@/api/agent'
+import { agentApi, type Agent, type AgentSave, type ChatMessage as ApiChatMessage, type ToolCall as ApiToolCall } from '@/api/agent'
 import { aiApi } from '@/api/ai'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDate } from '@/utils/date'
+import { ssePost } from '@/utils/sse-client'
+import MarkdownViewer from '@/components/MarkdownViewer'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { normalizeArray, readTotal } from '@/utils/response-normalize'
+import { agentMessageBubbleSx, agentStreamingBubbleSx, agentStreamStatusBarSx } from './agentMessageBubbleStyles'
 
 // ─── Agent type config ───────────────────────────────────────────────────────
 const AGENT_TYPES = [
@@ -47,6 +52,36 @@ const AVAILABLE_TOOLS = [
 
 function getTypeConfig(val: number) {
   return AGENT_TYPES.find(t => t.value === val) ?? AGENT_TYPES[0]
+}
+
+function getToolLabel(name: string) {
+  return AVAILABLE_TOOLS.find(t => t.key === name)?.label ?? name
+}
+
+function formatStreamStatus(raw: unknown): string {
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    if (!text) return ''
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        return formatStreamStatus(JSON.parse(text))
+      } catch {
+        return text
+      }
+    }
+    return text
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const row = raw as Record<string, unknown>
+    const value = row.status ?? row.message ?? row.content ?? row.text
+    if (value !== undefined && value !== null) return String(value).trim()
+    return JSON.stringify(row)
+  }
+  return raw === undefined || raw === null ? '' : String(raw)
+}
+
+function formatActionError(action: string, endpoint: string, error: unknown): string {
+  return `${action}失败：${getErrorMessage(error)}。来源：${endpoint}，页面已保留当前会话和历史消息。`
 }
 
 // ─── SystemPromptHighlight ────────────────────────────────────────────────────
@@ -73,17 +108,33 @@ function ToolCallCard({ tc }: { tc: ApiToolCall }) {
     args: tc.function?.arguments ?? '',
     result: tc.result,
   }
+  const displayName = getToolLabel(toolCall.name)
   return (
     <Paper variant="outlined" sx={{ mt: 0.5, borderRadius: 1, overflow: 'hidden' }}>
       <Stack direction="row" alignItems="center" sx={{ px: 1.5, py: 0.75, cursor: 'pointer', bgcolor: 'action.hover' }} onClick={() => setOpen(v => !v)}>
         <SmartToyIcon sx={{ fontSize: 14, mr: 0.75, color: 'text.secondary' }} />
-        <Typography variant="caption" sx={{ flex: 1, fontFamily: 'monospace' }}>{toolCall.name}</Typography>
+        <Typography variant="caption" sx={{ flex: 1, fontWeight: 700 }}>{displayName}</Typography>
+        {displayName !== toolCall.name && (
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.75, fontFamily: 'monospace' }}>{toolCall.name}</Typography>
+        )}
         {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
       </Stack>
       <Collapse in={open}>
         <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid', borderColor: 'divider' }}>
           <Typography variant="caption" color="text.secondary">参数：</Typography>
-          <Box component="pre" sx={{ fontSize: 11, mt: 0.5, overflowX: 'auto', m: 0, bgcolor: 'grey.50', p: 1, borderRadius: 1 }}>
+          <Box
+            component="pre"
+            data-testid="agent-tool-call-args-preview"
+            sx={(theme) => ({
+              fontSize: 11,
+              mt: 0.5,
+              overflowX: 'auto',
+              m: 0,
+              bgcolor: theme.palette.mode === 'dark' ? theme.palette.background.default : theme.palette.grey[50],
+              p: 1,
+              borderRadius: 1,
+            })}
+          >
             {JSON.stringify(toolCall.args, null, 2)}
           </Box>
           {toolCall.result && (
@@ -99,10 +150,15 @@ function ToolCallCard({ tc }: { tc: ApiToolCall }) {
 }
 // ─── Types ───────────────────────────────────────────────────────────────────
 type ChatMessage = ApiChatMessage
+interface StreamStatusItem {
+  id: number
+  text: string
+  done: boolean
+}
 
 // ─── AgentEditDrawer ──────────────────────────────────────────────────────────
 function AgentEditDrawer({
-  open, form, kbList, onClose, onSave, saving,
+  open, form, kbList, onClose, onSave, saving, errorText,
 }: {
   open: boolean
   form: Partial<AgentSave>
@@ -110,6 +166,7 @@ function AgentEditDrawer({
   onClose: () => void
   onSave: (f: Partial<AgentSave>) => void
   saving: boolean
+  errorText?: string
 }) {
   const [local, setLocal] = useState<Partial<AgentSave>>(form)
   useEffect(() => { setLocal(form) }, [form])
@@ -134,6 +191,11 @@ function AgentEditDrawer({
         </Box>
         <Box sx={{ flex: 1, overflow: 'auto', px: 3, py: 2 }}>
           <Stack spacing={2.5}>
+            {errorText && (
+              <Alert severity="error">
+                {errorText}
+              </Alert>
+            )}
             <TextField label="名称 *" value={local.agentName ?? ''} onChange={e => setLocal(l => ({ ...l, agentName: e.target.value }))} fullWidth size="small" />
             <FormControl fullWidth size="small">
               <InputLabel>类型</InputLabel>
@@ -159,7 +221,17 @@ function AgentEditDrawer({
                 size="small"
               />
               {local.systemPrompt && (
-                <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                <Box
+                  data-testid="agent-system-prompt-preview"
+                  sx={(theme) => ({
+                    mt: 1,
+                    p: 1.5,
+                    bgcolor: theme.palette.mode === 'dark' ? theme.palette.background.default : theme.palette.grey[50],
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                  })}
+                >
                   <Typography variant="caption" color="text.secondary">预览：</Typography>
                   <SystemPromptHighlight text={local.systemPrompt} />
                 </Box>
@@ -197,12 +269,17 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0 })
+  const [streamStatuses, setStreamStatuses] = useState<StreamStatusItem[]>([])
+  const [toolStatus, setToolStatus] = useState<Array<{ tool: string; status: 'calling' | 'done' | 'error'; description?: string; result?: string }>>([])
+  const [streamError, setStreamError] = useState('')
+  const [actionError, setActionError] = useState('')
   const [ctxMenuAnchor, setCtxMenuAnchor] = useState<HTMLElement | null>(null)
   const [ctxConvId, setCtxConvId] = useState<number | null>(null)
   const [renameId, setRenameId] = useState<number | null>(null)
   const [renameVal, setRenameVal] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const streamContentRef = useRef('')
 
   const { data: agentInfo } = useQuery({
     queryKey: ['agent-detail', agentId],
@@ -216,53 +293,101 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
   const totalTokens = tokenUsage.input + tokenUsage.output
   const costEstimate = (totalTokens / 1000 * 0.002).toFixed(3)
 
-  const { data: convList } = useQuery({
+  const { data: convList, isError: convListError, error: convListLoadError, refetch: refetchConversations } = useQuery({
     queryKey: ['agent-conversations', agentId],
     queryFn: () => agentApi.conversationList(agentId!),
     enabled: agentId !== null && agentId > 0,
   })
-  const conversations = convList ?? []
+  const conversations = normalizeArray<Awaited<ReturnType<typeof agentApi.conversationList>>[number]>(convList)
 
-  const { data: msgList } = useQuery({
+  const { data: msgList, isError: msgListError, error: msgListLoadError, refetch: refetchMessages } = useQuery({
     queryKey: ['agent-messages', activeConvId],
     queryFn: () => agentApi.messageList(activeConvId!),
     enabled: activeConvId !== null,
   })
 
   useEffect(() => {
-    if (msgList) setMessages(msgList)
+    if (msgList) setMessages(normalizeArray<ChatMessage>(msgList))
   }, [msgList])
 
   useEffect(() => {
+    const input = messages.reduce((sum, msg) => sum + Number(msg.tokenUsage?.input ?? 0), 0)
+    const output = messages.reduce((sum, msg) => sum + Number(msg.tokenUsage?.output ?? 0), 0)
+    setTokenUsage({ input, output })
+  }, [messages])
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamContent])
+  }, [messages, streamContent, streamStatuses])
 
   useEffect(() => {
     setActiveConvId(null)
     setMessages([])
+    setStreamStatuses([])
+    setToolStatus([])
+    setStreamError('')
+    setActionError('')
   }, [agentId])
 
   const createConvMut = useMutation({
     mutationFn: () => agentApi.conversationCreate(agentId!, `对话 ${new Date().toLocaleTimeString()}`),
     onSuccess: (id) => {
       setActiveConvId(Number(id))
+      setActionError('')
       qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] })
     },
-    onError: () => toast('创建对话失败', 'error'),
+    onError: (error) => {
+      setActionError(formatActionError('创建对话', '/agent/conversation/create', error))
+      toast('创建对话失败', 'error')
+    },
   })
 
   const deleteConvMut = useMutation({
     mutationFn: (id: number) => agentApi.conversationDelete(id),
     onSuccess: (_data, id) => {
       if (activeConvId === id) { setActiveConvId(null); setMessages([]) }
+      setActionError('')
       qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] })
+    },
+    onError: (error) => {
+      setActionError(formatActionError('删除对话', '/agent/conversation/delete', error))
+      toast('删除对话失败', 'error')
+    },
+  })
+
+  const clearConversationMut = useMutation({
+    mutationFn: (id: number) => agentApi.conversationDelete(id),
+    onSuccess: (_data, id) => {
+      if (activeConvId === id) {
+        setActiveConvId(null)
+        setMessages([])
+        setTokenUsage({ input: 0, output: 0 })
+        setStreamStatuses([])
+        setToolStatus([])
+        setStreamError('')
+      }
+      setActionError('')
+      qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] })
+      qc.removeQueries({ queryKey: ['agent-messages', id] })
+    },
+    onError: (error) => {
+      setActionError(formatActionError('清空上下文', '/agent/conversation/delete', error))
+      toast('清空上下文失败', 'error')
     },
   })
 
   const rateMut = useMutation({
     mutationFn: ({ messageId, rating }: { messageId: number; rating: 'up' | 'down' }) =>
       agentApi.messageRate(messageId, rating),
-    onSuccess: () => toast('已提交评分', 'success'),
+    onSuccess: () => {
+      toast('已提交评分', 'success')
+      setActionError('')
+      qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
+    },
+    onError: (e: Error) => {
+      setActionError(formatActionError('评分', '/agent/message/rate', e))
+      toast(e.message || '评分失败', 'error')
+    },
   })
 
   const handleSend = useCallback(async () => {
@@ -272,74 +397,179 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
     setInput('')
     setIsStreaming(true)
     setStreamContent('')
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-    let accum = ''
-    let inputTok = 0, outputTok = 0
+    setStreamStatuses([])
+    setToolStatus([])
+    setStreamError('')
+    setActionError('')
+    streamContentRef.current = ''
     try {
-      const res = await fetch(agentApi.chatStreamUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` },
-        body: JSON.stringify({ agentId, conversationId: activeConvId, content: userMsg.content }),
-        signal: ctrl.signal,
-      })
-      const reader = res.body!.getReader()
-      const dec = new TextDecoder()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = dec.decode(value)
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data:')) continue
-          const raw = line.slice(5).trim()
-          if (!raw || raw === '[DONE]') continue
-          try {
-            const ev = JSON.parse(raw)
-            if (ev.type === 'message') { accum += ev.content; setStreamContent(accum) }
-            else if (ev.type === 'token_usage') { inputTok = ev.input ?? 0; outputTok = ev.output ?? 0 }
-          } catch { /* ignore */ }
+      abortRef.current = ssePost(
+        '/agent/chat-stream',
+        { agentId, conversationId: activeConvId, content: userMsg.content },
+        {
+          onStatus: (statusText) => {
+            const text = formatStreamStatus(statusText)
+            if (!text) return
+            setStreamStatuses(prev => {
+              const next = prev.map(item => ({ ...item, done: true }))
+              const last = next[next.length - 1]
+              if (last?.text === text) return [...next.slice(0, -1), { ...last, done: false }]
+              return [...next, { id: Date.now() + next.length, text, done: false }]
+            })
+          },
+          onSkillStart: ({ tool, description }) => {
+            setToolStatus(prev => [...prev.filter(t => t.tool !== tool), { tool, status: 'calling', description }])
+          },
+          onSkillEnd: ({ tool, status, error }) => {
+            const nextStatus = status === 'success' || status === 'done' ? 'done' : 'error'
+            setToolStatus(prev => prev.map(t => t.tool === tool ? {
+              ...t,
+              status: nextStatus,
+              description: error ?? t.description,
+              result: nextStatus === 'done' ? '执行成功' : `错误: ${error ?? ''}`,
+            } : t))
+          },
+          onChunk: (chunkData) => {
+            let chunk = ''
+            const raw = String(chunkData ?? '')
+            if (!raw) return
+            try {
+              const ev = JSON.parse(raw)
+              chunk = String(ev.content ?? ev.delta ?? ev.message ?? '')
+            } catch {
+              chunk = raw
+            }
+            if (!chunk) return
+            streamContentRef.current += chunk
+            setStreamContent(prev => prev + chunk)
+          },
+          onDone: (doneData) => {
+            let finalContent = streamContentRef.current
+            if (!finalContent && doneData && typeof doneData === 'object' && 'content' in doneData) {
+              finalContent = String((doneData as { content?: unknown }).content ?? '')
+            }
+            if (finalContent.trim()) {
+              setMessages(m => [...m, {
+                id: Date.now() + 1,
+                role: 'assistant',
+                content: finalContent,
+                createdAt: new Date().toISOString(),
+                tokenUsage: { input: 0, output: 0 },
+              }])
+            }
+            setStreamContent('')
+            streamContentRef.current = ''
+            setIsStreaming(false)
+            setStreamStatuses(prev => prev.map(item => ({ ...item, done: true })))
+            qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
+            qc.refetchQueries({ queryKey: ['agent-messages', activeConvId], type: 'active' })
+            abortRef.current = null
+          },
+          onError: (err) => {
+            const message = err.message || '流式对话失败'
+            setStreamError(message)
+            setStreamContent('')
+            streamContentRef.current = ''
+            setIsStreaming(false)
+            setStreamStatuses(prev => prev.map(item => ({ ...item, done: true })))
+            setToolStatus(prev => prev.map(item => item.status === 'calling'
+              ? { ...item, status: 'error', result: `错误: ${message}` }
+              : item
+            ))
+            toast(`发送失败：${message}`, 'error')
+            qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
+            abortRef.current = null
+          },
         }
-      }
+      )
     } catch (e: unknown) {
-      if ((e as Error).name !== 'AbortError') toast('发送失败', 'error')
-    } finally {
-      const assistantMsg: ChatMessage = { id: Date.now() + 1, role: 'assistant', content: accum, createdAt: new Date().toISOString(), tokenUsage: { input: inputTok, output: outputTok } }
-      setMessages(m => [...m, assistantMsg])
-      setStreamContent('')
+      const message = e instanceof Error ? e.message : '发送失败'
+      setStreamError(message)
       setIsStreaming(false)
-      setTokenUsage(u => ({ input: u.input + inputTok, output: u.output + outputTok }))
-      qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
+      toast(message, 'error')
     }
   }, [input, isStreaming, activeConvId, agentId, toast, qc])
 
-  const handleStop = () => { abortRef.current?.abort(); setIsStreaming(false) }
+  const handleStop = () => {
+    abortRef.current?.abort()
+    setIsStreaming(false)
+    setStreamStatuses(prev => prev.map(item => ({ ...item, done: true })))
+  }
+
+  const currentStreamStatus = streamStatuses.find(item => !item.done) ?? streamStatuses[streamStatuses.length - 1]
 
   const handleExport = useCallback(async () => {
     if (!activeConvId) return
     try {
       const res = await agentApi.exportConversation(activeConvId)
       window.open(res.downloadUrl, '_blank')
-    } catch { toast('导出失败', 'error') }
+      setActionError('')
+    } catch (error) {
+      setActionError(formatActionError('导出对话', '/agent/conversation/export', error))
+      toast('导出失败', 'error')
+    }
   }, [activeConvId, toast])
+
+  const handleRename = useCallback((conversationId: number, title: string) => {
+    const nextTitle = title.trim()
+    if (!nextTitle) {
+      setRenameId(null)
+      return
+    }
+    agentApi.conversationRename(conversationId, nextTitle)
+      .then(() => {
+        setActionError('')
+        qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] })
+      })
+      .catch((error) => {
+        setActionError(formatActionError('重命名对话', '/agent/conversation/rename', error))
+        toast('重命名失败', 'error')
+      })
+      .finally(() => setRenameId(null))
+  }, [agentId, qc, toast])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend() }
   }
   if (!agentId) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary' }}>
+      <Box
+        data-testid="embedded-agent-chat-empty-agent"
+        data-no-local-agent-fallback="true"
+        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary' }}
+      >
         <Typography>请从左侧选择一个智能体开始对话</Typography>
       </Box>
     )
   }
 
   return (
-    <Box sx={{ display: 'flex', height: '100%' }}>
+    <Box
+      data-testid="embedded-agent-chat-panel"
+      data-ready-endpoints="/agent/get|/agent/conversation/list|/agent/conversation/create|/agent/conversation/delete|/agent/conversation/rename|/agent/message/list|/agent/message/rate|/agent/conversation/export|/agent/chat-stream"
+      data-unsupported-endpoints="/agent/local-conversation|/agent/local-message|/agent/static-message|/agent/message/send-fallback|/agent/status/local|/agent/markdown/static-render"
+      data-no-local-conversation-fallback="true"
+      data-no-local-message-fallback="true"
+      data-sse-status-visible="true"
+      data-markdown-renderer="MarkdownViewer"
+      sx={{ display: 'flex', height: '100%' }}
+    >
       {/* 对话列表 */}
       <Box sx={{ width: 220, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
         <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
           <Button fullWidth size="small" variant="outlined" startIcon={<AddCommentIcon />} onClick={() => createConvMut.mutate()} disabled={createConvMut.isPending}>新建对话</Button>
         </Box>
+        {convListError && (
+          <Alert
+            severity="error"
+            data-testid="embedded-agent-conversation-list-error"
+            data-no-local-conversation-fallback="true"
+            action={<Button color="inherit" size="small" onClick={() => refetchConversations()}>重试</Button>}
+            sx={{ m: 1 }}
+          >
+            对话列表加载失败（POST /agent/conversation/list）：{getErrorMessage(convListLoadError)}。页面不会补本地对话。
+          </Alert>
+        )}
         <List dense sx={{ flex: 1, overflow: 'auto' }}>
           {conversations.map(c => (
             <ListItemButton
@@ -351,14 +581,18 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
               <ListItemText
                 primary={renameId === c.id
                   ? <TextField size="small" autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)}
-                      onBlur={() => { agentApi.conversationRename(c.id, renameVal).catch(() => toast('重命名失败', 'error')); qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] }); setRenameId(null) }}
+                      onBlur={() => handleRename(c.id, renameVal)}
                       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                       onClick={e => e.stopPropagation()} sx={{ width: '100%' }} />
                   : <Typography variant="body2" noWrap>{c.title}</Typography>
                 }
                 secondary={<Typography variant="caption" color="text.secondary">{formatDate(c.createTime)}</Typography>}
               />
-              <IconButton size="small" onClick={e => { e.stopPropagation(); setCtxMenuAnchor(e.currentTarget); setCtxConvId(c.id); setRenameVal(c.title) }}>
+              <IconButton
+                size="small"
+                aria-label={`内嵌会话 ${c.title} 更多操作`}
+                onClick={e => { e.stopPropagation(); setCtxMenuAnchor(e.currentTarget); setCtxConvId(c.id); setRenameVal(c.title) }}
+              >
                 <MoreVertIcon fontSize="small" />
               </IconButton>
             </ListItemButton>
@@ -388,15 +622,91 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
             </Box>
             {/* Messages */}
             <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-              {messages.map(msg => (
+              {actionError && (
+                <Alert
+                  severity="error"
+                  data-testid="embedded-agent-action-error"
+                  data-input-retained="true"
+                  data-no-local-mutation="true"
+                  sx={{ mb: 1.5 }}
+                  onClose={() => setActionError('')}
+                >
+                  {actionError}
+                </Alert>
+              )}
+              {streamError && (
+                <Alert
+                  severity="error"
+                  data-testid="embedded-agent-stream-error"
+                  data-input-retained="true"
+                  data-no-static-message-fallback="true"
+                  sx={{ mb: 1.5 }}
+                  onClose={() => setStreamError('')}
+                >
+                  流式对话失败：{streamError}
+                </Alert>
+              )}
+              {msgListError && (
+                <Alert
+                  severity="error"
+                  data-testid="embedded-agent-message-list-error"
+                  data-no-local-message-fallback="true"
+                  action={<Button color="inherit" size="small" onClick={() => refetchMessages()}>重试</Button>}
+                  sx={{ mb: 1.5 }}
+                >
+                  消息列表加载失败（POST /agent/message/list）：{getErrorMessage(msgListLoadError)}。页面不会补本地消息或静态 Markdown。
+                </Alert>
+              )}
+              {toolStatus.length > 0 && (
+                <Paper variant="outlined" sx={{ p: 1.25, mb: 1.5, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary">技能调用状态</Typography>
+                  <Stack spacing={0.75} sx={{ mt: 0.75 }}>
+                    {toolStatus.map((t) => (
+                      <Stack key={t.tool} direction="row" alignItems="center" spacing={1}>
+                        <SmartToyIcon sx={{ fontSize: 14, color: t.status === 'error' ? 'error.main' : 'primary.main' }} />
+                        <Typography variant="body2" fontWeight={600}>{getToolLabel(t.tool)}</Typography>
+                        {t.status === 'calling' && <CircularProgress size={13} />}
+                        <Chip size="small" label={t.status === 'calling' ? '执行中' : t.status === 'done' ? '完成' : '失败'} color={t.status === 'error' ? 'error' : t.status === 'done' ? 'success' : 'info'} />
+                        {t.description && <Typography variant="caption" color="text.secondary" noWrap>{t.description}</Typography>}
+                      </Stack>
+                    ))}
+                  </Stack>
+                </Paper>
+              )}
+              {messages.map((msg, index) => (
                 <Box key={msg.id} sx={{ mb: 2, display: 'flex', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row', gap: 1 }}>
-                  <Paper elevation={0} sx={{ p: 1.5, maxWidth: '75%', borderRadius: 2, bgcolor: msg.role === 'user' ? 'primary.50' : 'grey.100', border: '1px solid', borderColor: msg.role === 'user' ? 'primary.200' : 'grey.200' }}>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</Typography>
+                  <Paper
+                    elevation={0}
+                    data-testid={`embedded-agent-${msg.role === 'user' ? 'user' : 'assistant'}-message-bubble`}
+                    data-message-source="server"
+                    data-markdown-renderer={msg.role === 'assistant' ? 'MarkdownViewer' : undefined}
+                    data-no-static-message-fallback="true"
+                    sx={agentMessageBubbleSx(msg.role, { bordered: true, userVariant: 'soft' })}
+                  >
+                    {msg.role === 'user'
+                      ? <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</Typography>
+                      : <MarkdownViewer content={msg.content} compact />}
                     {msg.toolCalls?.map((tc, i) => <ToolCallCard key={i} tc={tc} />)}
                     {msg.role === 'assistant' && (
                       <Stack direction="row" spacing={0.5} sx={{ mt: 0.75 }} alignItems="center">
-                        <IconButton size="small" color={msg.rating === 'up' ? 'primary' : 'default'} onClick={() => rateMut.mutate({ messageId: msg.id, rating: 'up' })}><ThumbUpOutlinedIcon sx={{ fontSize: 14 }} /></IconButton>
-                        <IconButton size="small" color={msg.rating === 'down' ? 'error' : 'default'} onClick={() => rateMut.mutate({ messageId: msg.id, rating: 'down' })}><ThumbDownOutlinedIcon sx={{ fontSize: 14 }} /></IconButton>
+                        <IconButton
+                          size="small"
+                          aria-label={`点赞内嵌第 ${index + 1} 条消息`}
+                          color={msg.rating === 'up' ? 'primary' : 'default'}
+                          onClick={() => rateMut.mutate({ messageId: msg.id, rating: 'up' })}
+                          disabled={msg.id <= 0 || rateMut.isPending}
+                        >
+                          <ThumbUpOutlinedIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          aria-label={`点踩内嵌第 ${index + 1} 条消息`}
+                          color={msg.rating === 'down' ? 'error' : 'default'}
+                          onClick={() => rateMut.mutate({ messageId: msg.id, rating: 'down' })}
+                          disabled={msg.id <= 0 || rateMut.isPending}
+                        >
+                          <ThumbDownOutlinedIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
                         {msg.tokenUsage && <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>↑{msg.tokenUsage.input} ↓{msg.tokenUsage.output}</Typography>}
                       </Stack>
                     )}
@@ -405,15 +715,54 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
               ))}
               {isStreaming && streamContent && (
                 <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-                  <Paper elevation={0} sx={{ p: 1.5, maxWidth: '75%', borderRadius: 2, bgcolor: 'grey.100', border: '1px solid', borderColor: 'grey.200' }}>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{streamContent}</Typography>
-                    <Chip label="生成中…" size="small" color="info" sx={{ mt: 0.5, fontSize: 10 }} />
+                  <Paper
+                    elevation={0}
+                    data-testid="embedded-agent-streaming-message-bubble"
+                    data-source-endpoint="/agent/chat-stream"
+                    data-markdown-renderer="MarkdownViewer"
+                    sx={agentStreamingBubbleSx({ bordered: true })}
+                  >
+                    <MarkdownViewer content={streamContent} compact />
+                    <Chip label="生成中..." size="small" color="info" sx={{ mt: 0.5, fontSize: 10 }} />
                   </Paper>
                 </Box>
               )}
               <div ref={messagesEndRef} />
             </Box>
             <Divider />
+            {streamStatuses.length > 0 && (
+              <Box sx={{ px: 1.5, pt: 1.25, pb: 0.25, bgcolor: 'background.paper', borderTop: '1px solid', borderColor: 'divider' }}>
+                <Box
+                  data-testid="embedded-agent-stream-status-bar"
+                  data-streaming={isStreaming ? 'true' : 'false'}
+                  data-surface-tone={isStreaming ? 'primary' : 'neutral'}
+                  data-source-endpoint="/agent/chat-stream"
+                  data-no-local-status-fallback="true"
+                  sx={agentStreamStatusBarSx(isStreaming)}
+                >
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                    <SmartToyIcon sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, flexShrink: 0 }}>执行状态</Typography>
+                    {currentStreamStatus?.done ? <Chip size="small" label="完成" color="success" /> : <CircularProgress size={13} />}
+                    <Typography variant="body2" sx={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {currentStreamStatus?.text ?? '准备中...'}
+                    </Typography>
+                    <Stack direction="row" spacing={0.5} sx={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
+                      {streamStatuses.slice(-3).map((item) => (
+                        <Chip
+                          key={item.id}
+                          size="small"
+                          label={item.text}
+                          color={item.done ? 'default' : 'info'}
+                          variant={item.done ? 'outlined' : 'filled'}
+                          sx={{ maxWidth: 150, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+                        />
+                      ))}
+                    </Stack>
+                  </Stack>
+                </Box>
+              </Box>
+            )}
             <Stack direction="row" spacing={1} sx={{ p: 1.5 }}>
               <TextField fullWidth size="small" placeholder="输入消息，Shift+Enter 换行，Enter 发送" value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} multiline maxRows={4} disabled={isStreaming} />
               {isStreaming
@@ -469,7 +818,7 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
             {toolCallsUsed.length === 0 ? (
               <Typography variant="caption" color="text.secondary">暂无</Typography>
             ) : toolCallsUsed.map(name => (
-              <Chip key={name} label={name} size="small" variant="outlined" sx={{ justifyContent: 'flex-start', fontFamily: 'monospace', fontSize: 11 }} />
+              <Chip key={name} label={getToolLabel(name)} size="small" variant="outlined" sx={{ justifyContent: 'flex-start', fontSize: 11 }} />
             ))}
           </Stack>
         </Box>
@@ -490,7 +839,16 @@ function ChatPanel({ agentId }: { agentId: number | null }) {
         {/* 操作按钮 */}
         <Stack spacing={1}>
           <Button fullWidth size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={handleExport} disabled={!activeConvId}>导出对话 .md</Button>
-          <Button fullWidth size="small" variant="outlined" color="error" onClick={() => { setMessages([]); setTokenUsage({ input: 0, output: 0 }) }} disabled={messages.length === 0}>清空上下文</Button>
+          <Button
+            fullWidth
+            size="small"
+            variant="outlined"
+            color="error"
+            onClick={() => activeConvId && clearConversationMut.mutate(activeConvId)}
+            disabled={!activeConvId || messages.length === 0 || clearConversationMut.isPending}
+          >
+            {clearConversationMut.isPending ? '清空中...' : '清空上下文'}
+          </Button>
         </Stack>
       </Box>
     </Box>
@@ -504,24 +862,43 @@ function AgentManageTab({ onChat }: { onChat: (id: number) => void }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [form, setForm] = useState<Partial<AgentSave>>({})
   const [deleteId, setDeleteId] = useState<number | null>(null)
+  const [operationError, setOperationError] = useState('')
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['agents', search],
     queryFn: () => agentApi.list({ ...search, agentType: search.agentType !== '' ? Number(search.agentType) : undefined }),
   })
 
   const { data: kbData } = useQuery({ queryKey: ['kb-list-agent'], queryFn: () => aiApi.kbList({}) })
-  const kbList = (kbData ?? []) as { id: number; kbName: string }[]
+  const kbList = normalizeArray<{ id: number; kbName: string }>(kbData)
+  const agentRows = normalizeArray<Agent>(data)
+  const agentPage = { list: agentRows, total: readTotal(data, agentRows.length) }
 
   const saveMut = useMutation({
     mutationFn: (f: Partial<AgentSave>) => agentApi.save(f),
-    onSuccess: () => { toast('保存成功', 'success'); setDrawerOpen(false); qc.invalidateQueries({ queryKey: ['agents'] }) },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onSuccess: () => {
+      toast('保存成功', 'success')
+      setOperationError('')
+      setDrawerOpen(false)
+      qc.invalidateQueries({ queryKey: ['agents'] })
+    },
+    onError: (e: Error) => {
+      setOperationError(`保存智能体失败（POST /agent/save）：${getErrorMessage(e)}。抽屉输入已保留，页面不会补本地智能体。`)
+      toast(e.message, 'error')
+    },
   })
   const delMut = useMutation({
     mutationFn: agentApi.delete,
-    onSuccess: () => { toast('删除成功', 'success'); setDeleteId(null); qc.invalidateQueries({ queryKey: ['agents'] }) },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onSuccess: () => {
+      toast('删除成功', 'success')
+      setOperationError('')
+      setDeleteId(null)
+      qc.invalidateQueries({ queryKey: ['agents'] })
+    },
+    onError: (e: Error) => {
+      setOperationError(`删除智能体失败（POST /agent/delete）：${getErrorMessage(e)}。页面已保留当前智能体行。`)
+      toast(e.message, 'error')
+    },
   })
 
   const columns: GridColDef[] = [
@@ -565,15 +942,35 @@ function AgentManageTab({ onChat }: { onChat: (id: number) => void }) {
       renderCell: ({ row }) => (
         <Stack direction="row" spacing={0.5}>
           <Button size="small" variant="outlined" startIcon={<ChatIcon />} onClick={() => onChat(row.id as number)}>对话</Button>
-          <IconButton size="small" onClick={() => { setForm(row as AgentSave); setDrawerOpen(true) }}><EditIcon fontSize="small" /></IconButton>
-          <IconButton size="small" color="error" onClick={() => setDeleteId(row.id as number)}><DeleteIcon fontSize="small" /></IconButton>
+          <IconButton
+            size="small"
+            aria-label={`编辑智能体 ${row.agentName}`}
+            onClick={() => { setOperationError(''); setForm(row as AgentSave); setDrawerOpen(true) }}
+          >
+            <EditIcon fontSize="small" />
+          </IconButton>
+          <IconButton
+            size="small"
+            color="error"
+            aria-label={`删除智能体 ${row.agentName}`}
+            onClick={() => setDeleteId(row.id as number)}
+          >
+            <DeleteIcon fontSize="small" />
+          </IconButton>
         </Stack>
       ),
     },
   ]
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      data-testid="agent-list-manage-tab"
+      data-ready-endpoints="/agent/list|/agent/save|/agent/delete|/ai/knowledge-base/list"
+      data-unsupported-endpoints="/agent/mock|/agent/local-list|/agent/local-save|/agent/local-delete|/agent/static-agent|/agent/local-kb"
+      data-no-local-agent-fallback="true"
+      data-server-pagination="true"
+      sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
       <Stack direction="row" spacing={1} sx={{ mb: 1.5 }} alignItems="center">
         <TextField size="small" placeholder="搜索智能体名称..." value={search.agentName} onChange={e => setSearch(s => ({ ...s, agentName: e.target.value, page: 0 }))} sx={{ width: 220 }} />
         <FormControl size="small" sx={{ width: 140 }}>
@@ -584,16 +981,49 @@ function AgentManageTab({ onChat }: { onChat: (id: number) => void }) {
           </Select>
         </FormControl>
         <Box sx={{ flex: 1 }} />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setForm({}); setDrawerOpen(true) }}>新建智能体</Button>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setOperationError(''); setForm({}); setDrawerOpen(true) }}>新建智能体</Button>
       </Stack>
-      <StandardDataGrid
-        rows={data?.list ?? []} columns={columns} rowCount={data?.total ?? 0}
-        loading={isFetching} paginationMode="server"
-        paginationModel={{ page: search.page, pageSize: search.rows }}
-        onPaginationModelChange={m => setSearch(s => ({ ...s, page: m.page, rows: m.pageSize }))}
-        sx={{ flex: 1 }}
+      {isError && (
+        <Alert
+          severity="error"
+          data-testid="agent-list-load-error"
+          data-no-local-agent-fallback="true"
+          sx={{ mb: 1.5 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          智能体列表加载失败（POST /agent/list）：{getErrorMessage(error)}。页面不会补本地智能体。
+        </Alert>
+      )}
+      {operationError && (
+        <Alert
+          severity="error"
+          data-testid="agent-list-operation-error"
+          data-input-retained="true"
+          data-no-local-agent-mutation="true"
+          sx={{ mb: 1.5 }}
+          onClose={() => setOperationError('')}
+        >
+          {operationError}
+        </Alert>
+      )}
+      <Box data-testid="agent-list-grid" data-server-pagination="true" sx={{ flex: 1, minHeight: 0 }}>
+        <StandardDataGrid
+          rows={agentPage.list} columns={columns} rowCount={agentPage.total}
+          loading={isFetching} paginationMode="server"
+          paginationModel={{ page: search.page, pageSize: search.rows }}
+          onPaginationModelChange={m => setSearch(s => ({ ...s, page: m.page, rows: m.pageSize }))}
+          sx={{ flex: 1 }}
+        />
+      </Box>
+      <AgentEditDrawer
+        open={drawerOpen}
+        form={form}
+        kbList={kbList}
+        onClose={() => setDrawerOpen(false)}
+        onSave={f => saveMut.mutate(f)}
+        saving={saveMut.isPending}
+        errorText={drawerOpen && operationError.startsWith('保存智能体失败') ? operationError : undefined}
       />
-      <AgentEditDrawer open={drawerOpen} form={form} kbList={kbList} onClose={() => setDrawerOpen(false)} onSave={f => saveMut.mutate(f)} saving={saveMut.isPending} />
       <ConfirmDialog open={deleteId !== null} content="确定要删除该智能体吗？" onClose={() => setDeleteId(null)} onConfirm={() => deleteId !== null && delMut.mutate(deleteId)} loading={delMut.isPending} />
     </Box>
   )
@@ -609,7 +1039,16 @@ export default function AgentListPage() {
   }
 
   return (
-    <Box sx={{ height: 'calc(100vh - 48px - 32px)', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      data-testid="agent-list-page"
+      data-ready-endpoints="/agent/list|/agent/get|/agent/save|/agent/delete|/agent/conversation/list|/agent/conversation/create|/agent/conversation/delete|/agent/conversation/rename|/agent/message/list|/agent/message/rate|/agent/conversation/export|/agent/chat-stream|/ai/knowledge-base/list"
+      data-unsupported-endpoints="/agent/mock|/agent/local-list|/agent/local-save|/agent/local-delete|/agent/local-conversation|/agent/local-message|/agent/static-agent|/agent/static-message|/agent/message/send-fallback|/agent/status/local|/agent/markdown/static-render|/agent/local-kb"
+      data-no-local-agent-fallback="true"
+      data-no-local-conversation-fallback="true"
+      data-no-local-message-fallback="true"
+      data-markdown-renderer="MarkdownViewer"
+      sx={{ height: 'calc(100vh - 48px - 32px)', display: 'flex', flexDirection: 'column' }}
+    >
       <Typography variant="h5" sx={{ mb: 2 }}>智能体管理</Typography>
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 0 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
@@ -637,29 +1076,47 @@ export default function AgentListPage() {
 
 // ─── AgentSelectorBar ─────────────────────────────────────────────────────────
 function AgentSelectorBar({ selectedId, onSelect }: { selectedId: number | null; onSelect: (id: number) => void }) {
-  const { data } = useQuery({
+  const { data, isError, error, refetch } = useQuery({
     queryKey: ['agents-selector'],
     queryFn: () => agentApi.list({ rows: 50 }),
   })
-  const agents = data?.list ?? []
+  const agents = normalizeArray<Agent>(data)
 
   return (
-    <Box sx={{ px: 2, pb: 1.5, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-      <Typography variant="body2" sx={{ alignSelf: 'center', mr: 1, color: 'text.secondary' }}>选择智能体：</Typography>
-      {agents.map(a => {
-        const cfg = getTypeConfig(a.agentType)
-        return (
-          <Chip
-            key={a.id}
-            label={`${cfg.emoji} ${a.agentName}`}
-            size="small"
-            color={selectedId === a.id ? cfg.color : 'default'}
-            variant={selectedId === a.id ? 'filled' : 'outlined'}
-            onClick={() => onSelect(a.id)}
-            clickable
-          />
-        )
-      })}
+    <Box
+      data-testid="agent-selector-bar"
+      data-ready-endpoints="/agent/list"
+      data-no-local-agent-fallback="true"
+      sx={{ px: 2, pb: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}
+    >
+      {isError && (
+        <Alert
+          severity="error"
+          data-testid="agent-selector-list-error"
+          data-no-local-agent-fallback="true"
+          sx={{ mb: 1 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          智能体选择器加载失败（POST /agent/list）：{getErrorMessage(error)}。请稍后重试，页面不会补本地智能体。
+        </Alert>
+      )}
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        <Typography variant="body2" sx={{ alignSelf: 'center', mr: 1, color: 'text.secondary' }}>选择智能体：</Typography>
+        {agents.map(a => {
+          const cfg = getTypeConfig(a.agentType)
+          return (
+            <Chip
+              key={a.id}
+              label={`${cfg.emoji} ${a.agentName}`}
+              size="small"
+              color={selectedId === a.id ? cfg.color : 'default'}
+              variant={selectedId === a.id ? 'filled' : 'outlined'}
+              onClick={() => onSelect(a.id)}
+              clickable
+            />
+          )
+        })}
+      </Box>
     </Box>
   )
 }

@@ -1,6 +1,8 @@
 package cn.gaifan.douyinOperations.module.live.entity;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
 import jakarta.persistence.*;
@@ -11,10 +13,12 @@ import java.sql.Timestamp;
  * 直播产品关系表
  * 与 sql/live/schema.sql 中 live_product 一一对应
  */
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "live_product")
 @SQLRestriction("deleted = 0")
+@NoArgsConstructor
 public class LiveProduct {
 
     @Id

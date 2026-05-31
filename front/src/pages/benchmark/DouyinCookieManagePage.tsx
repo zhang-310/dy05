@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
+  AlertTitle,
   Box,
   Button,
+  Card,
+  CardContent,
   Chip,
   Stack,
   TextField,
@@ -13,18 +16,34 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
-import { Add, CheckCircle, Error } from '@mui/icons-material';
+import { Add, CheckCircle, Error as ErrorIcon } from '@mui/icons-material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from 'notistack';
-import { StandardDataGrid } from '@/components/base/StandardDataGrid';
-import { PageHeader } from '@/components/base/PageHeader';
-import { FormDialog } from '@/components/base/FormDialog';
-import { ConfirmDialog } from '@/components/base/ConfirmDialog';
+import { StandardDataGrid, PageHeader, FormDialog, ConfirmDialog, ErrorAlert, DataGridEmptyOverlay } from '@/components/base';
 import { douyinCookieApi } from '@/api/benchmark';
 import type { DouyinCookieVO, DouyinCookieSaveVO } from '@/types/benchmark';
 import type { GridColDef } from '@mui/x-data-grid';
+
+const COOKIE_READY_ENDPOINTS = [
+  '/benchmark/cookie/list',
+  '/benchmark/cookie/save',
+  '/benchmark/cookie/delete',
+  '/benchmark/cookie/validate',
+  '/benchmark/cookie/qr-login/start',
+  '/benchmark/cookie/qr-login/poll',
+  '/benchmark/cookie/qr-login/cancel',
+].join('|');
+
+const COOKIE_UNSUPPORTED_ENDPOINTS = [
+  '/benchmark/cookie/mock',
+  '/benchmark/cookie/local-list',
+  '/benchmark/cookie/static-cookie',
+  '/benchmark/cookie/local-validate',
+  '/benchmark/cookie/local-qr-login',
+].join('|');
 
 /** 抖音 Web Cookie：供 Playwright 采集等使用；支持服务端打开抖音页扫码登录后写入。 */
 export default function DouyinCookieManagePage() {
@@ -48,8 +67,9 @@ export default function DouyinCookieManagePage() {
   const [qrPollNote, setQrPollNote] = useState('');
   const [qrCookieName, setQrCookieName] = useState('抖音扫码');
   const [qrCookieValue, setQrCookieValue] = useState('');
+  const [actionError, setActionError] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['douyinCookies', page, pageSize, keyword, isValid],
     queryFn: () => douyinCookieApi.list({
       page,
@@ -62,11 +82,14 @@ export default function DouyinCookieManagePage() {
   const saveMutation = useMutation({
     mutationFn: douyinCookieApi.save,
     onSuccess: () => {
+      setActionError('');
       enqueueSnackbar('保存成功', { variant: 'success' });
       setSaveDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['douyinCookies'] });
     },
-    onError: () => {
+    onError: (e) => {
+      const message = e instanceof Error ? e.message : '保存失败';
+      setActionError(`保存失败：${message}`);
       enqueueSnackbar('保存失败', { variant: 'error' });
     },
   });
@@ -74,11 +97,14 @@ export default function DouyinCookieManagePage() {
   const deleteMutation = useMutation({
     mutationFn: douyinCookieApi.delete,
     onSuccess: () => {
+      setActionError('');
       enqueueSnackbar('删除成功', { variant: 'success' });
       setDeleteDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ['douyinCookies'] });
     },
-    onError: () => {
+    onError: (e) => {
+      const message = e instanceof Error ? e.message : '删除失败';
+      setActionError(`删除失败：${message}`);
       enqueueSnackbar('删除失败', { variant: 'error' });
     },
   });
@@ -86,12 +112,15 @@ export default function DouyinCookieManagePage() {
   const validateMutation = useMutation({
     mutationFn: (cookieId: number) => douyinCookieApi.validate({ cookieId }),
     onSuccess: (result) => {
+      setActionError('');
       enqueueSnackbar(result ? 'Cookie有效' : 'Cookie已失效', {
         variant: result ? 'success' : 'error',
       });
       queryClient.invalidateQueries({ queryKey: ['douyinCookies'] });
     },
-    onError: () => {
+    onError: (e) => {
+      const message = e instanceof Error ? e.message : '验证失败';
+      setActionError(`验证失败：${message}`);
       enqueueSnackbar('验证失败', { variant: 'error' });
     },
   });
@@ -109,6 +138,7 @@ export default function DouyinCookieManagePage() {
   const qrStartMutation = useMutation({
     mutationFn: () => douyinCookieApi.qrLoginStart(),
     onSuccess: (res) => {
+      setActionError('');
       setQrSessionId(res.sessionId);
       setQrImageB64(res.qrImageBase64);
       setQrHint(res.message ?? '');
@@ -117,6 +147,7 @@ export default function DouyinCookieManagePage() {
       setQrCookieValue('');
     },
     onError: (e: Error) => {
+      setActionError(`扫码登录启动失败：${e.message || '请确认服务端已安装 Playwright Chromium'}`);
       enqueueSnackbar(e.message || '无法启动扫码（请确认服务端已安装 Playwright Chromium）', { variant: 'error' });
       setQrOpen(false);
       resetQrState();
@@ -196,7 +227,7 @@ export default function DouyinCookieManagePage() {
       width: 100,
       renderCell: (params) => (
         <Chip
-          icon={params.value ? <CheckCircle /> : <Error />}
+          icon={params.value ? <CheckCircle /> : <ErrorIcon />}
           label={params.value ? '有效' : '失效'}
           color={params.value ? 'success' : 'error'}
           size="small"
@@ -251,14 +282,90 @@ export default function DouyinCookieManagePage() {
     saveMutation.mutate(data);
   };
 
+  const rows = data?.list ?? [];
+  const total = data?.total ?? rows.length;
+  const validCount = rows.filter((item) => item.isValid).length;
+  const invalidCount = rows.filter((item) => !item.isValid).length;
+  const usedCount = rows.filter((item) => (item.useCount ?? 0) > 0).length;
+  const listErrorMessage = error instanceof Error ? error.message : 'Cookie 列表加载失败，请检查 /benchmark/cookie/list。';
+
   return (
-    <Box sx={{ p: 3 }}>
+    <Box
+      data-testid="douyin-cookie-page"
+      data-contract-scope="benchmark-douyin-cookie-server-browser-session"
+      data-ready-endpoints={COOKIE_READY_ENDPOINTS}
+      data-unsupported-endpoints={COOKIE_UNSUPPORTED_ENDPOINTS}
+      data-no-local-cookie-fallback="true"
+      data-no-static-cookie-fallback="true"
+      data-no-local-qr-fallback="true"
+      data-server-pagination="true"
+      data-row-count={rows.length}
+      data-total-count={total}
+      data-list-error={isError ? 'true' : 'false'}
+      sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2, height: 'calc(100vh - 48px - 32px)' }}
+    >
       <PageHeader
         title="抖音 Cookie 管理"
         subtitle="扫码登录：服务器会打开抖音网页并尽量点击「登录」露出扫码框再截图；请用抖音 App 扫图中的登录码并在手机上确认。若仍无反应，多半是页面未弹出登录二维码（可让运维将 app.douyin-cookie.qr-headless 设为 false 排查），或直接本机登录抖音后手动复制 Cookie。"
+        actions={
+          <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={() => void refetch()} disabled={isFetching}>
+            刷新
+          </Button>
+        }
       />
 
-      <Stack direction="row" spacing={2} sx={{ mb: 3 }} flexWrap="wrap" useFlexGap>
+      {isError && (
+        <Box data-testid="douyin-cookie-list-error" data-no-local-cookie-fallback="true" data-input-retained="true">
+          <ErrorAlert title="Cookie 列表加载失败" message={listErrorMessage} onRetry={() => void refetch()} />
+        </Box>
+      )}
+
+      {actionError && (
+        <Alert
+          data-testid="douyin-cookie-action-error"
+          data-input-retained="true"
+          data-row-retained="true"
+          data-no-local-cookie-mutation="true"
+          severity="error"
+          onClose={() => setActionError('')}
+        >
+          {actionError}
+        </Alert>
+      )}
+
+      <Alert severity={invalidCount > 0 ? 'warning' : 'info'} variant="outlined">
+        <AlertTitle>采集链路依赖说明</AlertTitle>
+        Cookie 供对标账号搜索、对标视频采集和抖音网页解析使用；失效时不会阻断已入库数据浏览，但采集/分析会降级或失败。
+      </Alert>
+
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">Cookie 总数</Typography>
+            <Typography variant="h5">{total}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">有效</Typography>
+            <Typography variant="h5" color="success.main">{validCount}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">失效</Typography>
+            <Typography variant="h5" color={invalidCount > 0 ? 'error.main' : 'text.primary'}>{invalidCount}</Typography>
+          </CardContent>
+        </Card>
+        <Card variant="outlined" sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">已被采集使用</Typography>
+            <Typography variant="h5">{usedCount}</Typography>
+          </CardContent>
+        </Card>
+      </Stack>
+
+      <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
         <TextField
           size="small"
           placeholder="搜索Cookie名称"
@@ -312,18 +419,39 @@ export default function DouyinCookieManagePage() {
       </Stack>
 
       <StandardDataGrid
-        rows={data?.list ?? []}
+        data-testid="douyin-cookie-grid-contract"
+        data-contract-scope="benchmark-douyin-cookie-grid"
+        data-ready-endpoints="/benchmark/cookie/list"
+        data-no-local-cookie-fallback="true"
+        data-server-pagination="true"
+        data-row-count={rows.length}
+        rows={rows}
         columns={columns}
-        loading={isLoading}
-        rowCount={data?.total ?? 0}
+        loading={isFetching}
+        rowCount={total}
+        paginationMode="server"
         paginationModel={{ page, pageSize }}
         onPaginationModelChange={(model: { page: number; pageSize: number }) => {
           setPage(model.page);
           setPageSize(model.pageSize);
         }}
+        slots={{ noRowsOverlay: DataGridEmptyOverlay }}
+        sx={{ flex: 1 }}
       />
 
-      <Dialog open={qrOpen} onClose={handleQrDialogClose} maxWidth="sm" fullWidth>
+      <Dialog
+        open={qrOpen}
+        onClose={handleQrDialogClose}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          'data-testid': 'douyin-cookie-qr-dialog',
+          'data-contract-scope': 'server-playwright-qr-login',
+          'data-ready-endpoints': '/benchmark/cookie/qr-login/start|/benchmark/cookie/qr-login/poll|/benchmark/cookie/qr-login/cancel|/benchmark/cookie/save',
+          'data-no-local-qr-fallback': 'true',
+          'data-input-retained': 'true',
+        }}
+      >
         <DialogTitle>抖音扫码登录</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
@@ -404,6 +532,7 @@ export default function DouyinCookieManagePage() {
         open={saveDialogOpen}
         title={currentCookie ? '编辑Cookie' : '添加Cookie'}
         onClose={() => setSaveDialogOpen(false)}
+        loading={saveMutation.isPending}
         onConfirm={() => {
           const form = document.getElementById('cookie-form') as HTMLFormElement;
           if (form) {
@@ -441,6 +570,7 @@ export default function DouyinCookieManagePage() {
         content={`确定要删除Cookie"${currentCookie?.cookieName}"吗？`}
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={() => currentCookie && deleteMutation.mutate(currentCookie.id)}
+        loading={deleteMutation.isPending}
       />
     </Box>
   );

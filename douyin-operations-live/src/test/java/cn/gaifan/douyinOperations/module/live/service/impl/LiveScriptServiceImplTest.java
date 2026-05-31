@@ -138,6 +138,68 @@ class LiveScriptServiceImplTest {
     }
 
     @Test
+    @DisplayName("分页查询 - 关键词类型执行状态真实过滤")
+    void testSearch_WithRealFilters() {
+        // Arrange
+        LiveScriptSearchVO searchVO = new LiveScriptSearchVO();
+        searchVO.setSessionId(TEST_SESSION_ID);
+        searchVO.setScriptType("产品介绍");
+        searchVO.setKeyword("修护");
+        searchVO.setExecuted(1);
+        searchVO.setPage(0);
+        searchVO.setRows(20);
+
+        testScript.setScriptType("产品介绍");
+        testScript.setRequirement("修护精华槽位");
+        testScript.setExecuted(1);
+        Page<LiveScript> page = new PageImpl<>(List.of(testScript));
+
+        when(liveScriptRepository.searchByFilters(
+                eq(TEST_SESSION_ID),
+                eq(List.of(-1L)),
+                eq(false),
+                eq("产品介绍"),
+                eq("修护"),
+                eq(1),
+                any(Pageable.class)))
+                .thenReturn(page);
+
+        // Act
+        PageResultVO<LiveScriptVO> result = liveScriptService.search(searchVO);
+
+        // Assert
+        assertThat(result.getTotal()).isEqualTo(1);
+        assertThat(result.getList().get(0).getScriptType()).isEqualTo("产品介绍");
+        assertThat(result.getList().get(0).getExecuted()).isEqualTo(1);
+        verify(liveScriptRepository).searchByFilters(
+                eq(TEST_SESSION_ID),
+                eq(List.of(-1L)),
+                eq(false),
+                eq("产品介绍"),
+                eq("修护"),
+                eq(1),
+                any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("分页查询 - 数据范围为空直接返回空页")
+    void testSearch_EmptyVisibleSessionIds() {
+        // Arrange
+        LiveScriptSearchVO searchVO = new LiveScriptSearchVO();
+        searchVO.setSessionIds(Collections.emptyList());
+        searchVO.setPage(0);
+        searchVO.setRows(20);
+
+        // Act
+        PageResultVO<LiveScriptVO> result = liveScriptService.search(searchVO);
+
+        // Assert
+        assertThat(result.getTotal()).isZero();
+        assertThat(result.getList()).isEmpty();
+        verifyNoInteractions(liveScriptRepository);
+    }
+
+    @Test
     @DisplayName("分页查询 - 空结果")
     void testSearch_EmptyResult() {
         // Arrange
@@ -272,6 +334,9 @@ class LiveScriptServiceImplTest {
         // Arrange
         testSaveVO.setId(TEST_SCRIPT_ID);
         testSaveVO.setScriptContent("更新后的话术内容");
+        testSaveVO.setScriptType("产品介绍");
+        testSaveVO.setDurationLimitSec(120);
+        testSaveVO.setRequirement("修护精华槽位");
 
         when(liveScriptRepository.findById(TEST_SCRIPT_ID))
                 .thenReturn(Optional.of(testScript));
@@ -287,7 +352,10 @@ class LiveScriptServiceImplTest {
         verify(liveScriptRepository).findById(TEST_SCRIPT_ID);
         verify(liveScriptRepository).save(argThat(script ->
                 script.getId().equals(TEST_SCRIPT_ID) &&
-                script.getScriptContent().equals("更新后的话术内容")
+                script.getScriptContent().equals("更新后的话术内容") &&
+                "产品介绍".equals(script.getScriptType()) &&
+                Integer.valueOf(120).equals(script.getDurationLimitSec()) &&
+                "修护精华槽位".equals(script.getRequirement())
         ));
     }
 
@@ -423,25 +491,17 @@ class LiveScriptServiceImplTest {
     }
 
     @Test
-    @DisplayName("保存 - 最小有效数据")
-    void testSave_MinimalData() {
+    @DisplayName("保存 - 新建空内容失败")
+    void testSave_BlankContentForCreateFails() {
         // Arrange
         LiveScriptSaveVO minimalVO = new LiveScriptSaveVO();
         minimalVO.setSessionId(TEST_SESSION_ID);
-        // 其他字段为 null
 
-        when(liveScriptRepository.save(any(LiveScript.class)))
-                .thenAnswer(invocation -> {
-                    LiveScript script = invocation.getArgument(0);
-                    script.setId(TEST_SCRIPT_ID);
-                    return script;
-                });
-
-        // Act
-        long id = liveScriptService.save(minimalVO);
-
-        // Assert
-        assertThat(id).isEqualTo(TEST_SCRIPT_ID);
-        verify(liveScriptRepository).save(any(LiveScript.class));
+        // Act & Assert
+        assertThatThrownBy(() -> liveScriptService.save(minimalVO))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.VALIDATION_FAIL)
+                .hasMessageContaining("话术内容不能为空");
+        verify(liveScriptRepository, never()).save(any());
     }
 }

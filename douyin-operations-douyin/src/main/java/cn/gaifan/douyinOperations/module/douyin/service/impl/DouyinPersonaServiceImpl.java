@@ -5,8 +5,13 @@ import cn.gaifan.douyinOperations.common.exception.BusinessException;
 import cn.gaifan.douyinOperations.module.douyin.entity.DyPersona;
 import cn.gaifan.douyinOperations.module.douyin.repository.DyPersonaRepository;
 import cn.gaifan.douyinOperations.module.douyin.service.DouyinPersonaService;
+import cn.gaifan.douyinOperations.contract.product.FeatureCode;
+import cn.gaifan.douyinOperations.contract.product.ProductCode;
 import cn.gaifan.douyinOperations.module.douyin.vo.PersonaSaveVO;
+import cn.gaifan.douyinOperations.module.platform.credit.CommercialProductChargeService;
+import cn.gaifan.douyinOperations.module.platform.product.DeliveryProduct;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,11 +22,14 @@ public class DouyinPersonaServiceImpl implements DouyinPersonaService {
 
     @Resource
     private DyPersonaRepository personaRepository;
+    @Autowired(required = false)
+    private CommercialProductChargeService commercialProductChargeService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long savePersona(PersonaSaveVO vo, Long userId) {
         DyPersona persona;
+        boolean isCreate = vo.getId() == null;
 
         if (vo.getId() != null) {
             // 更新
@@ -49,6 +57,16 @@ public class DouyinPersonaServiceImpl implements DouyinPersonaService {
         if (vo.getIsDefault() != null && vo.getIsDefault() == 1) {
             personaRepository.clearDefaultByOwnerId(userId);
             persona.setIsDefault(1);
+        }
+
+        if (isCreate && commercialProductChargeService != null) {
+            commercialProductChargeService.charge(
+                    CommercialProductChargeService.CommercialProductChargeCommand.of(
+                            ProductCode.DOUYIN_OPS,
+                            FeatureCode.DOUYIN_CONTENT_PLANNING,
+                            "内容人设创建",
+                            DeliveryProduct.DOUYIN_OPS
+                    ));
         }
 
         return personaRepository.save(persona).getId();

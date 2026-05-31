@@ -19,7 +19,7 @@ export type ShortvideoMainWidthToken = (typeof SHORTVIDEO_WIDTH_OPTIONS)[number]
 
 const ALLOWED = new Set<string>(SHORTVIDEO_WIDTH_OPTIONS.map(o => o.value))
 
-function normalizeRaw(raw: string | null): ShortvideoMainWidthToken {
+export function normalizeShortvideoMainWidth(raw: string | null): ShortvideoMainWidthToken {
   if (raw && ALLOWED.has(raw)) return raw as ShortvideoMainWidthToken
   return '1440'
 }
@@ -52,13 +52,13 @@ function getServerSnapshot() {
 }
 
 export function setShortvideoMainWidth(token: ShortvideoMainWidthToken) {
-  localStorage.setItem(STORAGE_KEY, token)
+  localStorage.setItem(STORAGE_KEY, normalizeShortvideoMainWidth(token))
   window.dispatchEvent(new Event(CHANGE_EVENT))
 }
 
 export function useShortvideoMainWidth() {
   const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
-  const selectValue = useMemo(() => normalizeRaw(raw), [raw])
+  const selectValue = useMemo(() => normalizeShortvideoMainWidth(raw), [raw])
   const maxWidth = useMemo(() => tokenToMaxWidth(selectValue), [selectValue])
   const setWidth = useCallback((token: ShortvideoMainWidthToken) => {
     setShortvideoMainWidth(token)

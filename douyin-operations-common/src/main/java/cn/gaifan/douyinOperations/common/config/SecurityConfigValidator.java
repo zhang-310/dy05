@@ -45,8 +45,8 @@ public class SecurityConfigValidator implements ApplicationListener<ApplicationR
             log.error("安全配置验证失败！请修复上述问题后重启应用。");
             log.error("=".repeat(80));
             if ("prod".equals(activeProfile) || "production".equals(activeProfile)) {
-                log.error("生产环境检测到安全问题，应用将退出！");
-                System.exit(1);
+                log.error("生产环境检测到安全问题，应用启动失败！");
+                throw new IllegalStateException("生产环境安全配置验证失败，请检查日志并修复配置");
             }
         } else {
             log.info("安全配置验证通过 ✓");

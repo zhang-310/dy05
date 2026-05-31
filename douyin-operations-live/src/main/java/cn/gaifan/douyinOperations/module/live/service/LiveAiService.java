@@ -70,8 +70,10 @@ public interface LiveAiService {
     default void refineScriptStream(Long scriptId, String userQuestion, Long userId, java.io.OutputStream out, Long modelId) {}
 
     /** 片段级修改（支持指令类型） */
-    default String refineSegment(Long scriptId, String instruction, String instructionType, Long userId, Long modelId) {
-        return refineScript(scriptId, instruction, userId, modelId);
+    default String refineSegment(Long scriptId, String segmentText, String instruction, Long userId, Long modelId) {
+        String prompt = "请只修改下面选中的片段，并把修改后的片段自然合回原话术。"
+                + "修改要求：" + instruction + "\n\n选中片段：\n" + segmentText;
+        return refineScript(scriptId, prompt, userId, modelId);
     }
 
     /** 建议改进（生成改进提示） */

@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.payment.service;
 
 import cn.gaifan.douyinOperations.common.constant.ErrorCode;
 import cn.gaifan.douyinOperations.common.exception.BusinessException;
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
 import cn.gaifan.douyinOperations.module.payment.entity.OrderStatus;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentOrder;
 import cn.gaifan.douyinOperations.module.payment.entity.PaymentRefund;
@@ -35,6 +36,9 @@ class RefundServiceTest {
     @Mock
     private PaymentOrderRepository orderRepository;
 
+    @Mock
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     @InjectMocks
     private RefundServiceImpl refundService;
 
@@ -55,6 +59,9 @@ class RefundServiceTest {
         PaymentOrder order = PaymentOrder.builder()
                 .id(1L)
                 .orderNo("ORDER_001")
+                .userId(1L)
+                .ownerId(10L)
+                .orgId(10L)
                 .status(OrderStatus.PAID)
                 .actualAmount(BigDecimal.valueOf(100.00))
                 .build();
@@ -62,16 +69,18 @@ class RefundServiceTest {
         PaymentRefund refund = PaymentRefund.builder()
                 .id(1L)
                 .orderId(1L)
+                .ownerId(10L)
                 .amount(BigDecimal.valueOf(50.00))
                 .status(RefundStatus.PENDING)
                 .reason("Product defective")
                 .build();
 
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(10L);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
-        when(refundRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+        when(refundRepository.sumRefundedAmountByOrderId(1L)).thenReturn(BigDecimal.ZERO);
         when(refundRepository.save(any())).thenReturn(refund);
 
-        long refundId = refundService.createRefund(vo);
+        long refundId = refundService.createRefund(vo, 1L);
 
         assertEquals(1L, refundId);
         verify(orderRepository, atLeastOnce()).findById(1L);
@@ -90,15 +99,19 @@ class RefundServiceTest {
         PaymentOrder order = PaymentOrder.builder()
                 .id(1L)
                 .orderNo("ORDER_001")
+                .userId(1L)
+                .ownerId(10L)
+                .orgId(10L)
                 .status(OrderStatus.PAID)
                 .actualAmount(BigDecimal.valueOf(100.00))
                 .build();
 
+        when(tenantOrgResolutionHelper.organizationIdForUser(1L)).thenReturn(10L);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
-        when(refundRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+        when(refundRepository.sumRefundedAmountByOrderId(1L)).thenReturn(BigDecimal.ZERO);
 
         assertThrows(BusinessException.class, () -> {
-            refundService.createRefund(vo);
+            refundService.createRefund(vo, 1L);
         });
     }
 
@@ -190,7 +203,7 @@ class RefundServiceTest {
                 .build();
 
         when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
-        when(refundRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
+        when(refundRepository.sumRefundedAmountByOrderId(1L)).thenReturn(BigDecimal.ZERO);
 
         boolean canRefund = refundService.canRefund(1L, BigDecimal.valueOf(50.00));
 
@@ -207,11 +220,6 @@ class RefundServiceTest {
                 .actualAmount(BigDecimal.valueOf(100.00))
                 .build();
 
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
-        when(refundRepository.findByOrderId(1L)).thenReturn(Collections.emptyList());
-
-        boolean canRefund = refundService.canRefund(1L, BigDecimal.ZERO);
-
-        assertFalse(canRefund);
+        assertThrows(BusinessException.class, () -> refundService.canRefund(1L, BigDecimal.ZERO));
     }
 }

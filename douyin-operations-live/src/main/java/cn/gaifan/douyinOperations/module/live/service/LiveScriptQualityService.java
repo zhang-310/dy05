@@ -27,7 +27,11 @@ public interface LiveScriptQualityService {
      * @param product  关联商品（可为 null，null 时跳过价格一致性检测）
      * @return 增强检测结果（违规条目追加到 violations 列表）
      */
-    LiveAiResultVO.ViolationCheckResult checkViolationEnhanced(String content, DyProduct product);
+    default LiveAiResultVO.ViolationCheckResult checkViolationEnhanced(String content, DyProduct product) {
+        return checkViolationEnhanced(content, product, product != null ? product.getUserId() : null);
+    }
+
+    LiveAiResultVO.ViolationCheckResult checkViolationEnhanced(String content, DyProduct product, Long userId);
 
     /**
      * 违规检测
