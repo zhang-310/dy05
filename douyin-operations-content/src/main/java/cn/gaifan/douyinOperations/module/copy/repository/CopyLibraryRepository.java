@@ -72,4 +72,8 @@ public interface CopyLibraryRepository extends JpaRepository<CopyLibrary, Long>,
     /** 去重检测：按 userId + category + content 精确统计（天工API导入幂等） */
     @Query("SELECT COUNT(c) FROM CopyLibrary c WHERE c.userId = :userId AND c.category = :category AND c.content = :content AND c.deleted = 0")
     long countByUserIdAndCategoryAndContentAndDeleted(@Param("userId") Long userId, @Param("category") String category, @Param("content") String content);
+
+    /** TianAPI 导入文案分页扫描（tags 前缀 TianAPI,） */
+    @Query("SELECT c FROM CopyLibrary c WHERE c.userId = :userId AND c.deleted = 0 AND c.id > :afterId AND c.tags LIKE 'TianAPI,%' ORDER BY c.id ASC")
+    List<CopyLibrary> findTianApiCopiesAfterId(@Param("userId") Long userId, @Param("afterId") long afterId, Pageable pageable);
 }

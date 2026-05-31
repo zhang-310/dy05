@@ -206,7 +206,6 @@ public class TianApiMaterialImportServiceImpl implements TianApiMaterialImportSe
         }
     }
 
-    @Override
     public Map<String, Object> latestStatus() {
         Map<String, Object> result = new LinkedHashMap<>();
         Optional<TianApiImportRun> latest = importRunRepository.findTopByOrderByCreateTimeDesc();
@@ -255,7 +254,6 @@ public class TianApiMaterialImportServiceImpl implements TianApiMaterialImportSe
         return result;
     }
 
-    @Override
     public synchronized Map<String, Object> backfillKnowledgeBase(int limit, Long afterId) {
         Map<String, Object> result = new LinkedHashMap<>();
         int cappedLimit = Math.max(1, Math.min(2000, limit));

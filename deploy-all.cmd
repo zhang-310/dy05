@@ -4,9 +4,17 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ============================================
-echo   Gaifan Ops — 一键上线脚本
+echo   Gaifan Ops — 一键上线脚本 [DEPRECATED]
 echo ============================================
 echo.
+echo [注意] gaifan-ops 外部基座已废弃。请使用 dy05 独立 prod 栈:
+echo   pwsh scripts/start-gaifan-prod-stack.ps1
+echo   见 docs/deployment/gaifan-prod-runbook.md
+echo.
+pause
+exit /b 0
+
+:: --- 以下为历史 gaifan-ops 流程，保留备查 ---
 
 :: 检查 gaifan-ops 目录
 if not exist "D:\gaifan\gaifan-ops\pom.xml" (

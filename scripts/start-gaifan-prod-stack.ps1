@@ -25,9 +25,10 @@ if ($Monolith) {
     $env:FLYWAY_ENABLED = "false"
     mvn -f pom.xml -pl douyin-operations-app -am install "-DskipTests" "-Dmaven.test.skip=true" -q
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $env:OAUTH_TOKEN_ENCRYPTION_KEY = "dev-key-32-bytes-long-change-me!!"
     Start-Process pwsh -ArgumentList @(
         '-NoProfile', '-Command',
-        "cd '$root'; `$env:APP_CREDIT_ENFORCE='true'; `$env:KB_STORE='pgvector'; `$env:DOUYIN_MERCHANT_SECRET='gaifan-staging-verify-secret'; mvn -f pom.xml -pl douyin-operations-app org.springframework.boot:spring-boot-maven-plugin:run '-Dspring-boot.run.profiles=dev,gaifan-staging' '-Dspring-boot.run.jvmArguments=-Dserver.port=8088'"
+        "cd '$root'; `$env:APP_CREDIT_ENFORCE='true'; `$env:KB_STORE='pgvector'; `$env:DOUYIN_MERCHANT_SECRET='gaifan-staging-verify-secret'; `$env:OAUTH_TOKEN_ENCRYPTION_KEY='dev-key-32-bytes-long-change-me!!'; mvn -f pom.xml -pl douyin-operations-app org.springframework.boot:spring-boot-maven-plugin:run '-Dspring-boot.run.profiles=dev,gaifan-staging' '-Dspring-boot.run.jvmArguments=-Dserver.port=8088'"
     ) -WindowStyle Hidden
     Start-Sleep -Seconds 45
     try {

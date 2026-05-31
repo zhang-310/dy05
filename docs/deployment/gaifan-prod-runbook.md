@@ -1,5 +1,25 @@
 # Gaifan 生产运维 Runbook（W7–8）
 
+> **SSOT**：prod 入口为 dy05 自有栈（`docker-compose.microservices.yml` + `scripts/start-gaifan-prod-stack.ps1`），**不再依赖** `D:\gaifan\gaifan-ops` / `gaifan-edge-gateway`。
+
+## 独立 prod 栈启动
+
+```powershell
+# 微服务（nginx 8088 → platform / ai-mcp / content）
+pwsh scripts/start-gaifan-prod-stack.ps1
+
+# 或单体 prod（8088，适合 smoke / 小规模）
+pwsh scripts/start-gaifan-prod-stack.ps1 -Monolith -SkipFlyway
+```
+
+签字：
+
+```powershell
+pwsh scripts/sign-gaifan-prod-smoke.ps1 -ProdBaseUrl 'http://localhost:8088' -SkipFlyway
+```
+
+网关路由见 `docker/microservices/nginx.conf`（`/api/` 兜底、legacy 路径、chat-stream、`/actuator/`）。
+
 ## 监控指标
 
 | 指标 | 来源 | 告警建议 |
@@ -28,9 +48,8 @@
 ## 发布前签字
 
 ```powershell
-$env:GAIFAN_VERIFY_BASE_URL='https://your-prod-host:8088'
-pwsh scripts/verify-prod-smoke.ps1
-Copy-Item reports/automation/seven-products-sellable.json reports/automation/seven-products-sellable-prod.json
+pwsh scripts/start-gaifan-prod-stack.ps1   # 或 -Monolith
+pwsh scripts/sign-gaifan-prod-smoke.ps1 -ProdBaseUrl 'http://localhost:8088'
 ```
 
-证据：`reports/automation/seven-products-sellable.json`（staging 归档：`seven-products-sellable-staging.json`）
+证据：`reports/automation/seven-products-sellable-prod.json`、`seven-products-feature-matrix-prod.json`
