@@ -21,6 +21,7 @@ import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +47,21 @@ class KnowledgeEvolutionServiceImplTest {
 
     @InjectMocks
     private KnowledgeEvolutionServiceImpl service;
+
+    @Test
+    @DisplayName("executeAutoOptimization 规则引擎缺失时应显式降级")
+    void executeAutoOptimization_withoutRuleEngine_shouldReturnDegradedResult() {
+        Map<String, Object> result = service.executeAutoOptimization(1L, "evol_test", true, true, true);
+
+        assertThat(result.get("status")).isEqualTo("DEGRADED");
+        assertThat(result.get("degraded")).isEqualTo(true);
+        assertThat(result.get("results")).isEqualTo(Map.of());
+        assertThat(result.get("summary")).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) result.get("summary");
+        assertThat(summary.get("totalProcessed")).isEqualTo(0);
+        assertThat(summary.get("estimatedUserBenefit")).asString().contains("规则引擎未启用");
+    }
 
     @Test
     @DisplayName("generateEvolutionReport 应使用真实版本标题与版本总数")

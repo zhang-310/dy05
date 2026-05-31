@@ -47,7 +47,7 @@ class AiCallLogControllerTest {
         body.put("callLogId", 1L);
         body.put("videoId", 100L);
 
-        doNothing().when(aiCallLogService).linkToPublish(eq(1L), eq(100L), isNull());
+        doNothing().when(aiCallLogService).linkToPublish(eq(1L), eq(100L), isNull(), eq(1L));
 
         mockMvc.perform(post("/api/v1/ai/call-log/link")
                         .requestAttr("userId", 1L)
@@ -65,7 +65,7 @@ class AiCallLogControllerTest {
         body.put("callLogId", 2L);
         body.put("sessionId", 200L);
 
-        doNothing().when(aiCallLogService).linkToPublish(eq(2L), isNull(), eq(200L));
+        doNothing().when(aiCallLogService).linkToPublish(eq(2L), isNull(), eq(200L), eq(1L));
 
         mockMvc.perform(post("/api/v1/ai/call-log/link")
                         .requestAttr("userId", 1L)
@@ -84,7 +84,7 @@ class AiCallLogControllerTest {
         body.put("videoId", 300L);
         body.put("sessionId", 400L);
 
-        doNothing().when(aiCallLogService).linkToPublish(eq(3L), eq(300L), eq(400L));
+        doNothing().when(aiCallLogService).linkToPublish(eq(3L), eq(300L), eq(400L), eq(1L));
 
         mockMvc.perform(post("/api/v1/ai/call-log/link")
                         .requestAttr("userId", 1L)

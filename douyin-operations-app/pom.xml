@@ -43,6 +43,11 @@
         </dependency>
         <dependency>
             <groupId>cn.gaifan</groupId>
+            <artifactId>douyin-operations-mcp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.gaifan</groupId>
             <artifactId>douyin-operations-integration</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -54,6 +59,11 @@
         <dependency>
             <groupId>cn.gaifan</groupId>
             <artifactId>douyin-operations-intelligence</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.gaifan</groupId>
+            <artifactId>douyin-operations-ai</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -79,6 +89,21 @@
         <dependency>
             <groupId>cn.gaifan</groupId>
             <artifactId>douyin-operations-payment</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.gaifan</groupId>
+            <artifactId>douyin-operations-digital-human</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.gaifan</groupId>
+            <artifactId>douyin-operations-drama</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.gaifan</groupId>
+            <artifactId>douyin-operations-photo-avatar</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -312,6 +337,12 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <version>1.19.8</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
             <version>1.19.8</version>
             <scope>test</scope>
         </dependency>

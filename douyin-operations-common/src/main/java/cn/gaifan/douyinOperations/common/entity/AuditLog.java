@@ -3,7 +3,8 @@ package cn.gaifan.douyinOperations.common.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
@@ -13,7 +14,8 @@ import java.time.LocalDateTime;
  *
  * @author gaifan
  */
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder

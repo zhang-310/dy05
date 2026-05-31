@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -120,12 +121,11 @@ class AbTestControllerTest {
     @DisplayName("保存实验 - 应返回 200")
     void save_shouldReturn200() throws Exception {
         AbExperimentSaveVO saveVO = new AbExperimentSaveVO();
-        saveVO.setOwnerId(1L);
         saveVO.setName("新实验");
         saveVO.setDescription("测试描述");
         saveVO.setExperimentType("script_style");
 
-        when(abTestService.save(any(AbExperimentSaveVO.class)))
+        when(abTestService.save(any(AbExperimentSaveVO.class), eq(1L)))
                 .thenReturn(1L);
 
         mockMvc.perform(post("/api/v1/abtest/experiment/save")
@@ -135,6 +135,8 @@ class AbTestControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data").value(1));
+
+        verify(abTestService).save(argThat(vo -> vo.getOwnerId() == null && "新实验".equals(vo.getName())), eq(1L));
     }
 
     @Test

@@ -81,7 +81,7 @@ class ShortVideoSeoControllerTest {
 
         List<String> times = List.of("18:00-20:00", "12:00-13:00");
 
-        when(douyinSeoService.suggestPublishTime(eq(1L)))
+        when(douyinSeoService.suggestPublishTime(eq(1L), anyList()))
                 .thenReturn(times);
 
         mockMvc.perform(post("/api/v1/short-video/seo/suggest-publish-time")

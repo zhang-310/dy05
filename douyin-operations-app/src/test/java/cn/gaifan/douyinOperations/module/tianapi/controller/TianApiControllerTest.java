@@ -2,6 +2,7 @@ package cn.gaifan.douyinOperations.module.tianapi.controller;
 
 import cn.gaifan.douyinOperations.module.tianapi.service.TianApiMaterialImportService;
 import cn.gaifan.douyinOperations.module.tianapi.service.TianApiService;
+import cn.gaifan.douyinOperations.module.tianapi.config.TianApiProperties;
 import cn.gaifan.douyinOperations.module.tianapi.vo.AdReviewResultVO;
 import cn.gaifan.douyinOperations.module.tianapi.vo.BulletinItemVO;
 import cn.gaifan.douyinOperations.module.tianapi.vo.HotItemVO;
@@ -46,6 +47,9 @@ class TianApiControllerTest {
 
     @MockBean
     private TianApiMaterialImportService materialImportService;
+
+    @MockBean
+    private TianApiProperties tianApiProperties;
 
     // ==================== 热搜榜 ====================
 
@@ -463,11 +467,23 @@ class TianApiControllerTest {
     void status_shouldReturn200() throws Exception {
         when(tianApiService.isEnabled())
                 .thenReturn(true);
+        when(tianApiProperties.isConfigured()).thenReturn(true);
+        when(tianApiProperties.getApiKey()).thenReturn("configured-key");
+        when(tianApiProperties.isMaterialImportEnabled()).thenReturn(true);
+        when(tianApiProperties.getMaterialImportUserId()).thenReturn(1L);
+        when(tianApiProperties.getMaterialImportCron()).thenReturn("0 0 2 * * ?");
+        when(tianApiProperties.isKbImportEnabled()).thenReturn(false);
 
         mockMvc.perform(post("/api/v1/tianapi/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data.enabled").value(true));
+                .andExpect(jsonPath("$.data.enabled").value(true))
+                .andExpect(jsonPath("$.data.configured").value(true))
+                .andExpect(jsonPath("$.data.apiKeyPresent").value(true))
+                .andExpect(jsonPath("$.data.materialImportEnabled").value(true))
+                .andExpect(jsonPath("$.data.materialImportUserId").value(1))
+                .andExpect(jsonPath("$.data.materialImportCron").value("0 0 2 * * ?"))
+                .andExpect(jsonPath("$.data.kbImportEnabled").value(false));
     }
 
     @Test

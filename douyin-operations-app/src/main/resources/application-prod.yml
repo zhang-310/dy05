@@ -7,6 +7,10 @@ spring:
   devtools:
     restart:
       enabled: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
   lifecycle:
     timeout-per-shutdown-phase: 30s
   jpa:
@@ -104,6 +108,16 @@ logging:
 
 # Token - 生产环境必须通过环境变量设置强密钥
 app:
+  gaifan:
+    allow-header-identity: false
+  credit:
+    enforce: ${APP_CREDIT_ENFORCE:true}
+  collector:
+    enabled: false
+  benchmark:
+    cookie-enabled: false
+  viral-collector:
+    enabled: false
   token:
     secret: ${APP_TOKEN_SECRET}
     expire-hours: ${APP_TOKEN_EXPIRE_HOURS:12}
@@ -114,6 +128,13 @@ app:
     warmup-topics: ${AI_WARMUP_TOPICS:直播话术优化,短视频黄金3秒,产品介绍脚本,电商选品策略,数据分析指标}
     warmup-delay-seconds: ${AI_WARMUP_DELAY_SECONDS:60}
     grafana-url: ${GRAFANA_URL:}
+    embedding:
+      cache-ttl-days: ${AI_EMBEDDING_CACHE_TTL_DAYS:14}
+    kb:
+      store: ${KB_STORE:pgvector}
+      cache-ttl-seconds: ${AI_KB_CACHE_TTL_SECONDS:21600}
+  payment:
+    gateway-mode: ${PAYMENT_GATEWAY_MODE:douyin}
   milvus:
     host: ${MILVUS_HOST:localhost}
     port: ${MILVUS_PORT:19530}

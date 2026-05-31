@@ -25,6 +25,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -116,10 +117,9 @@ class CopyTemplateControllerTest {
     }
 
     @Test
-    @DisplayName("新建模板 - 应返回 200")
+    @DisplayName("新建模板 - 应从登录态注入 userId 并返回 200")
     void save_shouldReturn200() throws Exception {
         CopyTemplateSaveVO saveVO = new CopyTemplateSaveVO();
-        saveVO.setUserId(1L);
         saveVO.setTemplateName("新模板");
         saveVO.setTemplateContent("模板内容");
         saveVO.setCategory("直播");
@@ -135,6 +135,10 @@ class CopyTemplateControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data").value(1));
+
+        verify(copyTemplateService).save(argThat(vo -> Long.valueOf(1L).equals(vo.getUserId())
+                && "新模板".equals(vo.getTemplateName())
+                && "模板内容".equals(vo.getTemplateContent())));
     }
 
     @Test
@@ -143,7 +147,7 @@ class CopyTemplateControllerTest {
         Map<String, Object> body = new HashMap<>();
         body.put("id", 1L);
 
-        doNothing().when(copyTemplateService).delete(1L);
+        doNothing().when(copyTemplateService).delete(1L, 1L);
 
         mockMvc.perform(post("/api/v1/copy/template/delete")
                         .requestAttr("userId", 1L)
@@ -161,7 +165,7 @@ class CopyTemplateControllerTest {
         body.put("id", 1L);
         body.put("status", 1);
 
-        doNothing().when(copyTemplateService).updateStatus(1L, 1);
+        doNothing().when(copyTemplateService).updateStatus(1L, 1, 1L);
 
         mockMvc.perform(post("/api/v1/copy/template/update-status")
                         .requestAttr("userId", 1L)

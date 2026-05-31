@@ -22,6 +22,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -112,10 +113,9 @@ class CopyLibraryControllerTest {
     }
 
     @Test
-    @DisplayName("新建文案 - 应返回 200")
+    @DisplayName("新建文案 - 应从登录态注入 userId 并返回 200")
     void save_shouldReturn200() throws Exception {
         CopyLibrarySaveVO saveVO = new CopyLibrarySaveVO();
-        saveVO.setUserId(1L);
         saveVO.setTitle("新文案");
         saveVO.setContent("新文案内容");
         saveVO.setCategory("直播");
@@ -131,12 +131,16 @@ class CopyLibraryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data").value(1));
+
+        verify(copyLibraryService).save(argThat(vo -> Long.valueOf(1L).equals(vo.getUserId())
+                && "新文案".equals(vo.getTitle())
+                && "新文案内容".equals(vo.getContent())));
     }
 
     @Test
     @DisplayName("删除文案 - 应返回 204")
     void delete_shouldReturn204() throws Exception {
-        doNothing().when(copyLibraryService).delete(1L);
+        doNothing().when(copyLibraryService).delete(1L, 1L);
 
         mockMvc.perform(post("/api/v1/copy/library/delete")
                         .requestAttr("userId", 1L)
@@ -150,7 +154,7 @@ class CopyLibraryControllerTest {
     @Test
     @DisplayName("更新文案状态 - 应返回 204")
     void updateStatus_shouldReturn204() throws Exception {
-        doNothing().when(copyLibraryService).updateStatus(1L, 1);
+        doNothing().when(copyLibraryService).updateStatus(1L, 1, 1L);
 
         mockMvc.perform(post("/api/v1/copy/library/update-status")
                         .requestAttr("userId", 1L)

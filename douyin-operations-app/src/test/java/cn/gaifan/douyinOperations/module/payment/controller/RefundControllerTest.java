@@ -49,10 +49,12 @@ class RefundControllerTest {
         saveVO.setAmount(BigDecimal.valueOf(99.99));
         saveVO.setReason("商品质量问题");
 
-        when(refundService.createRefund(any(RefundSaveVO.class)))
+        when(refundService.createRefund(any(RefundSaveVO.class), eq(1L)))
                 .thenReturn(1L);
 
         mockMvc.perform(post("/api/v1/payment/refund/create")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "user")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(saveVO)))
                 .andExpect(status().isOk())
@@ -66,6 +68,8 @@ class RefundControllerTest {
         RefundSaveVO saveVO = new RefundSaveVO();
 
         mockMvc.perform(post("/api/v1/payment/refund/create")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "user")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(saveVO)))
                 .andExpect(status().isOk())
@@ -84,10 +88,12 @@ class RefundControllerTest {
         refundVO.setAmount(BigDecimal.valueOf(99.99));
         refundVO.setReason("商品质量问题");
 
-        when(refundService.getRefund(eq(1L)))
+        when(refundService.getRefund(eq(1L), eq(1L)))
                 .thenReturn(refundVO);
 
         mockMvc.perform(post("/api/v1/payment/refund/get")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "user")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -106,10 +112,12 @@ class RefundControllerTest {
         refundVO.setId(1L);
         refundVO.setOrderId(1L);
 
-        when(refundService.getRefundsByOrderId(eq(1L)))
+        when(refundService.getRefundsByOrderId(eq(1L), eq(1L)))
                 .thenReturn(List.of(refundVO));
 
         mockMvc.perform(post("/api/v1/payment/refund/listByOrder")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "user")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -126,6 +134,8 @@ class RefundControllerTest {
         doNothing().when(refundService).approveRefund(eq(1L));
 
         mockMvc.perform(post("/api/v1/payment/refund/approve")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "admin")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -142,6 +152,8 @@ class RefundControllerTest {
         doNothing().when(refundService).rejectRefund(eq(1L), eq("不符合退款条件"));
 
         mockMvc.perform(post("/api/v1/payment/refund/reject")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "admin")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -157,6 +169,8 @@ class RefundControllerTest {
         doNothing().when(refundService).completeRefund(eq(1L));
 
         mockMvc.perform(post("/api/v1/payment/refund/complete")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "admin")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())

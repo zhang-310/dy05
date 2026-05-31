@@ -142,32 +142,32 @@ class AgentControllerTest {
     }
 
     @Test
-    @DisplayName("删除智能体 - 应返回 204")
-    void delete_shouldReturn204() throws Exception {
-        doNothing().when(agentService).deleteAgent(1L);
+    @DisplayName("删除智能体 - 应返回 200")
+    void delete_shouldReturn200() throws Exception {
+        doNothing().when(agentService).deleteAgent(1L, 1L);
 
         mockMvc.perform(post("/api/v1/agent/delete")
                         .requestAttr("userId", 1L)
                         .requestAttr("roleCode", "ADMIN")
-                        .param("id", "1")
-                        .contentType(MediaType.APPLICATION_JSON))
+                .param("id", "1")
+                .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200));
     }
 
     @Test
-    @DisplayName("更新智能体状态 - 应返回 204")
-    void updateStatus_shouldReturn204() throws Exception {
+    @DisplayName("更新智能体状态 - 应返回 200")
+    void updateStatus_shouldReturn200() throws Exception {
         doNothing().when(agentService).updateAgentStatus(1L, 1);
 
         mockMvc.perform(post("/api/v1/agent/update-status")
                         .requestAttr("userId", 1L)
                         .requestAttr("roleCode", "ADMIN")
                         .param("id", "1")
-                        .param("status", "1")
-                        .contentType(MediaType.APPLICATION_JSON))
+                .param("status", "1")
+                .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200));
     }
 
     @Test
@@ -217,17 +217,17 @@ class AgentControllerTest {
     }
 
     @Test
-    @DisplayName("删除会话 - 应返回 204")
-    void deleteConversation_shouldReturn204() throws Exception {
-        doNothing().when(agentService).deleteConversation(100L);
+    @DisplayName("删除会话 - 应返回 200")
+    void deleteConversation_shouldReturn200() throws Exception {
+        doNothing().when(agentService).deleteConversation(100L, 1L);
 
         mockMvc.perform(post("/api/v1/agent/conversation/delete")
                         .requestAttr("userId", 1L)
                         .requestAttr("roleCode", "ADMIN")
-                        .param("id", "100")
-                        .contentType(MediaType.APPLICATION_JSON))
+                .param("id", "100")
+                .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200));
     }
 
     @Test
@@ -267,7 +267,13 @@ class AgentControllerTest {
         msg2.put("content", "你好！");
         msg2.put("role", "assistant");
 
-        when(agentService.listMessages(100L)).thenReturn(List.of(msg1, msg2));
+        PageResultVO<Map<String, Object>> pageResult = new PageResultVO<>();
+        pageResult.setList(List.of(msg1, msg2));
+        pageResult.setTotal(2L);
+        pageResult.setPageNum(0);
+        pageResult.setPageSize(50);
+
+        when(agentService.listMessages(100L, 0, 50)).thenReturn(pageResult);
 
         mockMvc.perform(post("/api/v1/agent/message/list")
                         .requestAttr("userId", 1L)
@@ -276,9 +282,9 @@ class AgentControllerTest {
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data.length()").value(2))
-                .andExpect(jsonPath("$.data[0].role").value("user"))
-                .andExpect(jsonPath("$.data[1].role").value("assistant"));
+                .andExpect(jsonPath("$.data.list.length()").value(2))
+                .andExpect(jsonPath("$.data.list[0].role").value("user"))
+                .andExpect(jsonPath("$.data.list[1].role").value("assistant"));
     }
 
     @Test

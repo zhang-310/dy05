@@ -48,14 +48,40 @@ class MonitoringControllerTest {
     @MockBean
     private MeterRegistry meterRegistry;
 
+    @Autowired
+    private cn.gaifan.douyinOperations.common.metrics.PerformanceMetricsCollector performanceMetricsCollector;
+
     @Test
     @DisplayName("获取实时指标 - 应返回 200")
     void getRealtimeMetrics_shouldReturn200() throws Exception {
+        performanceMetricsCollector.record("GET /api/v1/test", 123L, false);
+
         mockMvc.perform(post("/api/v1/monitoring/metrics/realtime")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(200));
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.responseTime").exists())
+                .andExpect(jsonPath("$.data.errorRate").exists())
+                .andExpect(jsonPath("$.data.requestsPerSecond").exists());
+    }
+
+    @Test
+    @DisplayName("获取性能趋势 - 应返回 responseTime dataPoints")
+    void getPerformanceTrend_shouldReturnDataPoints() throws Exception {
+        performanceMetricsCollector.record("GET /api/v1/test", 80L, false);
+
+        mockMvc.perform(post("/api/v1/monitoring/metrics/trend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "metricName", "responseTime",
+                                "timeRange", "hour",
+                                "dataPoints", 4
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.metricName").value("responseTime"))
+                .andExpect(jsonPath("$.data.dataPoints").isArray());
     }
 
     @Test
@@ -76,7 +102,10 @@ class MonitoringControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(200));
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.components").exists())
+                .andExpect(jsonPath("$.data.components.database").exists())
+                .andExpect(jsonPath("$.data.components.cache").exists());
     }
 
     @Test

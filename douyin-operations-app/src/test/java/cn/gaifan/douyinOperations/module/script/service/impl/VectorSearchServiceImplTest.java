@@ -16,8 +16,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.sql.Timestamp;
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -63,18 +64,19 @@ class VectorSearchServiceImplTest {
     void setUp() {
         testScript = new ScriptLibrary();
         testScript.setId(1L);
-        testScript.setScriptContent("测试话术内容");
-        testScript.setScriptType("opening");
+        testScript.setTitle("测试话术");
+        testScript.setContent("测试话术内容");
+        testScript.setCategory("开场");
         testScript.setUserId(100L);
         testScript.setDeleted(0);
+        testScript.setCreateTime(new Timestamp(System.currentTimeMillis()));
 
         testEmbedding = new ScriptVectorEmbedding();
         testEmbedding.setId(1L);
         testEmbedding.setScriptId(1L);
-        testEmbedding.setEmbeddingVector("[0.1, 0.2, 0.3]");
+        testEmbedding.setOwnerId(100L);
+        testEmbedding.setVectorEmbedding(floatArrayToBytes(0.1f, 0.2f, 0.3f));
         testEmbedding.setDeleted(0);
-
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     }
 
     @Test
@@ -84,20 +86,21 @@ class VectorSearchServiceImplTest {
         request.setQuery("测试查询");
         request.setTopK(10);
 
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(anyString())).thenReturn(null);
         when(vectorEmbeddingService.generateEmbedding(anyString()))
-            .thenReturn(new double[]{0.1, 0.2, 0.3});
-        when(scriptVectorEmbeddingRepository.findAll())
+            .thenReturn(floatArrayToBytes(0.1f, 0.2f, 0.3f));
+        when(scriptVectorEmbeddingRepository.findByOwnerIdAndDeletedOrderByCreatedAtDesc(100L, 0))
             .thenReturn(List.of(testEmbedding));
-        when(scriptLibraryRepository.findById(1L))
-            .thenReturn(Optional.of(testScript));
+        when(scriptLibraryRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            .thenReturn(List.of(testScript));
 
         // Act
         HybridSearchResultVO result = service.hybridSearch(request, 100L);
 
         // Assert
         assertThat(result).isNotNull();
-        assertThat(result.getResults()).isNotEmpty();
+        assertThat(result.getList()).isNotEmpty();
         verify(searchResultRepository).save(any(SearchResult.class));
     }
 
@@ -148,7 +151,8 @@ class VectorSearchServiceImplTest {
         request.setQuery("测试查询");
 
         HybridSearchResultVO cachedResult = new HybridSearchResultVO();
-        cachedResult.setResults(List.of());
+        cachedResult.setList(List.of());
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(anyString())).thenReturn(cachedResult);
 
         // Act
@@ -160,86 +164,64 @@ class VectorSearchServiceImplTest {
     }
 
     @Test
-    void testVectorSearch_WithValidQuery_ShouldReturnResults() {
+    void testHybridSearch_WithKeywordWeight_ShouldSkipVectorAndUseWeightedCacheKey() {
         // Arrange
-        when(vectorEmbeddingService.generateEmbedding(anyString()))
-            .thenReturn(new double[]{0.1, 0.2, 0.3});
-        when(scriptVectorEmbeddingRepository.findAll())
-            .thenReturn(List.of(testEmbedding));
-        when(scriptLibraryRepository.findById(1L))
-            .thenReturn(Optional.of(testScript));
+        HybridSearchRequestVO request = new HybridSearchRequestVO();
+        request.setQuery("测试查询");
+        request.setPage(1);
+        request.setRows(5);
+        request.setTopK(5);
+        request.setVectorWeight(BigDecimal.ZERO);
+        request.setLexicalWeight(BigDecimal.ONE);
+
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(anyString())).thenReturn(null);
+        when(scriptLibraryRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+            .thenReturn(List.of(testScript));
 
         // Act
-        List<ScriptSearchResultVO> results = service.vectorSearch("测试查询", 10, 100L);
+        HybridSearchResultVO result = service.hybridSearch(request, 100L);
 
         // Assert
-        assertThat(results).isNotEmpty();
-        assertThat(results.get(0).getScriptId()).isEqualTo(1L);
-    }
-
-    @Test
-    void testCalculateCosineSimilarity_WithValidVectors_ShouldReturnScore() {
-        // Arrange
-        double[] vector1 = {1.0, 0.0, 0.0};
-        double[] vector2 = {1.0, 0.0, 0.0};
-
-        // Act
-        double similarity = service.calculateCosineSimilarity(vector1, vector2);
-
-        // Assert
-        assertThat(similarity).isCloseTo(1.0, within(0.001));
-    }
-
-    @Test
-    void testCalculateCosineSimilarity_WithOrthogonalVectors_ShouldReturnZero() {
-        // Arrange
-        double[] vector1 = {1.0, 0.0, 0.0};
-        double[] vector2 = {0.0, 1.0, 0.0};
-
-        // Act
-        double similarity = service.calculateCosineSimilarity(vector1, vector2);
-
-        // Assert
-        assertThat(similarity).isCloseTo(0.0, within(0.001));
-    }
-
-    @Test
-    void testCalculateCosineSimilarity_WithDifferentLengths_ShouldThrow() {
-        // Arrange
-        double[] vector1 = {1.0, 0.0};
-        double[] vector2 = {1.0, 0.0, 0.0};
-
-        // Act & Assert
-        assertThatThrownBy(() -> service.calculateCosineSimilarity(vector1, vector2))
-            .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void testRecordSearchAnalytics_ShouldSaveAnalytics() {
-        // Arrange
-        String query = "测试查询";
-        int resultCount = 5;
-
-        // Act
-        service.recordSearchAnalytics(query, 100L, resultCount);
-
-        // Assert
-        verify(searchAnalyticsRepository).save(any(SearchAnalytics.class));
+        assertThat(result).isNotNull();
+        verify(vectorEmbeddingService, never()).generateEmbedding(anyString());
+        verify(valueOperations).get(contains(":page=1:rows=5:topK=5:category=:style=:vw=0.0000:lw=1.0000"));
+        verify(valueOperations).set(contains(":vw=0.0000:lw=1.0000"), any(HybridSearchResultVO.class), anyLong(), any());
     }
 
     @Test
     void testGetSearchSuggestions_ShouldReturnSuggestions() {
         // Arrange
-        SearchSuggestion suggestion = new SearchSuggestion();
-        suggestion.setId(1L);
-        suggestion.setSuggestionText("测试建议");
-        when(searchSuggestionRepository.findByQueryPrefixAndDeleted(anyString(), eq(0)))
-            .thenReturn(List.of(suggestion));
+        SearchSuggestionVO suggestionVO = new SearchSuggestionVO();
+        suggestionVO.setSuggestions(List.of(SearchSuggestionVO.SuggestionItemVO.builder()
+            .text("测试建议")
+            .type("SYSTEM")
+            .popularity(10)
+            .resultCount(1)
+            .build()));
+        when(searchSuggestionService.getSuggestions(eq("测试"), eq(100L), eq(10)))
+            .thenReturn(suggestionVO);
 
         // Act
-        List<String> suggestions = service.getSearchSuggestions("测试", 100L);
+        SearchSuggestionVO result = service.getSearchSuggestions("测试", 100L, 10);
 
         // Assert
-        assertThat(suggestions).contains("测试建议");
+        assertThat(result).isNotNull();
+        assertThat(result.getSuggestions()).isNotNull();
+    }
+
+    /**
+     * Helper method to encode float array as byte array (4 bytes per float, IEEE 754)
+     */
+    private byte[] floatArrayToBytes(float... floats) {
+        byte[] bytes = new byte[floats.length * 4];
+        for (int i = 0; i < floats.length; i++) {
+            int intBits = Float.floatToIntBits(floats[i]);
+            bytes[i*4] = (byte) (intBits & 0xFF);
+            bytes[i*4+1] = (byte) ((intBits >> 8) & 0xFF);
+            bytes[i*4+2] = (byte) ((intBits >> 16) & 0xFF);
+            bytes[i*4+3] = (byte) ((intBits >> 24) & 0xFF);
+        }
+        return bytes;
     }
 }

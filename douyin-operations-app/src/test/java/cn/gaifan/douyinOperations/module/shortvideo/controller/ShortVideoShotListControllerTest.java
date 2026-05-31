@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -181,6 +182,35 @@ class ShortVideoShotListControllerTest {
                         .content(objectMapper.writeValueAsString(vo)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(2001));
+    }
+
+    @Test
+    @DisplayName("删除单条分镜 - 应返回 200")
+    void deleteShot_shouldReturn200() throws Exception {
+        Map<String, Object> body = new HashMap<>();
+        body.put("shotId", 9L);
+
+        mockMvc.perform(post("/api/v1/short-video/shot-list/delete-shot")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
+
+        verify(shotListService).deleteShot(9L, 1L);
+    }
+
+    @Test
+    @DisplayName("删除单条分镜（缺少 shotId）- 应返回 1001")
+    void deleteShot_missingShotId_shouldReturn1001() throws Exception {
+        mockMvc.perform(post("/api/v1/short-video/shot-list/delete-shot")
+                        .requestAttr("userId", 1L)
+                        .requestAttr("roleCode", "user")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(1001));
     }
 
     @Test

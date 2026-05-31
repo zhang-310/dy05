@@ -196,8 +196,8 @@ class LiveProductControllerTest {
     }
 
     @Test
-    @DisplayName("批量排序产品 - 应返回 204")
-    void batchSort_shouldReturn204() throws Exception {
+    @DisplayName("批量排序产品 - 应返回 200")
+    void batchSort_shouldReturn200() throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("sessionId", 1L);
         body.put("productIds", List.of(3L, 1L, 2L));
@@ -210,7 +210,8 @@ class LiveProductControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(204));
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("排序成功"));
     }
 
     @Test

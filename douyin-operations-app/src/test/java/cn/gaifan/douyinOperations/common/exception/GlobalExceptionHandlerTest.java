@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -31,11 +33,29 @@ class GlobalExceptionHandlerTest {
     @Test
     void handleBusiness_shouldReturnErrorCodeAndMessage() {
         BusinessException ex = new BusinessException(ErrorCode.DATA_NOT_FOUND, "数据不存在");
-        RESTResult<?> result = handler.handleBusiness(ex, null);
+        ResponseEntity<RESTResult<?>> response = handler.handleBusiness(ex, null);
+        RESTResult<?> result = response.getBody();
 
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getStatus()).isEqualTo(ErrorCode.DATA_NOT_FOUND);
         assertThat(result.getMessage()).isEqualTo("数据不存在");
         assertThat(result.getTraceId()).isEqualTo("test-trace-001");
+    }
+
+    @Test
+    void handleBusiness_insufficientCredits_returns402() {
+        BusinessException ex = new BusinessException(ErrorCode.INSUFFICIENT_CREDITS, "积分不足");
+        ResponseEntity<RESTResult<?>> response = handler.handleBusiness(ex, null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYMENT_REQUIRED);
+        assertThat(response.getBody().getStatus()).isEqualTo(ErrorCode.INSUFFICIENT_CREDITS);
+    }
+
+    @Test
+    void handleBusiness_entitlementDenied_returns402() {
+        BusinessException ex = new BusinessException(ErrorCode.ENTITLEMENT_DENIED, "产品未授权");
+        ResponseEntity<RESTResult<?>> response = handler.handleBusiness(ex, null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYMENT_REQUIRED);
+        assertThat(response.getBody().getStatus()).isEqualTo(ErrorCode.ENTITLEMENT_DENIED);
     }
 
     @Test

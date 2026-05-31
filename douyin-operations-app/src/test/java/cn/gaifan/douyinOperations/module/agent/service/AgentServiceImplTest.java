@@ -211,7 +211,7 @@ class AgentServiceImplTest {
                 .thenReturn(mockAgent);
 
         // When
-        agentService.deleteAgent(1L);
+        agentService.deleteAgent(1L, 1L);
 
         // Then
         verify(agentRepository).findByIdAndDeleted(1L, 0);
@@ -226,7 +226,7 @@ class AgentServiceImplTest {
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> agentService.deleteAgent(999L))
+        assertThatThrownBy(() -> agentService.deleteAgent(999L, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("智能体不存在");
         verify(agentRepository).findByIdAndDeleted(999L, 0);

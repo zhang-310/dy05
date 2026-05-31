@@ -236,7 +236,7 @@ class CopyLibraryServiceImplTest {
                 .thenReturn(mockCopy);
 
         // When
-        copyLibraryService.delete(1L);
+        copyLibraryService.delete(1L, 1L);
 
         // Then
         verify(copyLibraryRepository).findByIdAndDeleted(1L, 0);
@@ -247,7 +247,7 @@ class CopyLibraryServiceImplTest {
     @DisplayName("删除文案 - ID 无效应抛出异常")
     void delete_invalidId_shouldThrowException() {
         // When & Then
-        assertThatThrownBy(() -> copyLibraryService.delete(null))
+        assertThatThrownBy(() -> copyLibraryService.delete(null, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("文案 ID 无效");
     }
@@ -260,7 +260,7 @@ class CopyLibraryServiceImplTest {
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> copyLibraryService.delete(999L))
+        assertThatThrownBy(() -> copyLibraryService.delete(999L, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("文案不存在");
     }
@@ -273,7 +273,7 @@ class CopyLibraryServiceImplTest {
                 .thenReturn(Optional.of(mockCopy));
 
         // When
-        copyLibraryService.updateStatus(1L, 1);
+        copyLibraryService.updateStatus(1L, 1, 1L);
 
         // Then
         verify(copyLibraryRepository).findByIdAndDeleted(1L, 0);
@@ -288,7 +288,7 @@ class CopyLibraryServiceImplTest {
                 .thenReturn(Optional.empty());
 
         // When & Then
-        assertThatThrownBy(() -> copyLibraryService.updateStatus(999L, 1))
+        assertThatThrownBy(() -> copyLibraryService.updateStatus(999L, 1, 1L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("文案不存在");
     }

@@ -142,12 +142,12 @@ class AbTestServiceImplTest {
             when(experimentRepository.save(any(AbExperiment.class))).thenReturn(saved);
 
             AbExperimentSaveVO vo = new AbExperimentSaveVO();
-            vo.setOwnerId(1L);
             vo.setName("新实验");
             vo.setExperimentType("copy");
 
-            long id = abTestService.save(vo);
+            long id = abTestService.save(vo, 1L);
             assertThat(id).isEqualTo(1L);
+            verify(experimentRepository).save(argThat(exp -> exp.getOwnerId().equals(1L)));
         }
 
         @Test
@@ -161,7 +161,7 @@ class AbTestServiceImplTest {
             vo.setName("新名");
             vo.setExperimentType("copy");
 
-            long id = abTestService.save(vo);
+            long id = abTestService.save(vo, 1L);
             assertThat(id).isEqualTo(5L);
             assertThat(existing.getName()).isEqualTo("新名");
         }
@@ -177,6 +177,21 @@ class AbTestServiceImplTest {
 
             assertThatThrownBy(() -> abTestService.save(vo))
                     .isInstanceOf(BusinessException.class);
+        }
+
+        @Test
+        void save_existingExperimentWrongOwner_shouldThrow() {
+            AbExperiment existing = buildExperiment(5L, "旧名", 0);
+            when(experimentRepository.findByIdAndDeleted(5L, 0)).thenReturn(Optional.of(existing));
+
+            AbExperimentSaveVO vo = new AbExperimentSaveVO();
+            vo.setId(5L);
+            vo.setName("新名");
+            vo.setExperimentType("copy");
+
+            assertThatThrownBy(() -> abTestService.save(vo, 2L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("无权修改此实验");
         }
     }
 

@@ -1,6 +1,7 @@
 package cn.gaifan.douyinOperations.module.shortvideo.controller;
 
 import cn.gaifan.douyinOperations.module.shortvideo.service.PersonaViralFusionService;
+import cn.gaifan.douyinOperations.module.shortvideo.service.PersonaViralFusionService.PersonaFusionOptions;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,13 +86,22 @@ class PersonaViralFusionControllerTest {
         body.put("viralVideoId", 1L);
         body.put("personaId", 1L);
         body.put("remakeType", "form_imitation");
+        body.put("productId", 5L);
+        body.put("topic", "春节修护场景");
+        body.put("duration", 45);
+        body.put("count", 3);
 
         Map<String, Object> result = new HashMap<>();
         result.put("scriptId", 1L);
         result.put("script", "融合后的脚本内容...");
         result.put("fusionScore", 0.92);
 
-        when(fusionService.generatePersonaFusedScript(eq(1L), eq(1L), eq("form_imitation"), eq(1L)))
+        when(fusionService.generatePersonaFusedScript(
+                eq(1L),
+                eq(1L),
+                eq("form_imitation"),
+                eq(new PersonaFusionOptions(5L, "春节修护场景", 45, 3)),
+                eq(1L)))
                 .thenReturn(result);
 
         mockMvc.perform(post("/api/v1/short-video/persona-fusion/generate-fused-script")
@@ -131,7 +141,12 @@ class PersonaViralFusionControllerTest {
         result.put("scriptId", 1L);
         result.put("script", "融合后的脚本内容...");
 
-        when(fusionService.generatePersonaFusedScript(eq(1L), eq(1L), eq("form_imitation"), eq(1L)))
+        when(fusionService.generatePersonaFusedScript(
+                eq(1L),
+                eq(1L),
+                eq("form_imitation"),
+                eq(new PersonaFusionOptions(null, null, null, null)),
+                eq(1L)))
                 .thenReturn(result);
 
         mockMvc.perform(post("/api/v1/short-video/persona-fusion/generate-fused-script")

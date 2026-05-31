@@ -3,6 +3,7 @@ package cn.gaifan.douyinOperations.module.auth.controller;
 import cn.gaifan.douyinOperations.common.vo.PageResultVO;
 import cn.gaifan.douyinOperations.module.auth.service.AuthUserService;
 import cn.gaifan.douyinOperations.module.auth.vo.AuthUserVO;
+import cn.gaifan.douyinOperations.module.auth.vo.LoginLogQueryVO;
 import cn.gaifan.douyinOperations.module.auth.vo.LoginLogVO;
 import cn.gaifan.douyinOperations.module.auth.vo.OnlineUserVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -190,7 +191,13 @@ class AuthUserControllerTest {
         log1.setUserId(2L);
         log1.setIp("192.168.1.1");
 
-        when(authUserService.getLoginLogs(eq(2L), eq(0), eq(20))).thenReturn(List.of(log1));
+        PageResultVO<LoginLogVO> pageResult = new PageResultVO<>();
+        pageResult.setTotal(1L);
+        pageResult.setList(List.of(log1));
+        pageResult.setPageNum(0);
+        pageResult.setPageSize(20);
+
+        when(authUserService.getLoginLogs(any(LoginLogQueryVO.class))).thenReturn(pageResult);
 
         mockMvc.perform(post("/api/v1/auth/user/login-logs")
                         .requestAttr("userId", 1L)
@@ -199,7 +206,8 @@ class AuthUserControllerTest {
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data[0].ip").value("192.168.1.1"));
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.list[0].ip").value("192.168.1.1"));
     }
 
     @Test
@@ -211,7 +219,13 @@ class AuthUserControllerTest {
         log1.setUserId(1L);
         log1.setIp("192.168.1.2");
 
-        when(authUserService.getLoginLogs(eq(1L), eq(0), eq(20))).thenReturn(List.of(log1));
+        PageResultVO<LoginLogVO> pageResult = new PageResultVO<>();
+        pageResult.setTotal(1L);
+        pageResult.setList(List.of(log1));
+        pageResult.setPageNum(0);
+        pageResult.setPageSize(20);
+
+        when(authUserService.getLoginLogs(any(LoginLogQueryVO.class))).thenReturn(pageResult);
 
         mockMvc.perform(post("/api/v1/auth/user/login-logs")
                         .requestAttr("userId", 1L)
@@ -220,7 +234,8 @@ class AuthUserControllerTest {
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
-                .andExpect(jsonPath("$.data[0].userId").value(1));
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.list[0].userId").value(1));
     }
 
     @Test

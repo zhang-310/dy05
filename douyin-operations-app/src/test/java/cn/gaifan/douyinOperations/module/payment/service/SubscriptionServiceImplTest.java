@@ -1,5 +1,6 @@
 package cn.gaifan.douyinOperations.module.payment.service;
 
+import cn.gaifan.douyinOperations.common.tenant.TenantOrgResolutionHelper;
 import cn.gaifan.douyinOperations.module.payment.entity.Subscription;
 import cn.gaifan.douyinOperations.module.payment.repository.SubscriptionRepository;
 import cn.gaifan.douyinOperations.module.payment.service.impl.SubscriptionServiceImpl;
@@ -31,6 +32,9 @@ class SubscriptionServiceImplTest {
     @Mock
     private SubscriptionRepository subscriptionRepository;
 
+    @Mock
+    private TenantOrgResolutionHelper tenantOrgResolutionHelper;
+
     @InjectMocks
     private SubscriptionServiceImpl subscriptionService;
 
@@ -39,10 +43,13 @@ class SubscriptionServiceImplTest {
     void getActiveSubscription_shouldReturnNullWhenSubscriptionExpired() {
         Subscription expired = new Subscription();
         expired.setUserId(100L);
+        expired.setOwnerId(200L);
+        expired.setOrgId(200L);
         expired.setStatus("active");
         expired.setExpiresAt(Timestamp.valueOf("2026-04-01 00:00:00"));
 
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(100L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(100L)).thenReturn(200L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(200L, 0, "active"))
                 .thenReturn(Optional.of(expired));
 
         Subscription result = subscriptionService.getActiveSubscription(100L);
@@ -53,6 +60,9 @@ class SubscriptionServiceImplTest {
     @Test
     @DisplayName("createOrUpgrade 应创建新订阅并写入套餐额度")
     void createOrUpgrade_shouldCreateSubscriptionWithPlanLimits() {
+        when(tenantOrgResolutionHelper.organizationIdForUser(100L)).thenReturn(200L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(200L, 0, "active"))
+                .thenReturn(Optional.empty());
         when(subscriptionRepository.findByUserIdAndDeletedAndStatus(100L, 0, "active"))
                 .thenReturn(Optional.empty());
         when(subscriptionRepository.save(any(Subscription.class)))
@@ -61,6 +71,8 @@ class SubscriptionServiceImplTest {
         Subscription result = subscriptionService.createOrUpgrade(100L, "pro");
 
         assertEquals(100L, result.getUserId());
+        assertEquals(200L, result.getOwnerId());
+        assertEquals(200L, result.getOrgId());
         assertEquals("pro", result.getPlan());
         assertEquals("active", result.getStatus());
         assertEquals(50, result.getMaxLiveSessions());
@@ -79,9 +91,12 @@ class SubscriptionServiceImplTest {
         Subscription existing = new Subscription();
         existing.setId(9L);
         existing.setUserId(100L);
+        existing.setOwnerId(200L);
+        existing.setOrgId(200L);
         existing.setPlan("free");
 
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(100L, 0, "active"))
+        when(tenantOrgResolutionHelper.organizationIdForUser(100L)).thenReturn(200L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(200L, 0, "active"))
                 .thenReturn(Optional.of(existing));
         when(subscriptionRepository.save(existing)).thenReturn(existing);
 
@@ -99,7 +114,10 @@ class SubscriptionServiceImplTest {
     void checkQuota_shouldMarkUnlimitedPlanAsAllowed() {
         Subscription active = new Subscription();
         active.setPlan("enterprise");
-        when(subscriptionRepository.findByUserIdAndDeletedAndStatus(100L, 0, "active"))
+        active.setOwnerId(200L);
+        active.setOrgId(200L);
+        when(tenantOrgResolutionHelper.organizationIdForUser(100L)).thenReturn(200L);
+        when(subscriptionRepository.findByOrgIdAndDeletedAndStatus(200L, 0, "active"))
                 .thenReturn(Optional.of(active));
 
         Map<String, Object> result = subscriptionService.checkQuota(100L, "aiGenerations");

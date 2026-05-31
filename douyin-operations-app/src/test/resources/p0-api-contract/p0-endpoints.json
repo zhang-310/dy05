@@ -17,7 +17,11 @@
     { "path": "/api/v1/system/external-api/list", "body": { "page": 0, "rows": 1 } },
     { "path": "/api/v1/ai/brain/content-diagnosis", "body": {} },
     { "path": "/api/v1/live/approval/pending", "body": {} },
-    { "path": "/api/v1/product/script/list-by-style", "body": { "productId": 1, "scriptType": "seed" } }
+    { "path": "/api/v1/product/script/list-by-style", "body": { "productId": 1, "scriptType": "seed" } },
+    { "path": "/api/v1/admin/home", "body": {} },
+    { "path": "/api/v1/org/home", "body": {} },
+    { "path": "/api/v1/talent/home", "body": {} },
+    { "path": "/api/v1/user/home", "body": {} }
   ],
   "whitelistPost": [
     { "path": "/api/v1/auth/login", "body": { "username": "__p0_contract__", "password": "__invalid__" } }
