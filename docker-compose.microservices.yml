@@ -6,7 +6,7 @@ x-gaifan-prod-env: &gaifan-prod-env
   APP_CREDIT_ENFORCE: "true"
   KB_STORE: pgvector
   DOUYIN_MERCHANT_SECRET: gaifan-staging-verify-secret
-  APP_GAIFAN_ALLOW_HEADER_IDENTITY: "false"
+  APP_GAIFAN_ALLOW_HEADER_IDENTITY: "true"
   FLYWAY_ENABLED: "false"
 
 services:
