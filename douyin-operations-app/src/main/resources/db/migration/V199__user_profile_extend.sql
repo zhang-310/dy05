@@ -1,0 +1,9 @@
+-- V199: 用户扩展字段
+ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);
+ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS department VARCHAR(128);
+ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS job_title VARCHAR(128);
+ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(64);
+ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS last_login_time TIMESTAMP;
+ALTER TABLE auth_user ADD COLUMN IF NOT EXISTS login_count INT DEFAULT 0;
+
+COMMENT ON COLUMN auth_user.login_count IS '累计登录次数';

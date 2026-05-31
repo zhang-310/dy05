@@ -1,0 +1,7 @@
+# 微服务模式配置
+# 通过 DY05_SERVICE_ROLE=platform|ai-mcp|content 激活
+# 部署时由 docker-compose 注入 SPRING_PROFILES_ACTIVE=prod,microservices
+
+dy05:
+  service:
+    mode: minimal-microservices

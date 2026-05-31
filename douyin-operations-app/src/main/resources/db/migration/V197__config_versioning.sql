@@ -1,0 +1,4 @@
+-- V197: 系统配置版本化
+ALTER TABLE sys_config ADD COLUMN IF NOT EXISTS version INT DEFAULT 1;
+ALTER TABLE sys_config ADD COLUMN IF NOT EXISTS updated_by BIGINT;
+ALTER TABLE sys_config ADD COLUMN IF NOT EXISTS change_reason VARCHAR(256);

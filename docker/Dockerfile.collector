@@ -1,0 +1,28 @@
+# ============================================================
+# 远程采集节点运行时镜像：只运行 Playwright 采集并回传主服务器
+# ============================================================
+FROM mcr.microsoft.com/playwright/java:v1.49.0-noble
+
+LABEL maintainer="gaifan" description="Douyin Operations Remote Collector Worker"
+
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    curl \
+    ffmpeg \
+    fonts-liberation \
+    fonts-noto-cjk \
+    tesseract-ocr \
+    tesseract-ocr-chi-sim \
+    tesseract-ocr-eng \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /collector
+
+COPY douyin-operations-collector/target/douyin-operations-collector-*.jar collector.jar
+
+ENV JAVA_OPTS="-XX:+UseContainerSupport \
+  -XX:MaxRAMPercentage=75.0 \
+  -XX:+UseG1GC \
+  -Djava.security.egd=file:/dev/./urandom"
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar collector.jar"]

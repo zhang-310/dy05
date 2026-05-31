@@ -1,0 +1,131 @@
+# dy05 微服务模式 — 独立 prod 栈（不依赖 gaifan-ops）
+# 启动：pwsh scripts/start-gaifan-prod-stack.ps1
+# 或：docker compose -f docker-compose.microservices.yml up -d --build
+
+x-gaifan-prod-env: &gaifan-prod-env
+  APP_CREDIT_ENFORCE: "true"
+  KB_STORE: pgvector
+  DOUYIN_MERCHANT_SECRET: gaifan-staging-verify-secret
+  APP_GAIFAN_ALLOW_HEADER_IDENTITY: "false"
+  FLYWAY_ENABLED: "false"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dy05-postgres
+    environment:
+      POSTGRES_DB: douyin_operations
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: dy05-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: dy05-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  platform-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    image: dy05-backend:latest
+    container_name: dy05-platform
+    environment:
+      <<: *gaifan-prod-env
+      SPRING_PROFILES_ACTIVE: prod,microservices,gaifan-staging
+      DY05_SERVICE_ROLE: platform
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/douyin_operations
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_DATA_REDIS_HOST: redis
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ai-mcp-service:
+    image: dy05-backend:latest
+    container_name: dy05-ai-mcp
+    environment:
+      <<: *gaifan-prod-env
+      SPRING_PROFILES_ACTIVE: prod,microservices,gaifan-staging
+      DY05_SERVICE_ROLE: ai-mcp
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/douyin_operations
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_DATA_REDIS_HOST: redis
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  content-service:
+    image: dy05-backend:latest
+    container_name: dy05-content
+    environment:
+      <<: *gaifan-prod-env
+      SPRING_PROFILES_ACTIVE: prod,microservices,gaifan-staging
+      DY05_SERVICE_ROLE: content
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/douyin_operations
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_DATA_REDIS_HOST: redis
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    image: dy05-frontend:latest
+    container_name: dy05-frontend
+    expose:
+      - "80"
+
+  gateway:
+    image: nginx:alpine
+    container_name: dy05-gateway
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./docker/microservices/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - platform-service
+      - ai-mcp-service
+      - content-service
+      - frontend
+
+volumes:
+  postgres-data:
