@@ -12,6 +12,7 @@ import { renderHook } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 // Inline implementation since useApiError does not exist yet
+// eslint-disable-next-line react/display-name -- this is a hook, not a component
 function useApiError() {
   const handleError = (error: unknown, context: string): string => {
     if (error instanceof Error) {

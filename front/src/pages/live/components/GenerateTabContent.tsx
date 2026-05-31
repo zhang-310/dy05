@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Box, Button, Typography, LinearProgress, Alert,
   FormControl, InputLabel, Select, MenuItem, Slider,
@@ -7,6 +7,7 @@ import {
   Tooltip, Paper, Tab, Tabs, IconButton,
 } from '@mui/material'
 import type { ChipProps } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import StopIcon from '@mui/icons-material/Stop'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
@@ -24,6 +25,60 @@ import { douyinApi } from '@/api/douyin'
 import { tianapi } from '@/api/tianapi'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery } from '@tanstack/react-query'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { sortLiveProducts, sortLiveScripts } from '../utils/order'
+
+const GENERATE_TAB_STREAM_ENDPOINTS = [
+  '/live/ai/generate-full-pipelined-sse',
+  '/live/ai/generate-skeleton-sse',
+] as const
+
+const GENERATE_TAB_READY_ENDPOINTS = [
+  ...GENERATE_TAB_STREAM_ENDPOINTS,
+  '/live/generation-preset/list',
+  '/douyin/persona/list',
+  '/ai/knowledge-base/huashu/search',
+  '/tianapi/hot/douyin',
+  '/tianapi/hot/toutiao',
+  '/tianapi/hot/weibo',
+  '/tianapi/hot/network',
+  '/live/script/save',
+] as const
+
+const GENERATE_TAB_CONTEXT_ENDPOINTS = [
+  '/live/session/get',
+  '/live/product/by-session',
+  '/live/script/by-session',
+] as const
+
+const GENERATE_TAB_UNSUPPORTED_ACTIONS = [
+  'direct-ai-rest-generate-full',
+  'direct-ai-product-script',
+  'direct-product-mutation',
+  'shortvideo-project-create',
+  'session-status-start',
+  'local-generated-script-fallback',
+  'local-hotword-fallback',
+  'local-preset-fallback',
+  'local-persona-fallback',
+] as const
+
+const HOT_SOURCE_ENDPOINTS: Record<HotSourceKey, string> = {
+  douyin: '/tianapi/hot/douyin',
+  toutiao: '/tianapi/hot/toutiao',
+  weibo: '/tianapi/hot/weibo',
+  network: '/tianapi/hot/network',
+}
+
+const MATERIAL_TYPE_OPTIONS = [
+  { value: '', label: '默认', desc: '不指定素材，AI 按场次自动生成' },
+  { value: 'jingle', label: '顺口溜', desc: '检索 huashu/TianAPI 顺口溜，融合押韵口播记忆点' },
+  { value: 'proverb', label: '歇后语', desc: '融合歇后语、俗语、接地气类比' },
+  { value: 'quote', label: '名言金句', desc: '融合名言、金句、女性情绪价值表达' },
+  { value: 'joke', label: '段子神回复', desc: '融合幽默段子、热梗、神回复' },
+  { value: 'chicken_soup', label: '鸡汤共鸣', desc: '融合疗愈、励志、情绪共鸣语料' },
+  { value: 'interactive_game', label: '互动玩法', desc: '设计猜价格、扣口令、评论区互动' },
+] as const
 
 // 全量风格列表 — 精确对齐后端 LivePromptFormatServiceImpl.expandSingleStyleFallback
 const SCRIPT_STYLES = [
@@ -78,7 +133,12 @@ function SlotConfigRow({ script, sessionId, onSave }: {
   const DUR_PRESETS = [60, 120, 180, 300]
   const save = (patch: Partial<LiveScriptSave>) => onSave({ id: script.id, sessionId, ...patch })
   return (
-    <Box sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 'none' } }}>
+    <Box
+      data-testid="generate-finetune-slot-row"
+      data-contract-source="/live/script/save"
+      data-script-id={script.id}
+      sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 'none' } }}
+    >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
         <Chip label={typeOpt?.label ?? script.scriptType} size="small" color={(typeOpt?.color ?? 'default') as ChipProps['color']} sx={{ fontSize: 10, height: 18, flexShrink: 0 }} />
         <Typography variant="caption" fontWeight={600} noWrap sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(script.scriptType || `#${script.sequenceNo}`)}</Typography>
@@ -145,9 +205,19 @@ function HotwordsPanel({ selected, onAdd, onRemove }: {
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
+  const endpoint = HOT_SOURCE_ENDPOINTS[activeSource]
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <Box
+      data-testid="generate-hotwords-panel"
+      data-contract-source={Object.values(HOT_SOURCE_ENDPOINTS).join('|')}
+      data-active-source={activeSource}
+      data-active-endpoint={endpoint}
+      data-selected-count={selected.length}
+      data-hotword-count={hotItems.length}
+      data-no-local-hotword-fallback="true"
+      sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
+    >
       {/* 标题 */}
       <Box sx={{ px: 1.5, pt: 1.5, pb: 1, flexShrink: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
@@ -156,7 +226,14 @@ function HotwordsPanel({ selected, onAdd, onRemove }: {
           <Box sx={{ flex: 1 }} />
           <Tooltip title="刷新榜单">
             <span>
-              <IconButton size="small" onClick={() => refetch()} disabled={isFetching} sx={{ p: 0.25 }}>
+              <IconButton
+                size="small"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                sx={{ p: 0.25 }}
+                data-testid="generate-hotword-refresh-button"
+                data-contract-source={endpoint}
+              >
                 {isFetching ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 14 }} />}
               </IconButton>
             </span>
@@ -197,7 +274,16 @@ function HotwordsPanel({ selected, onAdd, onRemove }: {
             <CircularProgress size={20} />
           </Box>
         ) : hotItems.length === 0 ? (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', pt: 2 }}>暂无数据（需配置 TianAPI）</Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            data-testid="generate-hotword-empty"
+            data-contract-source={endpoint}
+            data-no-local-hotword-fallback="true"
+            sx={{ display: 'block', textAlign: 'center', pt: 2 }}
+          >
+            暂无数据（需配置 TianAPI）
+          </Typography>
         ) : (
           <Stack spacing={0}>
             {hotItems.slice(0, 30).map((item, idx) => {
@@ -206,15 +292,24 @@ function HotwordsPanel({ selected, onAdd, onRemove }: {
                 <Box
                   key={item.word + idx}
                   onClick={() => isSelected ? onRemove(item.word) : onAdd(item.word)}
-                  sx={{
+                  data-testid={isSelected ? 'generate-hotword-selected-surface' : undefined}
+                  sx={(theme) => ({
                     display: 'flex', alignItems: 'center', gap: 0.75, px: 0.75, py: 0.6,
                     cursor: 'pointer', borderRadius: 0.75,
-                    bgcolor: isSelected ? 'warning.50' : 'transparent',
+                    bgcolor: isSelected
+                      ? alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.18 : 0.1)
+                      : 'transparent',
                     border: '1px solid',
-                    borderColor: isSelected ? 'warning.300' : 'transparent',
-                    '&:hover': { bgcolor: isSelected ? 'warning.100' : 'action.hover' },
+                    borderColor: isSelected
+                      ? alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.5 : 0.35)
+                      : 'transparent',
+                    '&:hover': {
+                      bgcolor: isSelected
+                        ? alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.24 : 0.16)
+                        : theme.palette.action.hover,
+                    },
                     transition: 'all 0.15s',
-                  }}
+                  })}
                 >
                   <Typography
                     variant="caption"
@@ -243,6 +338,21 @@ export function GenerateTabContent() {
   const { session, products, scripts } = useCoreData()
   const { handleScriptSave } = useEditor()
   const { isGenerating, generationProgress, generationMessage, genJustCompleted, slotTimeline, startGeneration, cancelGeneration } = useGeneration()
+  const orderedProducts = useMemo(() => sortLiveProducts(products), [products])
+  const orderedScripts = useMemo(() => sortLiveScripts(scripts), [scripts])
+  const orderedTimeline = useMemo(
+    () => [...slotTimeline].sort((a, b) => {
+      const ai = a.index ?? a.sequenceNo ?? Number.MAX_SAFE_INTEGER
+      const bi = b.index ?? b.sequenceNo ?? Number.MAX_SAFE_INTEGER
+      return ai - bi || (a.timestamp ?? 0) - (b.timestamp ?? 0)
+    }),
+    [slotTimeline],
+  )
+  const completedSlotCount = orderedTimeline.filter(t => t.event === 'slot_done' && !t.failed).length
+  const failedSlotCount = orderedTimeline.filter(t => t.failed).length
+  const progressEventCount = orderedTimeline.filter(t => t.event === 'progress').length
+  const previewTimeline = orderedTimeline.filter(t => t.event !== 'progress')
+  const latestProgressSteps = orderedTimeline.filter(t => t.event === 'progress').slice(-8)
 
   // 基础配置
   const [primaryStyle, setPrimaryStyle] = useState(session?.scriptStyle ?? 'natural')
@@ -267,24 +377,53 @@ export function GenerateTabContent() {
   const [hotKeywords, setHotKeywords] = useState<string[]>([])
   const [interactionLevel, setInteractionLevel] = useState<string>('')
   const [retentionStrategy, setRetentionStrategy] = useState<string>('')
+  const [materialType, setMaterialType] = useState<string>('')
   const [selectedPreset, setSelectedPreset] = useState<number | ''>('')
   const [focusScriptTypes, setFocusScriptTypes] = useState<string[]>([])
   const [showTimeline, setShowTimeline] = useState(false)
+  const [generationError, setGenerationError] = useState<string | null>(null)
 
-  const { data: presets = [] } = useQuery({
+  const { data: presets = [], isError: presetsIsError, error: presetsError } = useQuery({
     queryKey: ['generation-presets'],
     queryFn: () => liveApi.presetList(),
     staleTime: 5 * 60 * 1000,
   })
 
-  const { data: personas = [] } = useQuery({
+  const { data: personas = [], isError: personasIsError, error: personasError } = useQuery({
     queryKey: ['dy-personas'],
     queryFn: () => douyinApi.personaList(),
     staleTime: 10 * 60 * 1000,
   })
 
-  const canGenerate = products.length > 0 && !isGenerating
-  const hasScripts = scripts.length > 0
+  const canGenerate = orderedProducts.length > 0 && !isGenerating
+  const hasScripts = orderedScripts.length > 0
+  const activeGenerationEndpoint = useSkeleton
+    ? GENERATE_TAB_STREAM_ENDPOINTS[1]
+    : GENERATE_TAB_STREAM_ENDPOINTS[0]
+  const pendingProcessSteps = useMemo(() => [
+    {
+      label: '读取场次、商品和已有话术',
+      value: `${orderedProducts.length} 个商品 / ${orderedScripts.length} 条话术`,
+      status: orderedProducts.length > 0 ? 'ready' : 'blocked',
+    },
+    {
+      label: '确认生成接口',
+      value: useSkeleton ? '骨架模式' : '完整流水线',
+      status: 'ready',
+    },
+    {
+      label: '锁定商品顺序',
+      value: orderedProducts.length > 0
+        ? orderedProducts.slice(0, 3).map((p, index) => `${index + 1}.${p.productName ?? `商品${p.productId}`}`).join(' / ')
+        : '等待选品排品',
+      status: orderedProducts.length > 0 ? 'ready' : 'blocked',
+    },
+    {
+      label: '合成生成约束',
+      value: `${SCRIPT_STYLES.find(s => s.value === primaryStyle)?.label ?? primaryStyle} · ${durationPerSlot}s · ${useKbRef ? '引用知识库' : '不引用知识库'}`,
+      status: 'ready',
+    },
+  ], [durationPerSlot, orderedProducts, orderedScripts.length, primaryStyle, useKbRef, useSkeleton])
 
   const handleAddKeyword = (kw: string) => {
     const trimmed = kw.trim()
@@ -299,6 +438,7 @@ export function GenerateTabContent() {
 
   const handleGenerate = async () => {
     try {
+      setGenerationError(null)
       await startGeneration({
         style,
         durationLimitSec: durationPerSlot,
@@ -309,11 +449,14 @@ export function GenerateTabContent() {
         hotKeywords: hotKeywords.length > 0 ? hotKeywords : undefined,
         interactionLevel: interactionLevel || undefined,
         retentionStrategy: retentionStrategy || undefined,
+        materialType: materialType || undefined,
         modelId: modelId !== '' ? modelId : undefined,
       })
       setShowTimeline(true)
     } catch (e: unknown) {
-      toast((e as Error).message ?? '生成失败', 'error')
+      const message = `${activeGenerationEndpoint} 流式生成失败：${getErrorMessage(e)}`
+      setGenerationError(message)
+      toast(message, 'error')
     }
   }
 
@@ -323,29 +466,96 @@ export function GenerateTabContent() {
     if (p.style) setPrimaryStyle(p.style)
     if (p.modelId) setModelId(p.modelId)
     if (typeof p.useKbRef === 'boolean') setUseKbRef(p.useKbRef)
+    if (p.materialType) setMaterialType(p.materialType)
     setSelectedPreset(presetId)
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <Box
+      data-testid="generate-tab-workbench"
+      data-contract-scope="live-ai-script-generation-orchestrator"
+      data-ready-endpoints={GENERATE_TAB_READY_ENDPOINTS.join('|')}
+      data-context-endpoints={GENERATE_TAB_CONTEXT_ENDPOINTS.join('|')}
+      data-unsupported-actions={GENERATE_TAB_UNSUPPORTED_ACTIONS.join('|')}
+      data-session-id={session?.id ?? ''}
+      data-products-count={orderedProducts.length}
+      data-scripts-count={orderedScripts.length}
+      data-can-generate={String(canGenerate)}
+      data-generation-mode={useSkeleton ? 'skeleton' : 'full'}
+      data-generation-endpoint={activeGenerationEndpoint}
+      data-generation-status={isGenerating ? 'running' : genJustCompleted ? 'completed' : generationError ? 'error' : 'idle'}
+      data-generation-progress={generationProgress}
+      data-slot-timeline-count={slotTimeline.length}
+      data-no-local-generated-script-fallback="true"
+      sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
+    >
       {/* 顶部操作条 */}
-      <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.25,
-        borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, bgcolor: 'background.paper',
-      }}>
+      <Box
+        data-testid="generate-toolbar"
+        data-contract-source={`${GENERATE_TAB_STREAM_ENDPOINTS.join('|')}|/live/generation-preset/list|/douyin/persona/list`}
+        sx={{
+          display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1.25,
+          borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, bgcolor: 'background.paper',
+        }}
+      >
         <AutoAwesomeIcon sx={{ color: 'primary.main', fontSize: 20 }} />
         <Typography variant="subtitle2" fontWeight={700}>AI 话术生成</Typography>
-        <Chip label={`${products.length} 个商品`} size="small"
-          color={products.length > 0 ? 'primary' : 'default'} variant="outlined" />
-        {hasScripts && <Chip label={`已有 ${scripts.length} 条话术`} size="small" color="success" variant="outlined" />}
-        {products.length === 0 && (
-          <Alert severity="warning" sx={{ py: 0, px: 1, fontSize: 11, '& .MuiAlert-message': { py: 0.25 } }}>请先在「选品排品」添加商品</Alert>
+        <Chip label={`${orderedProducts.length} 个商品`} size="small"
+          color={orderedProducts.length > 0 ? 'primary' : 'default'} variant="outlined" />
+        {hasScripts && <Chip label={`已有 ${orderedScripts.length} 条话术`} size="small" color="success" variant="outlined" />}
+        {orderedProducts.length === 0 && (
+          <Alert
+            severity="warning"
+            data-testid="generate-no-products-alert"
+            data-contract-source="/live/product/by-session"
+            data-no-local-product-fallback="true"
+            sx={{ py: 0, px: 1, fontSize: 11, '& .MuiAlert-message': { py: 0.25 } }}
+          >
+            请先在「选品排品」添加商品
+          </Alert>
+        )}
+        {generationError && (
+          <Alert
+            severity="error"
+            data-testid="generate-stream-error-alert"
+            data-contract-source={activeGenerationEndpoint}
+            data-no-local-generated-script-fallback="true"
+            sx={{ py: 0, px: 1, fontSize: 11, '& .MuiAlert-message': { py: 0.25 } }}
+            onClose={() => setGenerationError(null)}
+          >
+            {generationError}
+          </Alert>
+        )}
+        {presetsIsError && (
+          <Alert
+            severity="warning"
+            data-testid="generate-preset-error-alert"
+            data-contract-source="/live/generation-preset/list"
+            data-no-local-preset-fallback="true"
+            sx={{ py: 0, px: 1, fontSize: 11, '& .MuiAlert-message': { py: 0.25 } }}
+          >
+            /live/generation-preset/list 加载失败：{getErrorMessage(presetsError)}，已降级为自定义配置。
+          </Alert>
+        )}
+        {personasIsError && (
+          <Alert
+            severity="warning"
+            data-testid="generate-persona-error-alert"
+            data-contract-source="/douyin/persona/list"
+            data-no-local-persona-fallback="true"
+            sx={{ py: 0, px: 1, fontSize: 11, '& .MuiAlert-message': { py: 0.25 } }}
+          >
+            /douyin/persona/list 加载失败：{getErrorMessage(personasError)}，已降级为默认人设。
+          </Alert>
         )}
         <Box sx={{ flex: 1 }} />
         {presets.length > 0 && (
           <FormControl size="small" sx={{ minWidth: 130 }}>
             <InputLabel>快速预设</InputLabel>
-            <Select label="快速预设" value={selectedPreset}
+            <Select
+              label="快速预设"
+              value={selectedPreset}
+              inputProps={{ 'data-testid': 'generate-preset-select', 'data-contract-source': '/live/generation-preset/list' }}
               onChange={e => e.target.value !== '' && applyPreset(Number(e.target.value))}>
               <MenuItem value="">自定义配置</MenuItem>
               {presets.map(p => <MenuItem key={p.id} value={p.id}>{p.presetName}</MenuItem>)}
@@ -353,7 +563,15 @@ export function GenerateTabContent() {
           </FormControl>
         )}
         {isGenerating && (
-          <Button variant="outlined" color="error" size="medium" startIcon={<StopIcon />} onClick={cancelGeneration}>
+          <Button
+            variant="outlined"
+            color="error"
+            size="medium"
+            startIcon={<StopIcon />}
+            onClick={cancelGeneration}
+            data-testid="generate-cancel-button"
+            data-contract-action="cancel-local-stream"
+          >
             取消生成
           </Button>
         )}
@@ -361,6 +579,9 @@ export function GenerateTabContent() {
           variant="contained" size="medium"
           startIcon={isGenerating ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeIcon />}
           onClick={handleGenerate} disabled={!canGenerate}
+          data-testid="generate-start-button"
+          data-contract-source={activeGenerationEndpoint}
+          data-no-local-generated-script-fallback="true"
           sx={{ minWidth: 120, fontWeight: 700 }}
         >
           {isGenerating ? '生成中...' : hasScripts ? '重新生成' : '开始生成'}
@@ -368,14 +589,21 @@ export function GenerateTabContent() {
       </Box>
 
       {/* 四列主内容区 */}
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <Box
+        data-testid="generate-main-columns"
+        data-contract-source={`${GENERATE_TAB_CONTEXT_ENDPOINTS.join('|')}|${GENERATE_TAB_READY_ENDPOINTS.join('|')}`}
+        sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}
+      >
 
         {/* ── 第一列：热词采集 ── */}
-        <Box sx={{
-          width: 220, flexShrink: 0,
-          borderRight: '1px solid', borderColor: 'divider',
-          overflow: 'hidden', display: 'flex', flexDirection: 'column',
-        }}>
+        <Box
+          data-testid="generate-hotwords-column"
+          sx={{
+            width: 220, flexShrink: 0,
+            borderRight: '1px solid', borderColor: 'divider',
+            overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          }}
+        >
           <HotwordsPanel
             selected={hotKeywords}
             onAdd={handleAddKeyword}
@@ -384,11 +612,15 @@ export function GenerateTabContent() {
         </Box>
 
         {/* ── 第二列：基础设置 ── */}
-        <Box sx={{
-          width: 480, flexShrink: 0,
-          borderRight: '1px solid', borderColor: 'divider',
-          overflow: 'auto',
-        }}>
+        <Box
+          data-testid="generate-settings-column"
+          data-contract-source="/live/generation-preset/list|/douyin/persona/list"
+          sx={{
+            width: 480, flexShrink: 0,
+            borderRight: '1px solid', borderColor: 'divider',
+            overflow: 'auto',
+          }}
+        >
           <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.75 }}>
 
             {/* 基础配置标题 */}
@@ -401,7 +633,12 @@ export function GenerateTabContent() {
             <Box sx={{ display: 'flex', gap: 1 }}>
               <FormControl size="small" sx={{ flex: 1 }}>
                 <InputLabel sx={{ fontSize: 12 }}><LabelTip label="主播人设" tip="决定话术的口吻、措辞风格和自我定位。不选则使用场次默认人设。" /></InputLabel>
-                <Select label="主播人设" value={personaId} onChange={e => setPersonaId(e.target.value as number | '')}>
+                <Select
+                  label="主播人设"
+                  value={personaId}
+                  inputProps={{ 'data-testid': 'generate-persona-select', 'data-contract-source': '/douyin/persona/list' }}
+                  onChange={e => setPersonaId(e.target.value as number | '')}
+                >
                   <MenuItem value="">默认人设</MenuItem>
                   {personas.map(p => (
                     <MenuItem key={p.id} value={p.id}>
@@ -415,7 +652,12 @@ export function GenerateTabContent() {
               </FormControl>
               <FormControl size="small" sx={{ flex: 1 }}>
                 <InputLabel sx={{ fontSize: 12 }}><LabelTip label="AI 模型" tip={<span>指定生成所用的大模型。不选则使用系统默认（推荐）。<br />不同模型在话术风格、速度和成本上有所差异。</span>} /></InputLabel>
-                <Select label="AI 模型" value={modelId} onChange={e => setModelId(e.target.value as number | '')}>
+                <Select
+                  label="AI 模型"
+                  value={modelId}
+                  inputProps={{ 'data-testid': 'generate-model-select', 'data-contract-source': '/live/generation-preset/list' }}
+                  onChange={e => setModelId(e.target.value as number | '')}
+                >
                   <MenuItem value="">默认模型</MenuItem>
                   {presets.filter(p => p.modelId).map(p => p.modelId).filter((v, i, a) => a.indexOf(v) === i).map(mid => (
                     <MenuItem key={mid} value={mid}>模型 #{mid}</MenuItem>
@@ -427,7 +669,12 @@ export function GenerateTabContent() {
             {/* 主风格 */}
             <FormControl size="small" fullWidth>
               <InputLabel><LabelTip label="主风格" tip={<span>话术的整体情感基调和表达方式。<br />· 自然流畅/友好亲切：适合日常种草<br />· 激情热情/促销冲量：适合大促节点<br />· 专业权威：适合功效型产品</span>} /></InputLabel>
-              <Select label="主风格" value={primaryStyle} onChange={e => setPrimaryStyle(e.target.value)}>
+              <Select
+                label="主风格"
+                value={primaryStyle}
+                inputProps={{ 'data-testid': 'generate-primary-style-select' }}
+                onChange={e => setPrimaryStyle(e.target.value)}
+              >
                 {(() => {
                   const groups = Array.from(new Set(SCRIPT_STYLES.map(s => s.group)))
                   return groups.flatMap(g => [
@@ -515,6 +762,31 @@ export function GenerateTabContent() {
                   </Select>
                 </FormControl>
 
+                <Box
+                  data-testid="generate-material-type-options"
+                  data-contract-source="/ai/knowledge-base/huashu/search|/tianapi/material/import"
+                  data-selected-material-type={materialType}
+                >
+                  <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+                    <LabelTip label="素材融合" tip={<span>选择后会把素材类型传给后端 RAG：优先检索 huashu 话术库里的 TianAPI/本地素材，再改写融合进直播话术。<br />顺口溜、歇后语、金句等不会直接当原文照搬，而是变成口播记忆点。</span>} />
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {MATERIAL_TYPE_OPTIONS.map(item => (
+                      <Tooltip key={item.value} title={item.desc} arrow>
+                        <Chip
+                          label={item.label}
+                          size="small"
+                          color={materialType === item.value ? 'secondary' : 'default'}
+                          variant={materialType === item.value ? 'filled' : 'outlined'}
+                          onClick={() => setMaterialType(item.value)}
+                          data-testid={`generate-material-type-${item.value || 'default'}`}
+                          sx={{ height: 24, fontSize: 10, cursor: 'pointer' }}
+                        />
+                      </Tooltip>
+                    ))}
+                  </Box>
+                </Box>
+
                 {/* 重点话术类型 */}
                 <Box>
                   <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
@@ -546,7 +818,7 @@ export function GenerateTabContent() {
                   placeholder="例：结合双十一活动氛围…"
                   value={extraPrompt}
                   onChange={e => setExtraPrompt(e.target.value)}
-                  inputProps={{ maxLength: 300 }}
+                  inputProps={{ maxLength: 300, 'data-testid': 'generate-extra-prompt-input' }}
                   helperText={`${extraPrompt.length}/300`}
                 />
 
@@ -556,6 +828,7 @@ export function GenerateTabContent() {
             {/* 引用知识库 + 骨架模式 */}
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
               <FormControlLabel
+                data-testid="generate-kb-ref-switch"
                 control={<Switch size="small" checked={useKbRef} onChange={e => setUseKbRef(e.target.checked)} />}
                 label={
                   <Tooltip arrow placement="right" title={<span>开启后 AI 生成时会检索知识库（RAG），引用品牌话术规范、产品卖点文档、历史优质话术等内容，提升准确性和品牌一致性。<br />关闭则仅依赖大模型本身的知识，速度略快但可能缺乏品牌专属表达。</span>}>
@@ -564,6 +837,7 @@ export function GenerateTabContent() {
                 }
               />
               <FormControlLabel
+                data-testid="generate-skeleton-switch"
                 control={<Switch size="small" checked={useSkeleton} onChange={e => setUseSkeleton(e.target.checked)} />}
                 label={
                   <Tooltip arrow placement="right" title={
@@ -591,11 +865,16 @@ export function GenerateTabContent() {
         </Box>{/* end 第二列 */}
 
         {/* ── 第三列：槽位配置（时长 + 风格）── */}
-        <Box sx={{
-          width: 520, flexShrink: 0,
-          borderRight: '1px solid', borderColor: 'divider',
-          overflow: 'hidden', display: 'flex', flexDirection: 'column',
-        }}>
+        <Box
+          data-testid="generate-slot-config-column"
+          data-contract-source="/live/product/by-session"
+          data-no-direct-product-mutation="true"
+          sx={{
+            width: 520, flexShrink: 0,
+            borderRight: '1px solid', borderColor: 'divider',
+            overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          }}
+        >
           {/* 标题栏 */}
           <Box sx={{ px: 1.5, pt: 1.5, pb: 1, flexShrink: 0, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
@@ -605,8 +884,20 @@ export function GenerateTabContent() {
             </Box>
           </Box>
           {/* 批量操作栏 */}
-          {products.length > 0 && (
-            <Box sx={{ px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50', flexShrink: 0 }}>
+          {orderedProducts.length > 0 && (
+            <Box
+              data-testid="generate-slot-batch-settings-surface"
+              sx={(theme) => ({
+                px: 1.5,
+                py: 1,
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                bgcolor: theme.palette.mode === 'dark'
+                  ? theme.palette.background.default
+                  : alpha(theme.palette.common.black, 0.025),
+                flexShrink: 0,
+              })}
+            >
               <Typography variant="caption" fontWeight={600} color="text.secondary" display="block" mb={0.75}>批量设置</Typography>
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                 <FormControl size="small" sx={{ minWidth: 110 }}>
@@ -638,7 +929,7 @@ export function GenerateTabContent() {
                   onClick={() => {
                     const newDurs: Record<number, number> = {}
                     const newStyles: Record<number, string> = {}
-                    products.forEach(p => {
+                    orderedProducts.forEach(p => {
                       if (batchDur > 0) newDurs[p.id] = batchDur
                       if (batchStyleVal) newStyles[p.id] = batchStyleVal
                     })
@@ -657,18 +948,28 @@ export function GenerateTabContent() {
             </Box>
           )}
           {/* 列表 */}
-          {products.length === 0 ? (
-            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
+          {orderedProducts.length === 0 ? (
+            <Box
+              data-testid="generate-slot-empty"
+              data-contract-source="/live/product/by-session"
+              data-no-local-product-fallback="true"
+              sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}
+            >
               <Typography variant="caption" color="text.disabled" textAlign="center">暂无商品</Typography>
             </Box>
           ) : (
-            <Stack divider={<Divider />} sx={{ flex: 1, overflow: 'auto' }}>
-              {products.map((prod, idx) => {
+            <Stack
+              divider={<Divider />}
+              data-testid="generate-product-slot-list"
+              data-contract-source="/live/product/by-session"
+              sx={{ flex: 1, overflow: 'auto' }}
+            >
+              {orderedProducts.map((prod, idx) => {
                 const dur = slotDurations[prod.id] ?? 0
                 const slotStyle = slotStyles[prod.id] ?? ''
                 const DUR_PRESETS = [60, 120, 180, 300]
                 return (
-                  <Box key={prod.id} sx={{ px: 1.5, py: 1 }}>
+                  <Box key={prod.id} data-testid="generate-product-slot-row" data-product-id={prod.productId} sx={{ px: 1.5, py: 1 }}>
                     {/* 商品名 */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
                       <Typography variant="caption" sx={{ width: 16, textAlign: 'center', fontWeight: 700, color: 'text.disabled', fontSize: 10 }}>{idx + 1}</Typography>
@@ -725,10 +1026,24 @@ export function GenerateTabContent() {
         </Box>{/* end 第三列 */}
 
         {/* ── 第四列：流式生成可视化进度 ── */}
-        <Box sx={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <Box
+          data-testid="generate-progress-column"
+          data-contract-source={GENERATE_TAB_STREAM_ENDPOINTS.join('|')}
+          data-no-local-generated-script-fallback="true"
+          sx={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
+        >
           {/* 进度区 */}
           {(isGenerating || genJustCompleted) && (
-            <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
+            <Box
+              data-testid="generate-progress-surface"
+              data-contract-source={activeGenerationEndpoint}
+              data-generation-progress={generationProgress}
+              data-generation-status={isGenerating ? 'running' : 'completed'}
+              data-progress-event-count={progressEventCount}
+              data-completed-slot-count={completedSlotCount}
+              data-failed-slot-count={failedSlotCount}
+              sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}
+            >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 {isGenerating
                   ? <CircularProgress size={14} />
@@ -746,24 +1061,120 @@ export function GenerateTabContent() {
                 sx={{ height: 6, borderRadius: 3, mb: 0.5 }}
               />
               <Typography variant="caption" color="text.secondary">{generationProgress}%</Typography>
+              <Stack direction="row" spacing={0.75} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 0.75 }}>
+                <Chip label={`过程 ${progressEventCount}`} size="small" variant="outlined" sx={{ fontSize: 10, height: 20 }} />
+                <Chip label={`完成 ${completedSlotCount}`} size="small" color="success" variant="outlined" sx={{ fontSize: 10, height: 20 }} />
+                {failedSlotCount > 0 && <Chip label={`失败 ${failedSlotCount}`} size="small" color="error" variant="outlined" sx={{ fontSize: 10, height: 20 }} />}
+              </Stack>
             </Box>
           )}
 
           {/* 槽位时间线 */}
-          {slotTimeline.length > 0 && (
-            <Box sx={{ p: 1.5, flexShrink: 0 }}>
-              <Typography variant="caption" fontWeight={600} color="text.secondary" display="block" mb={1}>
-                生成时间线（{slotTimeline.length} 个槽位）
-              </Typography>
+          <Box
+            data-testid="generate-timeline-list"
+            data-contract-source={activeGenerationEndpoint}
+            data-slot-timeline-count={orderedTimeline.length}
+            data-progress-event-count={progressEventCount}
+            data-slot-result-count={previewTimeline.length}
+            data-process-state={orderedTimeline.length > 0 ? 'streaming-or-completed' : 'idle-ready'}
+            sx={{ p: 1.5, flexShrink: 0 }}
+          >
+            <Typography variant="caption" fontWeight={600} color="text.secondary" display="block" mb={1}>
+              生成过程（{orderedTimeline.length} 条事件）
+            </Typography>
+            <Paper
+              variant="outlined"
+              data-testid="generate-process-plan-surface"
+              data-contract-source="/live/session/get|/live/product/by-session|/live/script/by-session"
+              data-product-order-ready={String(orderedProducts.length > 0)}
+              sx={{ borderRadius: 1, overflow: 'hidden', mb: 1 }}
+            >
+              {pendingProcessSteps.map((step, index) => (
+                <Box
+                  key={step.label}
+                  data-testid="generate-process-plan-row"
+                  data-process-step-status={step.status}
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '30px 1fr',
+                    gap: 1,
+                    px: 1,
+                    py: 0.75,
+                    borderBottom: index < pendingProcessSteps.length - 1 ? '1px solid' : 0,
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Chip
+                    label={index + 1}
+                    size="small"
+                    color={step.status === 'blocked' ? 'warning' : 'primary'}
+                    variant="outlined"
+                    sx={{ fontSize: 9, height: 18, minWidth: 24 }}
+                  />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="caption" fontWeight={600} display="block" noWrap>{step.label}</Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" noWrap>{step.value}</Typography>
+                  </Box>
+                </Box>
+              ))}
+            </Paper>
+            {orderedTimeline.length === 0 && (
+              <Alert
+                severity={orderedProducts.length > 0 ? 'info' : 'warning'}
+                data-testid="generate-process-idle-hint"
+                data-contract-source={activeGenerationEndpoint}
+                sx={{ fontSize: 12, mb: 1 }}
+              >
+                {orderedProducts.length > 0
+                  ? '开始生成后，这里会按商品顺序记录进度、槽位完成、失败原因和内容预览。'
+                  : '当前没有可生成商品，请先在「选品排品」添加商品。'}
+              </Alert>
+            )}
+            {latestProgressSteps.length > 0 && (
+                <Paper
+                  variant="outlined"
+                  data-testid="generate-process-detail-surface"
+                  data-progress-event-count={progressEventCount}
+                  sx={{ borderRadius: 1, overflow: 'hidden', mb: 1 }}
+                >
+                  {latestProgressSteps.map((t, i) => (
+                    <Box
+                      key={`${t.timestamp ?? i}-${t.current ?? i}`}
+                      data-testid="generate-process-step-row"
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: '44px 1fr auto',
+                        gap: 1,
+                        alignItems: 'center',
+                        px: 1,
+                        py: 0.75,
+                        borderBottom: i < latestProgressSteps.length - 1 ? '1px solid' : 0,
+                        borderColor: 'divider',
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary">#{t.current ?? i + 1}</Typography>
+                      <Typography variant="caption" sx={{ minWidth: 0 }} noWrap>{t.stage || t.slotLabel}</Typography>
+                      <Chip label={`${t.percent ?? 0}%`} size="small" variant="outlined" sx={{ fontSize: 9, height: 18 }} />
+                    </Box>
+                  ))}
+                </Paper>
+            )}
+            {previewTimeline.length > 0 && (
               <Stack spacing={0.5}>
-                {slotTimeline.map((t, i) => (
-                  <Box key={i} sx={{
+                {previewTimeline.map((t, i) => (
+                  <Box key={i} data-testid={t.failed ? 'generate-timeline-failed-surface' : 'generate-timeline-success-surface'} sx={(theme) => ({
                     display: 'flex', gap: 1, alignItems: 'flex-start',
                     p: 0.75, borderRadius: 0.75,
-                    bgcolor: t.failed ? 'error.50' : 'success.50',
+                    bgcolor: alpha(
+                      t.failed ? theme.palette.error.main : theme.palette.success.main,
+                      theme.palette.mode === 'dark' ? 0.16 : 0.1,
+                    ),
                     border: '1px solid',
-                    borderColor: t.failed ? 'error.200' : 'success.200',
-                  }}>
+                    borderColor: alpha(
+                      t.failed ? theme.palette.error.main : theme.palette.success.main,
+                      theme.palette.mode === 'dark' ? 0.45 : 0.28,
+                    ),
+                  })}>
                     <Chip
                       label={`#${t.sequenceNo ?? i + 1}`}
                       size="small"
@@ -783,22 +1194,32 @@ export function GenerateTabContent() {
                         )}
                       </Box>
                       {t.errorMsg && <Typography variant="caption" color="error.main" display="block">{t.errorMsg}</Typography>}
+                      {t.content && (
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25, whiteSpace: 'pre-wrap' }}>
+                          {t.content.length > 90 ? `${t.content.slice(0, 90)}...` : t.content}
+                        </Typography>
+                      )}
                     </Box>
                     {!t.failed && <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main', flexShrink: 0, mt: 0.1 }} />}
                   </Box>
                 ))}
               </Stack>
-            </Box>
-          )}
+            )}
+          </Box>
 
           {/* 槽位精调（生成完成后） */}
-          {genJustCompleted && showTimeline && scripts.length > 0 && (
-            <Box sx={{ p: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+          {genJustCompleted && showTimeline && orderedScripts.length > 0 && (
+            <Box
+              data-testid="generate-finetune-panel"
+              data-contract-source="/live/script/save"
+              data-no-direct-script-create="true"
+              sx={{ p: 1.5, borderTop: '1px solid', borderColor: 'divider' }}
+            >
               <Typography variant="caption" fontWeight={600} color="text.secondary" display="block" mb={1}>
                 精调各槽位参数
               </Typography>
               <Paper variant="outlined" sx={{ borderRadius: 1, overflow: 'hidden' }}>
-                {scripts.map(s => (
+                {orderedScripts.map(s => (
                   <SlotConfigRow key={s.id} script={s} sessionId={session!.id} onSave={handleScriptSave} />
                 ))}
               </Paper>
@@ -806,14 +1227,27 @@ export function GenerateTabContent() {
           )}
 
           {/* 空状态 */}
-          {!isGenerating && !genJustCompleted && slotTimeline.length === 0 && (
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1.5, p: 3 }}>
+          {!isGenerating && !genJustCompleted && orderedTimeline.length === 0 && orderedProducts.length === 0 && (
+            <Box
+              data-testid="generate-idle-empty"
+              data-contract-source={activeGenerationEndpoint}
+              data-no-local-generated-script-fallback="true"
+              sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1.5, p: 3 }}
+            >
               <AutoAwesomeIcon sx={{ fontSize: 40, color: 'text.disabled' }} />
               <Typography variant="body2" color="text.secondary" textAlign="center">
                 配置左侧参数后点击「开始生成」<br />实时进度将在此显示
               </Typography>
-              {products.length === 0 && (
-                <Alert severity="warning" sx={{ fontSize: 12 }}>请先在「选品排品」标签页添加商品</Alert>
+              {orderedProducts.length === 0 && (
+                <Alert
+                  severity="warning"
+                  data-testid="generate-empty-no-products-alert"
+                  data-contract-source="/live/product/by-session"
+                  data-no-local-product-fallback="true"
+                  sx={{ fontSize: 12 }}
+                >
+                  请先在「选品排品」标签页添加商品
+                </Alert>
               )}
             </Box>
           )}
@@ -823,8 +1257,3 @@ export function GenerateTabContent() {
     </Box>
   )
 }
-
-
-
-
-

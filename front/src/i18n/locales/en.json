@@ -141,10 +141,16 @@
     "collapse": "Dismiss",
     "show": "Show checklist",
     "go": "Go",
+    "guide": "Setup guide",
+    "backToWorkbench": "Workbench",
     "live": "Open live sessions",
     "readiness": "Product & script readiness",
     "sv": "Short video: script to publish",
-    "kpi": "Open unified KPI"
+    "kpi": "Open unified KPI",
+    "adminOnlyGuideNote": "The full setup guide is currently available only in the admin shell.",
+    "adminOnlyReadinessNote": "Product readiness is admin-only. This role falls back to its workbench.",
+    "orgShortvideoFallbackNote": "Short-video projects are not open in the org shell yet. This falls back to the org workbench.",
+    "talentKpiFallbackNote": "Unified KPI is not open in the talent shell yet. This falls back to the talent workbench."
   },
   "whatsNew": {
     "tooltip": "What’s new",

@@ -1,6 +1,7 @@
 import request from '@/utils/request'
 import { ssePost } from '@/utils/sse-client'
 import type { LiveReviewVO } from '@/types/live-ai'
+import { normalizeArray } from '@/utils/response-normalize'
 
 /** RAG ????????????????? LiveAiResultVO.RagRefVO ??????? */
 export interface LiveRagRef {
@@ -9,6 +10,8 @@ export interface LiveRagRef {
   title?: string
   contentPreview?: string
   score?: number
+  source?: string
+  labels?: string[]
 }
 
 /** ????????????????????? LiveAiResultVO.durationFit ??????? */
@@ -53,7 +56,7 @@ export interface FullGenerateOptions {
 export function generateFull(sessionId: number, style?: string, useKbRef?: boolean, modelId?: number, options?: FullGenerateOptions) {
   const body: Record<string, unknown> = { sessionId, style, useKbRef, ...options }
   if (modelId != null && modelId > 0) body.modelId = modelId
-  return request.post<Array<LiveAiGenerateResponse>>('/live/ai/generate-full', body)
+  return request.post<unknown>('/live/ai/generate-full', body).then(raw => normalizeArray<LiveAiGenerateResponse>(raw))
 }
 
 /** ???????????? SSE ?????? */
@@ -246,10 +249,10 @@ export function batchChatForScript(scriptIds: number[], message: string, modelId
 
 /** ????????? */
 export function checkSimilarity(sessionId: number) {
-  return request.post<Array<{ scriptId1: number; scriptId2: number; type1: string; type2: string; similarityLevel: string; suggestion: string }>>(
+  return request.post<unknown>(
     '/live/ai/check-similarity',
     { sessionId }
-  )
+  ).then(raw => normalizeArray<{ scriptId1: number; scriptId2: number; type1: string; type2: string; similarityLevel: string; suggestion: string }>(raw))
 }
 
 /** ???????????????????????????/?????/??????/????????????? */
@@ -264,10 +267,10 @@ export function generateEmotional(sessionId: number, category: string, subCatego
 export function generateSkeleton(sessionId: number, modelId?: number) {
   const body: Record<string, unknown> = { sessionId }
   if (modelId != null && modelId > 0) body.modelId = modelId
-  return request.post<Array<{ scriptId: number; scriptType: string; summary: string; suggestedDurationSec: number }>>(
+  return request.post<unknown>(
     '/live/ai/generate-skeleton',
     body
-  )
+  ).then(raw => normalizeArray<{ scriptId: number; scriptType: string; summary: string; suggestedDurationSec: number }>(raw))
 }
 
 /** ??????????????SSE ??? token ????????done ?????????????? list */
@@ -319,7 +322,7 @@ export interface StyleRecommendationItem {
 }
 
 export function recommendStyles(body?: { productId?: number; limit?: number }) {
-  return request.post<StyleRecommendationItem[]>('/live/style/recommend', body ?? {})
+  return request.post<unknown>('/live/style/recommend', body ?? {}).then(raw => normalizeArray<StyleRecommendationItem>(raw))
 }
 
 export interface StylePresetGroup {
@@ -329,7 +332,7 @@ export interface StylePresetGroup {
 
 /** ???????????????????????? */
 export function getStylePresets() {
-  return request.post<StylePresetGroup[]>('/live/style/list', {})
+  return request.post<unknown>('/live/style/list', {}).then(raw => normalizeArray<StylePresetGroup>(raw))
 }
 
 /** ?????????????????????????? */
@@ -374,12 +377,12 @@ export interface PlatformViolationHit {
 
 /** ???????????????????????? */
 export function listPlatforms() {
-  return request.post<LivePlatformVO[]>('/live/platform/list')
+  return request.post<unknown>('/live/platform/list').then(raw => normalizeArray<LivePlatformVO>(raw))
 }
 
 /** ??????????? */
 export function checkPlatformViolation(text: string, platformCode: string) {
-  return request.post<PlatformViolationHit[]>('/live/platform/violation-check', { text, platformCode })
+  return request.post<unknown>('/live/platform/violation-check', { text, platformCode }).then(raw => normalizeArray<PlatformViolationHit>(raw))
 }
 
 /** ??????? prompt ?????? */
@@ -415,7 +418,7 @@ export interface GenerationPreset {
 
 /** ?????????????????? */
 export function listGenerationPresets() {
-  return request.post<GenerationPreset[]>('/live/generation-preset/list', {})
+  return request.post<unknown>('/live/generation-preset/list', {}).then(raw => normalizeArray<GenerationPreset>(raw))
 }
 
 /** ?????? */
@@ -448,7 +451,7 @@ export interface EffectivenessConfig {
 
 /** ???????????????????????? */
 export function listEffectivenessConfigs() {
-  return request.post<EffectivenessConfig[]>('/live/effectiveness-config/list', {})
+  return request.post<unknown>('/live/effectiveness-config/list', {}).then(raw => normalizeArray<EffectivenessConfig>(raw))
 }
 
 /** ????????????????? */
@@ -581,7 +584,8 @@ export function getChat2hStrategy(data?: { personaCode?: string; productCount?: 
 
 /** ?????? ROI ?????? */
 export function getFormatRoiAnalysis(data?: { accountId?: number; days?: number }) {
-  return request.post<Array<{ liveFormat: string; sessionCount: number; totalViewers: number; avgViewers: number; avgDurationMin: number; completionRate: number }>>('/live/session/format-roi', data || {})
+  return request.post<unknown>('/live/session/format-roi', data || {})
+    .then(raw => normalizeArray<{ liveFormat: string; sessionCount: number; totalViewers: number; avgViewers: number; avgDurationMin: number; completionRate: number }>(raw))
 }
 
 // --- P1-2: ?????????????????????? ---
@@ -607,7 +611,7 @@ export interface ScriptRecommendRequest {
 }
 
 export function recommendScripts(req: ScriptRecommendRequest) {
-  return request.post<ScriptRecommendVO[]>('/live/ai/recommend-scripts', req)
+  return request.post<unknown>('/live/ai/recommend-scripts', req).then(raw => normalizeArray<ScriptRecommendVO>(raw))
 }
 
 // --- ???????? ---

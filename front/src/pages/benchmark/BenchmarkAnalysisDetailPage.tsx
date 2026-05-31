@@ -1,9 +1,25 @@
 import { useState } from 'react';
-import { Box, Card, CardContent, Chip, Divider, Grid, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, Divider, Grid, Stack, Tab, Tabs, Typography } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
-import { PageHeader } from '@/components/base/PageHeader';
+import { useNavigate, useParams } from 'react-router-dom';
+import { PageHeader, ErrorAlert } from '@/components/base';
 import { benchmarkAnalysisApi, benchmarkVideoApi } from '@/api/benchmark';
+import { shortvideoRoutes } from '@/constants/shortvideoRoutes';
+
+const BENCHMARK_ANALYSIS_READY_ENDPOINTS = [
+  '/benchmark/video/get',
+  '/benchmark/analysis/get-by-video',
+].join('|');
+
+const BENCHMARK_ANALYSIS_UNSUPPORTED_ENDPOINTS = [
+  '/benchmark/video/mock',
+  '/benchmark/video/local-detail',
+  '/benchmark/analysis/mock',
+  '/benchmark/analysis/static-detail',
+  '/benchmark/analysis/local-keyframes',
+].join('|');
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -22,39 +38,177 @@ function TabPanel(props: TabPanelProps) {
 
 export default function BenchmarkAnalysisDetailPage() {
   const { videoId } = useParams<{ videoId: string }>();
+  const navigate = useNavigate();
   const [tabValue, setTabValue] = useState(0);
+  const parsedVideoId = Number(videoId);
 
-  // 查询视频信息
-  const { data: video } = useQuery({
+  const {
+    data: video,
+    isFetching: isVideoFetching,
+    isError: isVideoError,
+    error: videoError,
+    refetch: refetchVideo,
+  } = useQuery({
     queryKey: ['benchmarkVideo', videoId],
-    queryFn: () => benchmarkVideoApi.get(Number(videoId)),
-    enabled: !!videoId,
+    queryFn: () => benchmarkVideoApi.get(parsedVideoId),
+    enabled: Number.isFinite(parsedVideoId) && parsedVideoId > 0,
   });
 
-  // 查询分析结果
-  const { data: analysis, isLoading } = useQuery({
+  const {
+    data: analysis,
+    isFetching: isAnalysisFetching,
+    isError: isAnalysisError,
+    error: analysisError,
+    refetch: refetchAnalysis,
+  } = useQuery({
     queryKey: ['benchmarkAnalysis', videoId],
-    queryFn: () => benchmarkAnalysisApi.getByVideo(Number(videoId)),
-    enabled: !!videoId,
+    queryFn: () => benchmarkAnalysisApi.getByVideo(parsedVideoId),
+    enabled: Number.isFinite(parsedVideoId) && parsedVideoId > 0,
   });
 
-  if (isLoading) {
-    return <Box sx={{ p: 3 }}>加载中...</Box>;
-  }
+  const isLoading = isVideoFetching || isAnalysisFetching;
+  const keyFrames = parseKeyFrames(analysis?.keyFramesJson);
+  const extractionIssues = [
+    analysis?.transcriptText,
+    analysis?.ocrText,
+    analysis?.apiDescription,
+    analysis?.sceneDescription,
+    analysis?.aiSummary,
+  ].filter((text): text is string => Boolean(text && /\[(ASR|OCR|API|AI|场景).*(失败|异常)/.test(text)));
+  const hasTextSource = Boolean(analysis?.transcriptText || analysis?.ocrText || analysis?.apiDescription || analysis?.mergedContent);
+  const hasCreative = Boolean(analysis?.hookStrategy || analysis?.contentStructure || analysis?.emotionalCurve || analysis?.pacingAnalysis);
+  const hasViral = Boolean(analysis?.viralFactors || analysis?.strengths || analysis?.weaknesses || analysis?.replicableElements);
+  const analysisErrorMessage = analysisError instanceof Error ? analysisError.message : '分析结果加载失败，请检查 /benchmark/analysis/get-by-video。';
+  const videoErrorMessage = videoError instanceof Error ? videoError.message : '视频信息加载失败，请检查 /benchmark/video/get。';
 
-  if (!analysis) {
-    return <Box sx={{ p: 3 }}>暂无分析结果</Box>;
+  if (!Number.isFinite(parsedVideoId) || parsedVideoId <= 0) {
+    return (
+      <Box
+        data-testid="benchmark-analysis-detail-page"
+        data-contract-scope="benchmark-analysis-detail-invalid-route"
+        data-ready-endpoints={BENCHMARK_ANALYSIS_READY_ENDPOINTS}
+        data-unsupported-endpoints={BENCHMARK_ANALYSIS_UNSUPPORTED_ENDPOINTS}
+        data-no-local-detail-fallback="true"
+        data-no-static-analysis-fallback="true"
+        sx={{ p: 3 }}
+      >
+        <ErrorAlert title="视频 ID 无效" message="当前地址没有有效的视频 ID，无法读取对标分析结果。" severity="warning" />
+      </Box>
+    );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box
+      data-testid="benchmark-analysis-detail-page"
+      data-contract-scope="benchmark-video-analysis-readonly"
+      data-ready-endpoints={BENCHMARK_ANALYSIS_READY_ENDPOINTS}
+      data-unsupported-endpoints={BENCHMARK_ANALYSIS_UNSUPPORTED_ENDPOINTS}
+      data-no-local-detail-fallback="true"
+      data-no-static-video-fallback="true"
+      data-no-static-analysis-fallback="true"
+      data-video-error={isVideoError ? 'true' : 'false'}
+      data-analysis-error={isAnalysisError ? 'true' : 'false'}
+      sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2 }}
+    >
       <PageHeader
         title="视频深度分析"
         subtitle={video?.title || ''}
+        actions={
+          <Stack direction="row" spacing={1}>
+            <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate(shortvideoRoutes.benchmarkVideos)}>
+              返回视频库
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={() => {
+                void refetchVideo();
+                void refetchAnalysis();
+              }}
+              disabled={isLoading}
+            >
+              刷新
+            </Button>
+          </Stack>
+        }
       />
 
+      {isVideoError && (
+        <Box data-testid="benchmark-analysis-video-error" data-no-local-detail-fallback="true">
+          <ErrorAlert title="视频信息加载失败" message={videoErrorMessage} onRetry={() => void refetchVideo()} />
+        </Box>
+      )}
+      {isAnalysisError && (
+        <Box data-testid="benchmark-analysis-result-error" data-no-static-analysis-fallback="true">
+          <ErrorAlert title="分析结果加载失败" message={analysisErrorMessage} onRetry={() => void refetchAnalysis()} />
+        </Box>
+      )}
+
+      {!isAnalysisError && !analysis && !isAnalysisFetching && (
+        <Alert data-testid="benchmark-analysis-empty" data-no-static-analysis-fallback="true" severity="warning" variant="outlined">
+          暂无分析结果。请先在对标视频库提交分析任务，ASR/OCR/API/LLM 任一链路失败时后端会保留错误信息，页面不会伪造拆解内容。
+        </Alert>
+      )}
+
+      {analysis && extractionIssues.length > 0 && (
+        <Alert data-testid="benchmark-analysis-downgrade" data-no-static-analysis-fallback="true" severity="warning" variant="outlined">
+          分析链路存在降级：{extractionIssues.join('；')}。这些内容来自真实后端结果，页面不会用 mock 补齐缺失维度。
+        </Alert>
+      )}
+
+      {analysis && (
+        <Grid
+          data-testid="benchmark-analysis-summary-contract"
+          data-contract-scope="benchmark-analysis-real-result-summary"
+          data-ready-endpoints="/benchmark/analysis/get-by-video"
+          data-no-static-analysis-fallback="true"
+          data-keyframe-count={keyFrames.length}
+          container
+          spacing={2}
+        >
+          <Grid item xs={12} md={3}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">文本来源</Typography>
+                <Typography variant="h5">{hasTextSource ? '已提取' : '缺失'}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">关键帧</Typography>
+                <Typography variant="h5">{keyFrames.length}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">创意结构</Typography>
+                <Typography variant="h5">{hasCreative ? '可用' : '缺失'}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">可复刻要素</Typography>
+                <Typography variant="h5">{hasViral ? '已生成' : '缺失'}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
+
       {/* 视频基本信息 */}
-      <Card sx={{ mb: 3 }}>
+      <Card
+        data-testid="benchmark-analysis-video-contract"
+        data-contract-scope="benchmark-video-real-detail"
+        data-ready-endpoints="/benchmark/video/get"
+        data-no-local-detail-fallback="true"
+        sx={{ mb: 3 }}
+      >
         <CardContent>
           <Grid container spacing={3}>
             <Grid item xs={12} md={4}>
@@ -71,9 +225,17 @@ export default function BenchmarkAnalysisDetailPage() {
                 {video?.title}
               </Typography>
               <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-                <Chip label={`点赞 ${video?.likeCount?.toLocaleString()}`} />
-                <Chip label={`评论 ${video?.commentCount?.toLocaleString()}`} />
-                <Chip label={`分享 ${video?.shareCount?.toLocaleString()}`} />
+                <Chip label={`播放 ${video?.viewCount?.toLocaleString() ?? '-'}`} />
+                <Chip label={`点赞 ${video?.likeCount?.toLocaleString() ?? '-'}`} />
+                <Chip label={`评论 ${video?.commentCount?.toLocaleString() ?? '-'}`} />
+                <Chip label={`分享 ${video?.shareCount?.toLocaleString() ?? '-'}`} />
+                <Chip label={`收藏 ${video?.favoriteCount?.toLocaleString() ?? video?.collectCount?.toLocaleString() ?? '-'}`} />
+              </Stack>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+                <Chip size="small" color={video?.isQualified ? 'success' : 'default'} label={video?.isQualified ? '符合采集阈值' : '未标记为优质'} />
+                <Chip size="small" label={`本地文件 ${video?.localVideoPath || video?.localPath ? '已生成' : '缺失'}`} />
+                <Chip size="small" label={`BOS ${video?.bosVideoUrl || video?.bosUrl ? '已上传' : '未上传'}`} />
+                <Chip size="small" label={`分析状态 ${getStatusLabel(video?.analysisStatus)}`} />
               </Stack>
               <Typography variant="body2" color="text.secondary">
                 {video?.description}
@@ -84,7 +246,12 @@ export default function BenchmarkAnalysisDetailPage() {
       </Card>
 
       {/* 分析结果 */}
-      <Card>
+      {analysis && <Card
+        data-testid="benchmark-analysis-result-contract"
+        data-contract-scope="benchmark-analysis-readonly-tabs"
+        data-ready-endpoints="/benchmark/analysis/get-by-video"
+        data-no-static-analysis-fallback="true"
+      >
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
           <Tab label="文案内容" />
           <Tab label="场景分析" />
@@ -144,8 +311,8 @@ export default function BenchmarkAnalysisDetailPage() {
               <Typography variant="subtitle1" gutterBottom>关键帧</Typography>
               {analysis.keyFramesJson ? (
                 <Grid container spacing={2}>
-                  {JSON.parse(analysis.keyFramesJson).map((frame: { framePath: string; startTime: number }, idx: number) => (
-                    <Grid item xs={6} md={3} key={idx}>
+                  {keyFrames.map((frame, idx) => (
+                    <Grid item xs={6} md={3} key={`${frame.framePath}-${idx}`}>
                       <Box>
                         <img src={frame.framePath} alt={`关键帧 ${idx + 1}`} style={{ width: '100%', borderRadius: 4 }} />
                         <Typography variant="caption" display="block" textAlign="center">
@@ -307,7 +474,59 @@ export default function BenchmarkAnalysisDetailPage() {
             </Box>
           </Stack>
         </TabPanel>
-      </Card>
+      </Card>}
     </Box>
   );
+}
+
+function getStatusLabel(status?: string) {
+  switch (status) {
+    case 'pending': return '待分析';
+    case 'processing': return '分析中';
+    case 'completed': return '已完成';
+    case 'failed': return '失败';
+    default: return status || '-';
+  }
+}
+
+interface ParsedKeyFrame {
+  framePath: string;
+  startTime: number;
+}
+
+function parseKeyFrames(raw?: string): ParsedKeyFrame[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const frame = item as Record<string, unknown>;
+        const framePath = readFrameString(frame, ['framePath', 'frameUrl', 'url', 'imageUrl', 'path']);
+        const startTime = readFrameNumber(frame, ['startTime', 'time', 'timestamp', 'second', 'seconds']);
+        if (!framePath || startTime == null) return null;
+        return { framePath, startTime };
+      })
+      .filter((item): item is ParsedKeyFrame => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+function readFrameString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (value != null && String(value).trim()) return String(value);
+  }
+  return '';
+}
+
+function readFrameNumber(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    if (record[key] == null) continue;
+    const value = Number(record[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
 }

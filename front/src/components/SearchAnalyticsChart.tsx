@@ -16,7 +16,10 @@ import {
   Alert,
   ToggleButton,
   ToggleButtonGroup,
+  alpha,
+  useTheme,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import * as echarts from 'echarts';
 import type { SearchAnalyticsVO } from '@/types/search';
 
@@ -27,12 +30,23 @@ interface SearchAnalyticsChartProps {
   height?: number;
 }
 
+type SearchAnalyticsTone = 'primary' | 'secondary' | 'success' | 'warning' | 'error';
+
+function semanticColor(theme: Theme, tone: SearchAnalyticsTone) {
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main;
+}
+
+function surfaceColor(theme: Theme, tone: SearchAnalyticsTone) {
+  return alpha(semanticColor(theme, tone), theme.palette.mode === 'dark' ? 0.18 : 0.1);
+}
+
 export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
   analytics,
   isLoading = false,
   error,
   height = 400,
 }) => {
+  const theme = useTheme();
   const [chartType, setChartType] = useState<'trend' | 'keywords' | 'quality'>('trend');
   const trendChartRef = React.useRef<HTMLDivElement>(null);
   const keywordsChartRef = React.useRef<HTMLDivElement>(null);
@@ -40,6 +54,19 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
   const trendChartInstance = React.useRef<echarts.ECharts | null>(null);
   const keywordsChartInstance = React.useRef<echarts.ECharts | null>(null);
   const qualityChartInstance = React.useRef<echarts.ECharts | null>(null);
+  const chartColors = useMemo(
+    () => ({
+      primary: semanticColor(theme, 'primary'),
+      secondary: semanticColor(theme, 'secondary'),
+      success: semanticColor(theme, 'success'),
+      warning: semanticColor(theme, 'warning'),
+      error: semanticColor(theme, 'error'),
+      axisText: theme.palette.text.secondary,
+      splitLine: theme.palette.divider,
+      tooltipLabel: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.22 : 0.16),
+    }),
+    [theme],
+  );
 
   // 生成趋势图表配置
   const trendChartOption = useMemo(() => {
@@ -81,24 +108,24 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
           type: 'line',
           smooth: true,
           itemStyle: {
-            color: '#667eea',
+            color: chartColors.primary,
           },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
               {
                 offset: 0,
-                color: 'rgba(102, 126, 234, 0.4)',
+                color: alpha(chartColors.primary, 0.4),
               },
               {
                 offset: 1,
-                color: 'rgba(102, 126, 234, 0.1)',
+                color: alpha(chartColors.primary, 0.1),
               },
             ]),
           },
         },
       ],
     };
-  }, [analytics]);
+  }, [analytics, chartColors.primary]);
 
   // 生成关键词图表配置
   const keywordsChartOption = useMemo(() => {
@@ -141,18 +168,18 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
               {
                 offset: 0,
-                color: '#667eea',
+                color: chartColors.primary,
               },
               {
                 offset: 1,
-                color: '#764ba2',
+                color: chartColors.secondary,
               },
             ]),
           },
         },
       ],
     };
-  }, [analytics]);
+  }, [analytics, chartColors.primary, chartColors.secondary]);
 
   // 生成质量分布图表配置
   const qualityChartOption = useMemo(() => {
@@ -162,22 +189,22 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
       {
         value: analytics.resultQualityScores.excellent,
         name: '优秀 (>80分)',
-        itemStyle: { color: '#4caf50' },
+        itemStyle: { color: chartColors.success },
       },
       {
         value: analytics.resultQualityScores.good,
         name: '良好 (60-80分)',
-        itemStyle: { color: '#2196f3' },
+        itemStyle: { color: chartColors.primary },
       },
       {
         value: analytics.resultQualityScores.fair,
         name: '一般 (40-60分)',
-        itemStyle: { color: '#ff9800' },
+        itemStyle: { color: chartColors.warning },
       },
       {
         value: analytics.resultQualityScores.poor,
         name: '差 (<40分)',
-        itemStyle: { color: '#f44336' },
+        itemStyle: { color: chartColors.error },
       },
     ];
 
@@ -200,7 +227,7 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
         },
       ],
     };
-  }, [analytics]);
+  }, [analytics, chartColors.error, chartColors.primary, chartColors.success, chartColors.warning]);
 
   // 初始化和更新图表
   React.useEffect(() => {
@@ -300,41 +327,41 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
           {/* 统计信息 */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-                <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+              <Box data-testid="search-analytics-stat-surface" data-stat-tone="primary" data-stat-color={chartColors.primary} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'primary'), border: `1px solid ${alpha(chartColors.primary, 0.3)}`, borderRadius: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
                   总搜索次
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#667eea' }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.primary }}>
                   {analytics.totalSearches}
                 </Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-                <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+              <Box data-testid="search-analytics-stat-surface" data-stat-tone="success" data-stat-color={chartColors.success} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'success'), border: `1px solid ${alpha(chartColors.success, 0.3)}`, borderRadius: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
                   独立用户
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#4caf50' }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.success }}>
                   {analytics.uniqueUsers}
                 </Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-                <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+              <Box data-testid="search-analytics-stat-surface" data-stat-tone="warning" data-stat-color={chartColors.warning} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'warning'), border: `1px solid ${alpha(chartColors.warning, 0.3)}`, borderRadius: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
                   平均点击率
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#ff9800' }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.warning }}>
                   {analytics.averageClickThroughRate.toFixed(1)}%
                 </Typography>
               </Box>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Box sx={{ p: 1.5, backgroundColor: '#f0f0f0', borderRadius: 1 }}>
-                <Typography variant="subtitle2" sx={{ color: '#999', mb: 0.5 }}>
+              <Box data-testid="search-analytics-stat-surface" data-stat-tone="secondary" data-stat-color={chartColors.secondary} sx={{ p: 1.5, backgroundColor: surfaceColor(theme, 'secondary'), border: `1px solid ${alpha(chartColors.secondary, 0.3)}`, borderRadius: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
                   平均结果数
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#764ba2' }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: chartColors.secondary }}>
                   {analytics.averageResultsReturned.toFixed(0)}
                 </Typography>
               </Box>
@@ -346,6 +373,9 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
         {chartType === 'trend' && (
           <Box
             ref={trendChartRef}
+            data-testid="search-analytics-trend-chart-surface"
+            data-chart-color={chartColors.primary}
+            data-chart-area-colors={`${alpha(chartColors.primary, 0.4)}|${alpha(chartColors.primary, 0.1)}`}
             sx={{
               width: '100%',
               height: `${height}px`,
@@ -355,6 +385,8 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
         {chartType === 'keywords' && (
           <Box
             ref={keywordsChartRef}
+            data-testid="search-analytics-keywords-chart-surface"
+            data-chart-colors={`${chartColors.primary}|${chartColors.secondary}`}
             sx={{
               width: '100%',
               height: `${height}px`,
@@ -364,6 +396,8 @@ export const SearchAnalyticsChart: React.FC<SearchAnalyticsChartProps> = ({
         {chartType === 'quality' && (
           <Box
             ref={qualityChartRef}
+            data-testid="search-analytics-quality-chart-surface"
+            data-chart-colors={`${chartColors.success}|${chartColors.primary}|${chartColors.warning}|${chartColors.error}`}
             sx={{
               width: '100%',
               height: `${height}px`,

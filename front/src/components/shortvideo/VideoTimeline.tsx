@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { Box, Typography, Paper } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { PlayArrow, FiberManualRecord } from '@mui/icons-material'
+
+const TIMELINE_CLIP_LABEL_OPACITY = 0.7
 
 export interface TimelineClip {
   url: string
@@ -57,7 +60,12 @@ export function VideoTimeline({ clips, audioTrack, bgmUrl, defaultDuration = 5 }
   if (clips.length === 0) return null
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100' }}>
+    <Paper
+      variant="outlined"
+      data-testid="shortvideo-video-timeline"
+      data-media-tone="timeline-stage"
+      sx={{ p: 2, bgcolor: 'grey.900', color: 'grey.100' }}
+    >
       <Typography variant="caption" color="grey.400" sx={{ mb: 1, display: 'block' }}>
         时间轴 · 共 {clips.length} 段 · 总时长约 {totalDuration}s
         {audioTrack && ' · 配音轨'}
@@ -122,11 +130,13 @@ export function VideoTimeline({ clips, audioTrack, bgmUrl, defaultDuration = 5 }
                   }}
                 />
                 <Box
+                  data-testid="shortvideo-video-timeline-clip-label"
+                  data-media-tone="clip-label-overlay"
                   sx={{
                     position: 'absolute',
                     top: 4,
                     left: 4,
-                    bgcolor: 'rgba(0,0,0,0.7)',
+                    bgcolor: (theme) => alpha(theme.palette.common.black, TIMELINE_CLIP_LABEL_OPACITY),
                     px: 0.5,
                     borderRadius: 0.5,
                     display: 'flex',

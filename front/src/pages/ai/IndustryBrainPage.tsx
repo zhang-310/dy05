@@ -7,6 +7,7 @@ import {
   List, ListItem, ListItemText, LinearProgress, IconButton, Tooltip,
   Tabs, Tab, Link, Accordion, AccordionSummary, AccordionDetails,
 } from '@mui/material'
+import { alpha, useTheme } from '@mui/material/styles'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import PsychologyIcon from '@mui/icons-material/Psychology'
@@ -30,6 +31,7 @@ import {
 } from '@/api/brain'
 import { useToast } from '@/contexts/ToastContext'
 import { useIndustryBrainStore } from '@/stores/industryBrainStore'
+import { PageHeader } from '@/components/base'
 import ReactECharts from 'echarts-for-react'
 import { IndustryBrainAdvancedTab } from '@/pages/ai/IndustryBrainAdvancedTab'
 
@@ -46,6 +48,24 @@ const TREND_SOURCE_OPTIONS: { value: string; label: string }[] = [
 
 const SCRIPT_TYPE_PRESETS = ['种草', '促销', '产品介绍', '互动答疑', '逼单转化']
 const TIME_SLOT_PRESETS = ['早场', '午场', '晚场', '深夜']
+const INDUSTRY_BRAIN_READY_ENDPOINTS = [
+  '/ai/brain/trends/current',
+  '/ai/brain/host-personas',
+  '/ai/brain/causal/infer',
+  '/ai/brain/user-profile',
+  '/ai/brain/knowledge-graph/subgraph-json',
+  '/ai/brain/knowledge-graph/query',
+  '/ai/brain/knowledge-graph/graphrag-context',
+  '/ai/brain/industry/insights',
+].join(',')
+const INDUSTRY_BRAIN_UNSUPPORTED_ENDPOINTS = [
+  '/ai/brain/mock-trends',
+  '/ai/brain/local-trends',
+  '/ai/brain/static-insights',
+  '/ai/brain/local-profile',
+  '/ai/brain/static-graph',
+  '/ai/brain/local-hot-keywords',
+].join(',')
 
 function pushPendingHotKeyword(keyword: string, toast: ReturnType<typeof useToast>) {
   const { pendingHotKeywords, setPendingHotKeywords } = useIndustryBrainStore.getState()
@@ -77,10 +97,11 @@ function enqueueInsightHotTopics(topics: string[], toast: ReturnType<typeof useT
 }
 
 function TrendsTab() {
+  const theme = useTheme()
   const toast = useToast()
   const [source, setSource] = useState('')
   const [keywordContains, setKeywordContains] = useState('')
-  const { data: rawTrends = [], isLoading, refetch } = useQuery({
+  const { data: rawTrends = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['brain-trends', source],
     queryFn: () => brainApi.trendsCurrent({
       category: source || undefined,
@@ -100,6 +121,9 @@ function TrendsTab() {
   }
 
   const top10 = [...trends].sort((a, b) => Number(b.heatScore ?? 0) - Number(a.heatScore ?? 0)).slice(0, 10)
+  const trendBarColor = theme.palette.mode === 'dark'
+    ? theme.palette.primary.light
+    : theme.palette.primary.main
 
   const chartOption = {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -108,14 +132,27 @@ function TrendsTab() {
     series: [{
       type: 'bar',
       data: top10.map((t: BrainTrendSignal) => t.heatScore ?? 0),
-      itemStyle: { color: '#1976d2' },
+      itemStyle: { color: trendBarColor },
       label: { show: true, position: 'top', fontSize: 10 },
     }],
   }
 
   return (
-    <Box sx={{ mt: 2 }}>
-      <Stack direction="row" spacing={2} alignItems="center" mb={2} flexWrap="wrap" useFlexGap>
+    <Box
+      data-testid="industry-brain-trends-panel"
+      data-ready-endpoint="/ai/brain/trends/current"
+      data-no-local-trends="true"
+      sx={{ mt: 2 }}
+    >
+      <Stack
+        data-testid="industry-brain-trends-filter-surface"
+        direction="row"
+        spacing={2}
+        alignItems="center"
+        mb={2}
+        flexWrap="wrap"
+        useFlexGap
+      >
         <FormControl size="small" sx={{ minWidth: 160 }}>
           <InputLabel>榜单来源</InputLabel>
           <Select value={source} label="榜单来源" onChange={e => setSource(e.target.value)}>
@@ -136,16 +173,32 @@ function TrendsTab() {
         <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>每 60 秒自动刷新 · 数据来自 TianAPI 等</Typography>
       </Stack>
 
+      {isError ? (
+        <Alert
+          data-testid="industry-brain-trends-error"
+          data-no-local-trends="true"
+          data-input-retained="true"
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          趋势数据加载失败（POST /ai/brain/trends/current）：{error instanceof Error ? error.message : '请检查 TianAPI、trend-monitor 调度和后端服务'}。
+          降级策略：可先使用行业洞察 Tab 的本地品类建议，或手工把热点加入直播话术队列。
+        </Alert>
+      ) : null}
+
       {trends.length > 0 && (
         <Card variant="outlined" sx={{ mb: 2 }}>
           <CardContent sx={{ py: 1 }}>
             <Typography variant="caption" color="text.secondary" mb={1} display="block">热度 TOP10</Typography>
-            <ReactECharts option={chartOption} style={{ height: 220 }} />
+            <Box data-testid="industry-brain-trend-top-chart-surface" data-chart-color={trendBarColor}>
+              <ReactECharts option={chartOption} style={{ height: 220 }} />
+            </Box>
           </CardContent>
         </Card>
       )}
 
-      <Grid container spacing={1.5}>
+      <Grid data-testid="industry-brain-trends-list" data-no-local-trends="true" container spacing={1.5}>
         {trends.map((t: BrainTrendSignal) => (
           <Grid item xs={12} sm={6} md={4} key={t.id}>
             <Card variant="outlined" sx={{ '&:hover': { boxShadow: 2 } }}>
@@ -180,19 +233,24 @@ function TrendsTab() {
           </Grid>
         ))}
       </Grid>
-      {!isLoading && trends.length === 0 && <Alert severity="info">暂无趋势数据（请检查 TianAPI 与 trend-monitor 配置）</Alert>}
+      {!isLoading && !isError && trends.length === 0 && (
+        <Alert data-testid="industry-brain-trends-empty" data-no-static-trends="true" severity="info">
+          暂无趋势数据：可能是 TianAPI 未配置、trend-monitor 尚未采集、所选榜单源为空，或本地关键词过滤后无命中。降级时可直接在话术页手工输入热词。
+        </Alert>
+      )}
     </Box>
   )
 }
 
 function CausalTab() {
   const toast = useToast()
+  const [pageError, setPageError] = useState<string | null>(null)
   const [scriptType, setScriptType] = useState('种草')
   const [persona, setPersona] = useState('专业种草')
   const [productType, setProductType] = useState('护肤品')
   const [timeSlot, setTimeSlot] = useState('晚场')
   const [hostCode, setHostCode] = useState('')
-  const { data: personas = [] } = useQuery({
+  const { data: personas = [], isError: personasError } = useQuery({
     queryKey: ['brain-host-personas-causal'],
     queryFn: () => brainApi.hostPersonas(),
   })
@@ -204,14 +262,28 @@ function CausalTab() {
       timeSlot,
       ...(hostCode ? { hostCode } : {}),
     }),
-    onError: (e: Error) => toast(e.message, 'error'),
+    onSuccess: () => setPageError(null),
+    onError: (e: Error) => {
+      setPageError(`因果推断失败（POST /ai/brain/causal/infer）：${e.message}`)
+      toast(e.message, 'error')
+    },
   })
   const r = inferMut.data
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-causal-panel"
+      data-ready-endpoints="/ai/brain/host-personas,/ai/brain/causal/infer"
+      data-no-local-infer="true"
+      sx={{ mt: 2 }}
+    >
       <Card variant="outlined" sx={{ mb: 2 }}>
         <CardContent>
           <Typography variant="subtitle2" fontWeight={600} mb={2}>策略要素（与后端贝叶斯 + LLM 因果引擎一致）</Typography>
+          {personasError ? (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              主播画像列表不可用（POST /ai/brain/host-personas）：hostCode 下拉会降级为“不指定”，推断仍可使用话术类型、人设关键词、产品类型和时段。
+            </Alert>
+          ) : null}
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6} md={4}>
               <FormControl size="small" fullWidth>
@@ -259,9 +331,20 @@ function CausalTab() {
           </Grid>
         </CardContent>
       </Card>
+      {inferMut.isError ? (
+        <Alert
+          data-testid="industry-brain-causal-error"
+          data-input-retained="true"
+          data-no-local-infer="true"
+          severity="error"
+          sx={{ mb: 2 }}
+        >
+          {pageError ?? '因果推断失败（POST /ai/brain/causal/infer）：请检查 LLM/因果模型配置'}。降级策略：保留表单要素，先使用历史转化经验做人工判断。
+        </Alert>
+      ) : null}
       {inferMut.isPending && <LinearProgress sx={{ mb: 2 }} />}
       {r && (
-        <Stack spacing={2}>
+        <Stack data-testid="industry-brain-causal-result" spacing={2}>
           <Card variant="outlined">
             <CardContent>
               <Typography variant="h6" color="primary" gutterBottom>
@@ -301,7 +384,7 @@ function UserProfileTab() {
   const accountIdNum = accountIdStr.trim() === '' ? undefined : parseInt(accountIdStr, 10)
   const invalidId = accountIdStr.trim() !== '' && (Number.isNaN(accountIdNum) || accountIdNum! <= 0)
 
-  const { data: profile, isLoading, refetch } = useQuery({
+  const { data: profile, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['brain-user-profile', accountIdNum ?? 'self'],
     queryFn: () => brainApi.userProfile(
       accountIdNum != null && !Number.isNaN(accountIdNum) ? { accountId: accountIdNum } : {}
@@ -313,7 +396,12 @@ function UserProfileTab() {
   const prefEntries = p?.contentPreferences ? Object.entries(p.contentPreferences).filter(([k]) => !k.startsWith('_')) : []
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-profile-panel"
+      data-ready-endpoint="/ai/brain/user-profile"
+      data-no-local-profile="true"
+      sx={{ mt: 2 }}
+    >
       <Alert severity="info" sx={{ mb: 2 }}>
         此处为 <strong>运营者认知画像</strong>（话术偏好、风格标签等），非 C 端受众年龄/性别统计。
       </Alert>
@@ -330,8 +418,19 @@ function UserProfileTab() {
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => refetch()} disabled={isLoading || invalidId}>刷新</Button>
         {isLoading && <CircularProgress size={20} sx={{ alignSelf: 'center' }} />}
       </Stack>
+      {isError ? (
+        <Alert
+          data-testid="industry-brain-profile-error"
+          data-input-retained="true"
+          data-no-local-profile="true"
+          severity="error"
+          sx={{ mb: 2 }}
+        >
+          画像加载失败（POST /ai/brain/user-profile）：{error instanceof Error ? error.message : '请检查登录用户、画像服务与后端接口'}。当前用户 ID 输入会保留，降级策略：仍可在话术生成页手工选择风格标签。
+        </Alert>
+      ) : null}
       {p && (
-        <Grid container spacing={2}>
+        <Grid data-testid="industry-brain-profile-result" container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card variant="outlined">
               <CardContent>
@@ -392,7 +491,9 @@ function UserProfileTab() {
           </Grid>
         </Grid>
       )}
-      {!isLoading && !invalidId && !p && <Alert severity="info">暂无画像数据</Alert>}
+      {!isLoading && !invalidId && !isError && !p && (
+        <Alert data-testid="industry-brain-profile-empty" data-no-static-profile="true" severity="info">暂无画像数据：需要先产生脚本编辑、采纳、复制或直播工作台交互记录。</Alert>
+      )}
     </Box>
   )
 }
@@ -438,7 +539,7 @@ function KnowledgeGraphTab() {
   const [entityRows, setEntityRows] = useState<Record<string, unknown>[]>([])
   const [ragResult, setRagResult] = useState<{ context: string; hops?: number; available?: boolean } | null>(null)
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['brain-knowledge-graph', graphQuery],
     queryFn: () => brainApi.knowledgeGraphSubgraph({ query: graphQuery.trim() || undefined, limit: 80 }),
   })
@@ -486,10 +587,27 @@ function KnowledgeGraphTab() {
   }
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-graph-panel"
+      data-ready-endpoints="/ai/brain/knowledge-graph/subgraph-json,/ai/brain/knowledge-graph/query,/ai/brain/knowledge-graph/graphrag-context"
+      data-no-static-graph="true"
+      sx={{ mt: 2 }}
+    >
       <Alert severity="info" sx={{ mb: 2 }}>
         左侧子图：PostgreSQL <code>ai_graph_node</code> / <code>ai_graph_edge</code>，按查询分词匹配实体名展开。右侧实体检索可走 Neo4j。配置键 <code>app.ai.brain.knowledge-graph</code>。
       </Alert>
+      {isError ? (
+        <Alert
+          data-testid="industry-brain-graph-subgraph-error"
+          data-input-retained="true"
+          data-no-static-graph="true"
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          子图加载失败（POST /ai/brain/knowledge-graph/subgraph-json）：{error instanceof Error ? error.message : '请检查 ai_graph_* 表、Neo4j 与后端图谱配置'}。当前查询主题会保留，降级策略：右侧实体检索和 GraphRAG 可单独尝试，或回到行业洞察使用非图谱数据。
+        </Alert>
+      ) : null}
       <Stack direction="row" spacing={2} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
         <TextField
           label="子图 / 检索 / GraphRAG 查询主题"
@@ -512,11 +630,11 @@ function KnowledgeGraphTab() {
       </Stack>
 
       <Grid container spacing={2}>
-        <Grid item xs={12} md={7}>
+        <Grid data-testid="industry-brain-graph-subgraph-surface" data-no-static-graph="true" item xs={12} md={7}>
           {filtered.length > 0
             ? <ReactECharts option={chartOption} style={{ height: 480 }} />
-            : !isLoading && (
-              <Alert severity="info">
+            : !isLoading && !isError && (
+              <Alert data-testid="industry-brain-graph-subgraph-empty" data-no-static-graph="true" severity="info">
                 当前无子图：库内无图数据、或关键词未命中实体名。请写入 <code>ai_graph_*</code>、在工作台物化关系，或改用与实体名一致的分词。Neo4j 不会自动填充左侧子图。
               </Alert>
             )}
@@ -528,7 +646,7 @@ function KnowledgeGraphTab() {
           )}
         </Grid>
         <Grid item xs={12} md={5}>
-          <Card variant="outlined" sx={{ mb: 2 }}>
+          <Card data-testid="industry-brain-graph-entity-panel" variant="outlined" sx={{ mb: 2 }}>
             <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
               <Typography variant="subtitle2" fontWeight={600} gutterBottom>实体检索</Typography>
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -554,10 +672,21 @@ function KnowledgeGraphTab() {
                   </ListItem>
                 ))}
               </List>
-              {entityRows.length === 0 && <Typography variant="caption" color="text.secondary">点击「检索实体」查看结果</Typography>}
+              {entityMut.isError ? (
+                <Alert
+                  data-testid="industry-brain-graph-entity-error"
+                  data-input-retained="true"
+                  data-no-static-graph="true"
+                  severity="warning"
+                  sx={{ mt: 1 }}
+                >
+                  实体检索失败（POST /ai/brain/knowledge-graph/query）：{entityMut.error instanceof Error ? entityMut.error.message : '请检查 Neo4j 或图谱查询配置'}。当前查询主题和实体类型会保留。
+                </Alert>
+              ) : null}
+              {entityRows.length === 0 && !entityMut.isError && <Typography variant="caption" color="text.secondary">点击「检索实体」查看结果</Typography>}
             </CardContent>
           </Card>
-          <Card variant="outlined">
+          <Card data-testid="industry-brain-graph-graphrag-panel" variant="outlined">
             <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
               <Typography variant="subtitle2" fontWeight={600} gutterBottom>GraphRAG 上下文</Typography>
               <Stack direction="row" spacing={1} alignItems="center" mb={1}>
@@ -570,7 +699,29 @@ function KnowledgeGraphTab() {
                   <Chip size="small" label={`${ragResult.context.length} 字`} variant="outlined" />
                 )}
               </Stack>
-              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50', maxHeight: 280, overflow: 'auto' }}>
+              {ragMut.isError ? (
+                <Alert
+                  data-testid="industry-brain-graphrag-error"
+                  data-input-retained="true"
+                  data-no-static-graph="true"
+                  severity="warning"
+                  sx={{ mb: 1 }}
+                >
+                  GraphRAG 上下文拉取失败（POST /ai/brain/knowledge-graph/graphrag-context）：{ragMut.error instanceof Error ? ragMut.error.message : '图谱或检索服务不可用'}。当前查询主题会保留。
+                </Alert>
+              ) : null}
+              <Paper
+                variant="outlined"
+                data-testid="industry-brain-graphrag-surface"
+                sx={(theme) => ({
+                  p: 1.5,
+                  bgcolor: theme.palette.mode === 'dark'
+                    ? theme.palette.background.default
+                    : alpha(theme.palette.common.black, 0.025),
+                  maxHeight: 280,
+                  overflow: 'auto',
+                })}
+              >
                 <Typography variant="caption" component="pre" sx={{ whiteSpace: 'pre-wrap', m: 0, fontFamily: 'inherit' }}>
                   {ragResult?.context || '点击「拉取上下文」生成多跳路径摘要（供 RAG 拼接）。'}
                 </Typography>
@@ -605,7 +756,7 @@ function renderInsightValue(_k: string, v: unknown) {
 function InsightsTab() {
   const toast = useToast()
   const [category, setCategory] = useState('护肤')
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['brain-insights', category],
     queryFn: () => brainApi.industryInsights(category),
   })
@@ -615,7 +766,12 @@ function InsightsTab() {
     : []
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box
+      data-testid="industry-brain-insights-panel"
+      data-ready-endpoint="/ai/brain/industry/insights"
+      data-no-static-insights="true"
+      sx={{ mt: 2 }}
+    >
       <Stack direction="row" spacing={2} mb={2} flexWrap="wrap" useFlexGap alignItems="center">
         <FormControl size="small" sx={{ minWidth: 160 }}>
           <InputLabel>选择品类</InputLabel>
@@ -626,6 +782,7 @@ function InsightsTab() {
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => refetch()} disabled={isLoading}>刷新</Button>
         {insight?.趋势热点 && insight.趋势热点.length > 0 && (
           <Button
+            data-testid="industry-brain-hotword-queue-action"
             size="small"
             variant="contained"
             color="secondary"
@@ -637,8 +794,20 @@ function InsightsTab() {
         )}
         {isLoading && <CircularProgress size={20} sx={{ alignSelf: 'center' }} />}
       </Stack>
+      {isError ? (
+        <Alert
+          data-testid="industry-brain-insights-error"
+          data-input-retained="true"
+          data-no-static-insights="true"
+          severity="error"
+          sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={() => refetch()}>重试</Button>}
+        >
+          行业洞察加载失败（POST /ai/brain/industry/insights）：{error instanceof Error ? error.message : '请检查趋势、竞品、LLM 汇总服务'}。降级策略：保留品类筛选，先从趋势 Tab 或知识库检索收集素材。
+        </Alert>
+      ) : null}
       {insight && (
-        <Grid container spacing={2}>
+        <Grid data-testid="industry-brain-insights-result" container spacing={2}>
           {INSIGHT_CARD_ORDER.map((key) => {
             const v = insight[key]
             if (v === undefined || v === null || (Array.isArray(v) && v.length === 0 && key !== '数据口径')) {
@@ -681,7 +850,9 @@ function InsightsTab() {
           去深度诊断中心
         </Button>
       </Box>
-      {!isLoading && !insight && <Alert severity="info">暂无行业洞察数据</Alert>}
+      {!isLoading && !isError && !insight && (
+        <Alert data-testid="industry-brain-insights-empty" data-no-static-insights="true" severity="info">暂无行业洞察数据：需要趋势采集、竞品洞察或 LLM 汇总至少一个链路有可用结果。</Alert>
+      )}
     </Box>
   )
 }
@@ -698,19 +869,55 @@ const TABS = [
 export default function IndustryBrainPage() {
   const [tab, setTab] = useState(0)
   return (
-    <Box sx={{ p: 2, height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', gap: 1, overflow: 'hidden' }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap>
-        <Typography variant="h6" fontWeight={600}>行业大脑</Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Chip label="AI 驱动" color="primary" size="small" icon={<PsychologyIcon />} />
-          <Link component={RouterLink} to="/admin/ai/brain-diagnosis" underline="hover" variant="body2">诊断中心</Link>
-        </Stack>
-      </Stack>
-      <Alert severity="info" sx={{ py: 0.5 }}>
-        能力导览：趋势与洞察可一键写入直播热词；「高级工作台」含生命周期、战略/增长、图谱审核等。需 Neo4j / TianAPI / LLM 等环境支持。
+    <Box
+      data-testid="industry-brain-page"
+      data-ready-endpoints={INDUSTRY_BRAIN_READY_ENDPOINTS}
+      data-unsupported-endpoints={INDUSTRY_BRAIN_UNSUPPORTED_ENDPOINTS}
+      data-no-local-trends="true"
+      data-no-static-insights="true"
+      data-no-local-profile="true"
+      data-no-static-graph="true"
+      sx={{ p: 3, height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', gap: 1.5, overflow: 'hidden', bgcolor: 'background.default' }}
+    >
+      <PageHeader
+        title="行业大脑"
+        subtitle="把趋势、因果、画像、图谱与行业洞察合并到直播话术和内容策略；每个 Tab 明确展示外部依赖失败后的降级路径。"
+        breadcrumbs={[{ label: 'AI 中心' }, { label: '行业大脑' }]}
+        actions={(
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Chip label="AI 驱动" color="primary" size="small" icon={<PsychologyIcon />} />
+            <Link component={RouterLink} to="/admin/ai/brain-diagnosis" underline="hover" variant="body2">诊断中心</Link>
+          </Stack>
+        )}
+      />
+      <Alert
+        data-testid="industry-brain-boundary-contract"
+        data-no-local-fallback="true"
+        data-no-static-result="true"
+        severity="info"
+        variant="outlined"
+      >
+        真实链路：趋势、主播画像、因果推断、用户画像、知识图谱、GraphRAG 与行业洞察均走后端接口；失败时只展示明确错误和人工降级建议，不注入本地 mock、静态洞察或本地热词结果。
       </Alert>
+      <Grid data-testid="industry-brain-capability-summary" container spacing={1.5}>
+        {[
+          ['趋势采集', 'TianAPI / trend-monitor，失败时保留手工热词入队。'],
+          ['因果推断', '贝叶斯 + LLM，模型不可用时保留策略要素人工判断。'],
+          ['知识图谱', 'PostgreSQL 子图 + Neo4j 检索，任一链路可独立降级。'],
+          ['洞察入队', '行业热点可写入直播话术队列，重复词自动去重。'],
+        ].map(([title, desc]) => (
+          <Grid item xs={12} sm={6} md={3} key={title}>
+            <Card variant="outlined" sx={{ height: '100%' }}>
+              <CardContent sx={{ py: 1.25, '&:last-child': { pb: 1.25 } }}>
+                <Typography variant="caption" color="text.secondary">{title}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.5 }}>{desc}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
       <Divider />
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
+      <Tabs data-testid="industry-brain-tab-host" value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
         {TABS.map((t, i) => <Tab key={i} label={t.label} iconPosition="start" icon={t.icon} />)}
       </Tabs>
       <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
@@ -719,7 +926,11 @@ export default function IndustryBrainPage() {
         {tab === 2 && <UserProfileTab />}
         {tab === 3 && <KnowledgeGraphTab />}
         {tab === 4 && <InsightsTab />}
-        {tab === 5 && <IndustryBrainAdvancedTab />}
+        {tab === 5 && (
+          <Box data-testid="industry-brain-advanced-wrapper" data-no-local-advanced="true">
+            <IndustryBrainAdvancedTab />
+          </Box>
+        )}
       </Box>
     </Box>
   )

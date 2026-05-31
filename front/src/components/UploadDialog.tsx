@@ -17,6 +17,8 @@ import {
   Grid,
   IconButton,
   Alert,
+  alpha,
+  useTheme,
 } from '@mui/material';
 import {
   CloudUpload as CloudUploadIcon,
@@ -61,12 +63,17 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
   acceptTypes = '*',
   maxFileSize = 10 * 1024 * 1024 * 1024, // 10 GB
 }) => {
+  const theme = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadStats, setUploadStats] = useState<UploadStatistics | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSecondUpload, setIsSecondUpload] = useState(false);
+  const uploadSurface = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.07 : 0.04);
+  const uploadSurfaceHover = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.16 : 0.07);
+  const uploadBorder = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.28 : 0.22);
+  const uploadPrimaryColor = theme.palette.mode === 'dark' ? theme.palette.primary.light : theme.palette.primary.main;
 
   const { task, isUploading, startUpload, pauseUpload, resumeUpload, abortUpload } =
     useChunkedUpload({
@@ -196,21 +203,24 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
           {/* 文件选择区 */}
           {!isUploading && !task && (
             <Paper
+              data-testid="upload-dialog-dropzone-surface"
+              data-dropzone-color={uploadPrimaryColor}
               sx={{
                 p: 3,
                 textAlign: 'center',
-                border: '2px dashed #ccc',
+                border: `2px dashed ${uploadBorder}`,
                 borderRadius: 2,
                 cursor: 'pointer',
                 transition: 'all 0.3s',
+                backgroundColor: uploadSurface,
                 '&:hover': {
-                  borderColor: '#1976d2',
-                  backgroundColor: '#f5f5f5',
+                  borderColor: uploadPrimaryColor,
+                  backgroundColor: uploadSurfaceHover,
                 },
               }}
               onClick={() => fileInputRef.current?.click()}
             >
-              <CloudUploadIcon sx={{ fontSize: 48, color: '#999', mb: 1 }} />
+              <CloudUploadIcon data-testid="upload-dialog-icon-surface" sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
               <Typography variant="subtitle1">
                 点击选择文件或拖拽文件到此处
               </Typography>
@@ -229,7 +239,7 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
 
           {/* 已选择文件显示 */}
           {selectedFile && !isUploading && (
-            <Paper sx={{ p: 2, mt: 2, backgroundColor: '#f5f5f5' }}>
+            <Paper data-testid="upload-dialog-selected-file-surface" sx={{ p: 2, mt: 2, backgroundColor: uploadSurface, border: `1px solid ${theme.palette.divider}` }}>
               <Grid container spacing={1}>
                 <Grid item xs={12}>
                   <Typography variant="subtitle2">已选择文件</Typography>
@@ -252,7 +262,7 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
           {(isUploading || task) && uploadStats && (
             <Box sx={{ mt: 2 }}>
               {/* 文件信息 */}
-              <Paper sx={{ p: 2, mb: 2, backgroundColor: '#f5f5f5' }}>
+              <Paper data-testid="upload-dialog-progress-info-surface" sx={{ p: 2, mb: 2, backgroundColor: uploadSurface, border: `1px solid ${theme.palette.divider}` }}>
                 <Grid container spacing={1}>
                   <Grid item xs={6}>
                     <Typography variant="caption" color="textSecondary">
@@ -297,9 +307,17 @@ const UploadDialog: React.FC<UploadDialogProps> = ({
                   <Typography variant="h6">{uploadStats.progressPercent}%</Typography>
                 </Box>
                 <LinearProgress
+                  data-testid="upload-dialog-progress-surface"
                   variant="determinate"
                   value={uploadStats.progressPercent}
-                  sx={{ height: 8, borderRadius: 4 }}
+                  sx={{
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: alpha(uploadPrimaryColor, theme.palette.mode === 'dark' ? 0.18 : 0.12),
+                    '& .MuiLinearProgress-bar': {
+                      backgroundColor: uploadPrimaryColor,
+                    },
+                  }}
                 />
               </Box>
 

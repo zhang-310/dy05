@@ -1,4 +1,5 @@
-import { Box, Card, CardContent, Grid, LinearProgress, Stack, Typography } from '@mui/material'
+import { Alert, Box, Card, CardContent, Grid, LinearProgress, Stack, Typography } from '@mui/material'
+import { useTheme, type Theme } from '@mui/material/styles'
 import { useQuery } from '@tanstack/react-query'
 import ReactECharts from 'echarts-for-react'
 import { aiApi } from '@/api/ai'
@@ -6,6 +7,13 @@ import type { QualityScoreTrendPoint } from '@/types/evolutionEngine'
 
 export interface QualityHeatmapTabProps {
   scopeKbId: string
+}
+
+type QualityTone = 'success' | 'info' | 'warning' | 'error'
+
+function themeToneColor(theme: Theme, tone: QualityTone) {
+  const palette = theme.palette[tone]
+  return theme.palette.mode === 'dark' ? palette.light : palette.main
 }
 
 function parseLocalDate(dateStr: string): Date {
@@ -38,7 +46,8 @@ function buildHeatmapData(points: QualityScoreTrendPoint[]) {
 }
 
 export function QualityHeatmapTab({ scopeKbId }: QualityHeatmapTabProps) {
-  const { data: historyData, isFetching } = useQuery({
+  const theme = useTheme()
+  const { data: historyData, isFetching, isError, error } = useQuery({
     queryKey: ['quality-score-history', scopeKbId || 'all'],
     queryFn: () => aiApi.qualityScoreHistory({
       kbId: scopeKbId ? Number(scopeKbId) : undefined,
@@ -49,6 +58,13 @@ export function QualityHeatmapTab({ scopeKbId }: QualityHeatmapTabProps) {
   const points = historyData ?? []
   const { seriesData, weekRows } = buildHeatmapData(points)
   const weekLabels = Array.from({ length: weekRows }, (_, i) => `第${i + 1}周`)
+  const heatmapColors = {
+    excellent: themeToneColor(theme, 'success'),
+    good: themeToneColor(theme, 'info'),
+    average: themeToneColor(theme, 'warning'),
+    risk: themeToneColor(theme, 'error'),
+  }
+  const baselineColor = themeToneColor(theme, 'warning')
 
   const heatmapOption = {
     tooltip: {
@@ -61,10 +77,10 @@ export function QualityHeatmapTab({ scopeKbId }: QualityHeatmapTabProps) {
       left: 'center',
       bottom: 0,
       pieces: [
-        { min: 9, label: '≥9 优秀', color: '#4caf50' },
-        { min: 8, max: 9, label: '8-9 良好', color: '#2196f3' },
-        { min: 7, max: 8, label: '7-8 一般', color: '#ff9800' },
-        { max: 7, label: '<7 需优化', color: '#f44336' },
+        { min: 9, label: '≥9 优秀', color: heatmapColors.excellent },
+        { min: 8, max: 9, label: '8-9 良好', color: heatmapColors.good },
+        { min: 7, max: 8, label: '7-8 一般', color: heatmapColors.average },
+        { max: 7, label: '<7 需优化', color: heatmapColors.risk },
       ],
     },
     xAxis: { type: 'category', data: ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] },
@@ -85,24 +101,38 @@ export function QualityHeatmapTab({ scopeKbId }: QualityHeatmapTabProps) {
       type: 'line',
       smooth: true,
       data: points.map(p => Number(p.score ?? 0)),
-      markLine: { data: [{ yAxis: 8, lineStyle: { color: '#ff9800' } }] },
+      markLine: { data: [{ yAxis: 8, lineStyle: { color: baselineColor } }] },
     }],
   }
 
   return (
-    <Box>
+    <Box
+      data-testid="evolution-quality-heatmap-tab-contract"
+      data-contract-scope="ai-evolution-quality-heatmap"
+      data-ready-endpoints="/ai/evolution/quality-score/history"
+      data-unsupported-actions="static-heatmap|local-quality-trend"
+      data-no-static-heatmap-fallback="true"
+      data-no-local-trend-fallback="true"
+    >
       <Stack direction="row" spacing={2} mb={2} alignItems="center" flexWrap="wrap">
         <Typography variant="body2" sx={{ color: 'var(--color-text-secondary)' }}>
           使用顶部「知识库范围」筛选；格子按真实日期落在对应周与星期。颜色：红低 / 绿高。
         </Typography>
       </Stack>
+      {isError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          质量分历史加载失败（POST /ai/evolution/quality-score/history）：{error instanceof Error ? error.message : '请检查后端服务'}。页面不会用静态趋势补齐。
+        </Alert>
+      ) : null}
       {isFetching ? <LinearProgress /> : (
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card variant="outlined" sx={{ bgcolor: 'var(--color-surface)', borderColor: 'var(--color-surface-light)' }}>
               <CardContent>
                 <Typography variant="subtitle2" gutterBottom sx={{ color: 'var(--color-text-primary)' }}>质量分热力图（90 天）</Typography>
-                <ReactECharts option={heatmapOption} style={{ height: 300 }} />
+                <Box data-testid="evolution-quality-heatmap-chart-surface" data-chart-colors={Object.values(heatmapColors).join('|')}>
+                  <ReactECharts option={heatmapOption} style={{ height: 300 }} />
+                </Box>
               </CardContent>
             </Card>
           </Grid>
@@ -110,7 +140,9 @@ export function QualityHeatmapTab({ scopeKbId }: QualityHeatmapTabProps) {
             <Card variant="outlined" sx={{ bgcolor: 'var(--color-surface)', borderColor: 'var(--color-surface-light)' }}>
               <CardContent>
                 <Typography variant="subtitle2" gutterBottom sx={{ color: 'var(--color-text-primary)' }}>质量分趋势（按日）</Typography>
-                <ReactECharts option={trendOption} style={{ height: 300 }} />
+                <Box data-testid="evolution-quality-trend-chart-surface" data-baseline-color={baselineColor}>
+                  <ReactECharts option={trendOption} style={{ height: 300 }} />
+                </Box>
               </CardContent>
             </Card>
           </Grid>

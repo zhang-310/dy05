@@ -32,4 +32,16 @@ describe('tianapi API', () => {
     await tianapi.status()
     expect(mockPost).toHaveBeenCalledWith('/tianapi/status')
   })
+
+  it('normalizes wrapped hot list and status payloads', async () => {
+    mockPost
+      .mockResolvedValueOnce({ data: { records: [{ title: '包装热点', hotValue: '12,300', rank: 1 }] } })
+      .mockResolvedValueOnce({ data: { configured: true } })
+
+    const list = await tianapi.hotDouyin()
+    const status = await tianapi.status()
+
+    expect(list[0]).toMatchObject({ word: '包装热点', hotIndex: 12300, position: 1 })
+    expect(status.enabled).toBe(true)
+  })
 })

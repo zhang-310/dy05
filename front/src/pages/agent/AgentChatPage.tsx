@@ -25,10 +25,77 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentApi, shareApi, type Agent, type ChatMessage } from '@/api/agent'
 import { useToast } from '@/contexts/ToastContext'
 import { ssePost } from '@/utils/sse-client'
+import MarkdownViewer from '@/components/MarkdownViewer'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { normalizeArray } from '@/utils/response-normalize'
+import { agentMessageBubbleSx, agentStreamingBubbleSx, agentStreamStatusBarSx } from './agentMessageBubbleStyles'
 
 const AGENT_TYPE_LABELS: Record<number, string> = {
   0: '自定义', 1: '话术生成', 2: '违规检测', 3: '商品分析',
   4: '场次规划', 5: '数据分析', 6: '客户服务',
+}
+
+interface StreamStatusItem {
+  id: number
+  text: string
+  done: boolean
+}
+
+function normalizeToolCalls(raw: unknown): ChatMessage['toolCalls'] {
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      return normalizeToolCalls(JSON.parse(raw))
+    } catch {
+      return []
+    }
+  }
+  return normalizeArray<NonNullable<ChatMessage['toolCalls']>[number]>(raw)
+}
+
+function formatStreamStatus(raw: unknown): string {
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    if (!text) return ''
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        return formatStreamStatus(JSON.parse(text))
+      } catch {
+        return text
+      }
+    }
+    return text
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const row = raw as Record<string, unknown>
+    const value = row.status ?? row.message ?? row.content ?? row.text
+    if (value !== undefined && value !== null) return String(value).trim()
+    return JSON.stringify(row)
+  }
+  return raw === undefined || raw === null ? '' : String(raw)
+}
+
+function formatActionError(action: string, endpoint: string, error: unknown): string {
+  return `${action}失败：${getErrorMessage(error)}。来源：${endpoint}，页面已保留当前对话上下文。`
+}
+
+async function refetchMessagesUntilAssistantReply(
+  conversationId: number,
+  queryClient: ReturnType<typeof useQueryClient>,
+  minAssistantCount: number,
+  attempts = 8,
+  delayMs = 1500,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const result = await queryClient.fetchQuery({
+      queryKey: ['agent-messages', conversationId],
+      queryFn: () => agentApi.messageList(conversationId),
+    })
+    const latestMessages = normalizeArray<ChatMessage>(result)
+    const assistantCount = latestMessages.filter(message => message.role === 'assistant').length
+    if (assistantCount > minAssistantCount) return true
+    await new Promise(resolve => setTimeout(resolve, delayMs))
+  }
+  return false
 }
 
 // ============================================================
@@ -101,17 +168,21 @@ export default function AgentChatPage() {
   const qc = useQueryClient()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const streamContentRef = useRef('')
   const [activeConvId, setActiveConvId] = useState<number | null>(null)
   const [input, setInput] = useState('')
   const [streamContent, setStreamContent] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [tokenStats, setTokenStats] = useState({ input: 0, output: 0, total: 0 })
+  const [streamStatuses, setStreamStatuses] = useState<StreamStatusItem[]>([])
   const [toolStatus, setToolStatus] = useState<{
     tool: string; status: 'calling' | 'done' | 'error'; description?: string; result?: string
   }[]>([])
   const [shareOpen, setShareOpen] = useState(false)
   const [shareLink, setShareLink] = useState('')
   const [shareCopying, setShareCopying] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [streamError, setStreamError] = useState('')
 
   const { data: agentData } = useQuery({
     queryKey: ['agent-detail', agentId],
@@ -120,19 +191,24 @@ export default function AgentChatPage() {
   })
   const agent: Agent | undefined = agentData
 
-  const { data: convList, isLoading: convLoading } = useQuery({
+  const { data: convList, isLoading: convLoading, isError: convError, error: convLoadError, refetch: refetchConversations } = useQuery({
     queryKey: ['agent-conversations', agentId],
     queryFn: () => agentApi.conversationList(agentId),
     enabled: agentId > 0,
   })
-  const conversations = convList ?? []
+  const conversations = normalizeArray<Awaited<ReturnType<typeof agentApi.conversationList>>[number]>(convList)
 
-  const { data: msgList, isLoading: msgLoading } = useQuery({
+  const { data: msgList, isLoading: msgLoading, isError: msgError, error: msgLoadError, refetch: refetchMessages } = useQuery({
     queryKey: ['agent-messages', activeConvId],
     queryFn: () => agentApi.messageList(activeConvId!),
     enabled: activeConvId !== null,
   })
-  const messages: ChatMessage[] = msgList ?? []
+  const messages: ChatMessage[] = normalizeArray<ChatMessage>(msgList)
+
+  useEffect(() => {
+    if (activeConvId !== null || conversations.length === 0) return
+    setActiveConvId(conversations[0].id)
+  }, [activeConvId, conversations])
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -152,7 +228,11 @@ export default function AgentChatPage() {
       setActiveConvId(Number(newId))
       qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] })
     },
-    onError: () => toast('创建对话失败', 'error'),
+    onSuccess: () => setActionError(''),
+    onError: (error) => {
+      setActionError(formatActionError('创建对话', '/agent/conversation/create', error))
+      toast('创建对话失败', 'error')
+    },
   })
 
   const deleteConvMutation = useMutation({
@@ -160,6 +240,11 @@ export default function AgentChatPage() {
     onSuccess: (_d, cid) => {
       if (activeConvId === cid) setActiveConvId(null)
       qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] })
+      setActionError('')
+    },
+    onError: (error) => {
+      setActionError(formatActionError('删除对话', '/agent/conversation/delete', error))
+      toast('删除对话失败', 'error')
     },
   })
 
@@ -167,8 +252,14 @@ export default function AgentChatPage() {
     mutationFn: async ({ messageId, rating }: { messageId: number; rating: 'up' | 'down' }) => {
       await agentApi.messageRate(messageId, rating)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] }) },
-    onError: () => toast('评价失败', 'error'),
+    onSuccess: () => {
+      setActionError('')
+      qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
+    },
+    onError: (error) => {
+      setActionError(formatActionError('评价消息', '/agent/message/rate', error))
+      toast('评价失败', 'error')
+    },
   })
 
   const exportMutation = useMutation({
@@ -176,7 +267,11 @@ export default function AgentChatPage() {
       const result = await agentApi.exportConversation(activeConvId!)
       window.open(result.downloadUrl, '_blank')
     },
-    onError: () => toast('导出失败', 'error'),
+    onSuccess: () => setActionError(''),
+    onError: (error) => {
+      setActionError(formatActionError('导出对话', '/agent/conversation/export', error))
+      toast('导出失败', 'error')
+    },
   })
 
   const clearMutation = useMutation({
@@ -184,8 +279,14 @@ export default function AgentChatPage() {
       await agentApi.conversationDelete(activeConvId!)
       setActiveConvId(null)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] }) },
-    onError: () => toast('清空失败', 'error'),
+    onSuccess: () => {
+      setActionError('')
+      qc.invalidateQueries({ queryKey: ['agent-conversations', agentId] })
+    },
+    onError: (error) => {
+      setActionError(formatActionError('清空上下文', '/agent/conversation/delete', error))
+      toast('清空失败', 'error')
+    },
   })
 
   const createShareMutation = useMutation({
@@ -197,11 +298,15 @@ export default function AgentChatPage() {
       return result
     },
     onSuccess: (share) => {
-      const link = `${window.location.origin}/agent/share/${share.shareCode}`
+      const link = `${window.location.origin}/admin/ai/agent/share/${share.shareCode}`
       setShareLink(link)
       setShareOpen(true)
+      setActionError('')
     },
-    onError: () => toast('创建分享失败', 'error'),
+    onError: (error) => {
+      setActionError(formatActionError('创建分享', '/agent/share/create', error))
+      toast('创建分享失败', 'error')
+    },
   })
 
   const copyShareLinkMutation = useMutation({
@@ -214,72 +319,144 @@ export default function AgentChatPage() {
     },
     onError: () => {
       toast('复制失败', 'error')
+      setActionError('复制分享链接失败：浏览器剪贴板不可用，分享链接仍保留在弹窗中。')
       setShareCopying(false)
     },
   })
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamContent])
+  }, [messages, streamContent, streamStatuses])
 
   const handleSend = async () => {
     if (!input.trim() || !activeConvId || isStreaming) return
     const content = input.trim()
+    const conversationId = activeConvId
+    const assistantCountBeforeSend = messages.filter(message => message.role === 'assistant').length
     setInput('')
     setIsStreaming(true)
     setStreamContent('')
+    setStreamStatuses([])
+    setStreamError('')
+    setActionError('')
+    streamContentRef.current = ''
+
+    qc.setQueryData<ChatMessage[]>(['agent-messages', conversationId], (old) => [
+      ...(Array.isArray(old) ? old : []),
+      {
+        id: -Date.now(),
+        role: 'user',
+        content,
+        createdAt: new Date().toISOString(),
+        tokenUsage: { input: 0, output: 0 },
+      },
+    ])
 
     try {
-      await agentApi.messageSend(activeConvId, content)
-      qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
-
       // 使用 ssePost 进行 POST 流式请求
       setToolStatus([])
       abortControllerRef.current = ssePost(
         '/agent/chat-stream',
-        { conversationId: activeConvId, content },
+        { agentId, conversationId, content },
         {
           onSkillStart: ({ tool, description }) => {
             setToolStatus(prev => [...prev.filter(t => t.tool !== tool), { tool, status: 'calling', description }])
           },
           onSkillEnd: ({ tool, status, error }) => {
+            const nextStatus = status === 'success' ? 'done' : status === 'done' ? 'done' : 'error'
             setToolStatus(prev => prev.map(t => t.tool === tool ? {
-              ...t, status: status as 'done' | 'error',
+              ...t, status: nextStatus,
               description: error ?? t.description,
-              result: status === 'done' ? '执行成功' : `错误: ${error ?? ''}`,
+              result: nextStatus === 'done' ? '执行成功' : `错误: ${error ?? ''}`,
             } : t))
+          },
+          onStatus: (statusText) => {
+            const text = formatStreamStatus(statusText)
+            if (!text) return
+            setStreamStatuses(prev => {
+              const next = prev.map(item => ({ ...item, done: true }))
+              const last = next[next.length - 1]
+              if (last?.text === text) {
+                return [
+                  ...next.slice(0, -1),
+                  { ...last, done: false },
+                ]
+              }
+              return [
+                ...next,
+                { id: Date.now() + next.length, text, done: false },
+              ]
+            })
           },
           onChunk: (chunkData) => {
             try {
               const parsed = typeof chunkData === 'string' ? JSON.parse(chunkData) : chunkData
               if (parsed.type === 'chunk' && parsed.content) {
-                setStreamContent(prev => prev + parsed.content)
+                const chunk = String(parsed.content)
+                streamContentRef.current += chunk
+                setStreamContent(prev => prev + chunk)
               }
             } catch {
               // 非 JSON 数据直接追加
-              setStreamContent(prev => prev + String(chunkData))
+              const chunk = String(chunkData)
+              streamContentRef.current += chunk
+              setStreamContent(prev => prev + chunk)
             }
           },
-          onDone: () => {
+          onDone: (doneData) => {
+            let finalContent = streamContentRef.current
+            if (!finalContent && doneData && typeof doneData === 'object' && 'content' in doneData) {
+              finalContent = String((doneData as { content?: unknown }).content ?? '')
+            }
+            if (finalContent.trim()) {
+              qc.setQueryData<ChatMessage[]>(['agent-messages', conversationId], (old) => [
+                ...(Array.isArray(old) ? old : []),
+                {
+                  id: -Date.now() - 1,
+                  role: 'assistant',
+                  content: finalContent,
+                  createdAt: new Date().toISOString(),
+                  tokenUsage: { input: 0, output: 0 },
+                },
+              ])
+            }
             setIsStreaming(false)
             setStreamContent('')
+            streamContentRef.current = ''
+            setStreamStatuses(prev => prev.map(item => ({ ...item, done: true })))
             setToolStatus([])
-            qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
+            qc.invalidateQueries({ queryKey: ['agent-messages', conversationId] })
+            void qc.refetchQueries({ queryKey: ['agent-messages', conversationId], type: 'active' })
             abortControllerRef.current = null
           },
-          onError: (err) => {
-            console.error('SSE Error:', err)
+          onError: async (err) => {
+            const message = getErrorMessage(err)
+            setStreamStatuses(prev => prev.map(item => ({ ...item, done: true })))
+            setToolStatus([])
+            qc.invalidateQueries({ queryKey: ['agent-messages', conversationId] })
+            const recovered = await refetchMessagesUntilAssistantReply(conversationId, qc, assistantCountBeforeSend)
+            if (recovered) {
+              setStreamError('')
+              toast('模型回复已生成，已从服务端同步回来', 'success')
+            } else {
+              setStreamError(`流式对话失败：${message}。来源：/agent/chat-stream，已保留当前对话和历史消息。`)
+              toast('请求失败: ' + message, 'error')
+            }
             setIsStreaming(false)
             setStreamContent('')
-            setToolStatus([])
-            toast('请求失败: ' + err.message, 'error')
-            qc.invalidateQueries({ queryKey: ['agent-messages', activeConvId] })
-            abortControllerRef.current = null
+            streamContentRef.current = ''
+            void qc.refetchQueries({ queryKey: ['agent-messages', conversationId], type: 'active' })
+            if (abortControllerRef.current?.signal.aborted !== true) {
+              abortControllerRef.current = null
+            }
           },
-        }
+        },
+        { maxReconnectAttempts: 0, idleTimeoutMs: 360000 }
       )
-    } catch {
+    } catch (error) {
       setIsStreaming(false)
+      const message = getErrorMessage(error)
+      setStreamError(`发送失败：${message}。来源：/agent/chat-stream，已保留当前对话和历史消息。`)
       toast('发送失败', 'error')
     }
   }
@@ -290,14 +467,40 @@ export default function AgentChatPage() {
 
   const getAgentTools = (): string[] => {
     if (!agent?.availableTools) return []
-    try { return JSON.parse(agent.availableTools) as string[] }
+    try {
+      const parsed = JSON.parse(agent.availableTools)
+      return Array.isArray(parsed) ? parsed.filter((tool): tool is string => typeof tool === 'string') : []
+    }
     catch { return [] }
   }
   const agentTools = getAgentTools()
+  const currentStreamStatus = streamStatuses.find(item => !item.done) ?? streamStatuses[streamStatuses.length - 1]
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', gap: 1 }}>
+    <Box
+      data-testid="agent-chat-page"
+      data-ready-endpoints="/agent/get|/agent/conversation/list|/agent/conversation/create|/agent/conversation/delete|/agent/message/list|/agent/message/rate|/agent/conversation/export|/agent/share/create|/agent/chat-stream"
+      data-unsupported-endpoints="/agent/mock|/agent/local-conversation|/agent/local-message|/agent/static-message|/agent/message/send-fallback|/agent/share/local|/agent/markdown/static-render|/agent/status/local"
+      data-no-local-conversation-fallback="true"
+      data-no-local-message-fallback="true"
+      data-no-static-message-fallback="true"
+      data-sse-status-visible="true"
+      data-markdown-renderer="MarkdownViewer"
+      sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', gap: 1 }}
+    >
       <Typography variant="h5" sx={{ mb: 2 }}>智能体对话</Typography>
+      {actionError && (
+        <Alert
+          severity="error"
+          data-testid="agent-chat-action-error"
+          data-input-retained="true"
+          data-no-local-mutation="true"
+          onClose={() => setActionError('')}
+          sx={{ mb: 1 }}
+        >
+          {actionError}
+        </Alert>
+      )}
       <Box sx={{ display: 'flex', flex: 1, gap: 0, border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
 
         {/* 左栏：对话列表 240px */}
@@ -315,6 +518,16 @@ export default function AgentChatPage() {
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
               <CircularProgress size={24} />
             </Box>
+          ) : convError ? (
+            <Alert
+              severity="error"
+              data-testid="agent-chat-conversation-list-error"
+              data-no-local-conversation-fallback="true"
+              action={<Button color="inherit" size="small" onClick={() => refetchConversations()}>重试</Button>}
+              sx={{ m: 1 }}
+            >
+              对话列表加载失败（POST /agent/conversation/list）：{getErrorMessage(convLoadError)}。页面不会补本地对话。
+            </Alert>
           ) : (
             <List dense sx={{ flex: 1, overflow: 'auto', p: 0 }}>
               {conversations.map((c) => (
@@ -339,7 +552,13 @@ export default function AgentChatPage() {
                 </ListItemButton>
               ))}
               {conversations.length === 0 && (
-                <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: 'block', textAlign: 'center' }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  data-testid="agent-chat-conversation-empty"
+                  data-no-local-conversation-fallback="true"
+                  sx={{ p: 2, display: 'block', textAlign: 'center' }}
+                >
                   暂无对话
                 </Typography>
               )}
@@ -356,6 +575,17 @@ export default function AgentChatPage() {
           ) : (
             <>
               <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {streamError && (
+                  <Alert
+                    severity="error"
+                    data-testid="agent-chat-stream-error"
+                    data-input-retained="true"
+                    data-no-static-message-fallback="true"
+                    onClose={() => setStreamError('')}
+                  >
+                    {streamError}
+                  </Alert>
+                )}
                 {/* 技能调用状态面板（对话流中） */}
                 {toolStatus.length > 0 && (
                   <Box sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 2, mb: 0.5 }}>
@@ -409,24 +639,44 @@ export default function AgentChatPage() {
                   </Box>
                 )}
                 {msgLoading && <CircularProgress size={24} sx={{ alignSelf: 'center' }} />}
+                {msgError && (
+                  <Alert
+                    severity="error"
+                    data-testid="agent-chat-message-list-error"
+                    data-no-local-message-fallback="true"
+                    action={<Button color="inherit" size="small" onClick={() => refetchMessages()}>重试</Button>}
+                    sx={{ mb: 1 }}
+                  >
+                    消息列表加载失败（POST /agent/message/list）：{getErrorMessage(msgLoadError)}。页面不会补本地消息或静态 Markdown。
+                  </Alert>
+                )}
 
-                {messages.map((msg) => {
+                {messages.map((msg, index) => {
                   const isUser = msg.role === 'user'
-                  const toolCalls = msg.toolCalls
+                  const toolCalls = normalizeToolCalls(msg.toolCalls)
+                  const canRateMessage = !isUser && msg.id > 0
 
                   return (
-                    <Box key={msg.id} sx={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
+                    <Box
+                      key={msg.id}
+                      data-testid={`agent-chat-message-row-${isUser ? 'user' : 'assistant'}`}
+                      data-message-source="server"
+                      data-no-static-message-fallback="true"
+                      sx={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start' }}
+                    >
                       <Paper
                         elevation={0}
-                        sx={{
-                          p: 1.5, maxWidth: '75%', borderRadius: 2,
-                          bgcolor: isUser ? 'primary.main' : 'grey.100',
-                          color: isUser ? 'white' : 'text.primary',
-                        }}
+                        data-testid={`agent-${isUser ? 'user' : 'assistant'}-message-bubble`}
+                        data-markdown-renderer={isUser ? undefined : 'MarkdownViewer'}
+                        sx={agentMessageBubbleSx(msg.role)}
                       >
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                          {msg.content}
-                        </Typography>
+                        {isUser ? (
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {msg.content}
+                          </Typography>
+                        ) : (
+                          <MarkdownViewer content={msg.content} compact />
+                        )}
                       </Paper>
 
                       {/* 已调用的技能展示（消息下方） */}
@@ -457,19 +707,28 @@ export default function AgentChatPage() {
 
                       {/* Rating buttons */}
                       {!isUser && (
-                        <Stack direction="row" spacing={0.5} sx={{ mt: 0.25 }}>
+                        <Stack
+                          direction="row"
+                          spacing={0.5}
+                          data-testid="agent-chat-message-rating-actions"
+                          data-ready-endpoints="/agent/message/rate"
+                          data-no-local-rating-fallback="true"
+                          sx={{ mt: 0.25 }}
+                        >
                           <IconButton
                             size="small"
+                            aria-label={`点赞第 ${index + 1} 条消息`}
                             onClick={() => rateMessageMutation.mutate({ messageId: msg.id, rating: 'up' })}
-                            disabled={rateMessageMutation.isPending || msg.rating === 'up'}
+                            disabled={!canRateMessage || rateMessageMutation.isPending || msg.rating === 'up'}
                             sx={{ color: msg.rating === 'up' ? 'success.main' : 'text.secondary', p: 0.25 }}
                           >
                             <ThumbUpIcon sx={{ fontSize: 14 }} />
                           </IconButton>
                           <IconButton
                             size="small"
+                            aria-label={`点踩第 ${index + 1} 条消息`}
                             onClick={() => rateMessageMutation.mutate({ messageId: msg.id, rating: 'down' })}
-                            disabled={rateMessageMutation.isPending || msg.rating === 'down'}
+                            disabled={!canRateMessage || rateMessageMutation.isPending || msg.rating === 'down'}
                             sx={{ color: msg.rating === 'down' ? 'error.main' : 'text.secondary', p: 0.25 }}
                           >
                             <ThumbDownIcon sx={{ fontSize: 14 }} />
@@ -482,10 +741,14 @@ export default function AgentChatPage() {
 
                 {isStreaming && streamContent && (
                   <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
-                    <Paper elevation={0} sx={{ p: 1.5, maxWidth: '75%', borderRadius: 2, bgcolor: 'grey.100' }}>
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {streamContent}
-                      </Typography>
+                    <Paper
+                      elevation={0}
+                      data-testid="agent-streaming-message-bubble"
+                      data-markdown-renderer="MarkdownViewer"
+                      data-source-endpoint="/agent/chat-stream"
+                      sx={agentStreamingBubbleSx()}
+                    >
+                      <MarkdownViewer content={streamContent} compact />
                       <Chip label="生成中..." size="small" color="info" sx={{ mt: 0.5, fontSize: 10 }} />
                     </Paper>
                   </Box>
@@ -494,6 +757,50 @@ export default function AgentChatPage() {
               </Box>
 
               <Divider />
+              {streamStatuses.length > 0 && (
+                <Box sx={{ px: 1.5, pt: 1.25, pb: 0.25, bgcolor: 'background.paper', borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Box
+                    data-testid="agent-stream-status-bar"
+                    data-streaming={isStreaming ? 'true' : 'false'}
+                    data-surface-tone={isStreaming ? 'primary' : 'neutral'}
+                    data-source-endpoint="/agent/chat-stream"
+                    data-no-local-status-fallback="true"
+                    sx={agentStreamStatusBarSx(isStreaming)}
+                  >
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                      <PsychologyIcon sx={{ fontSize: 16, color: 'primary.main', flexShrink: 0 }} />
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, flexShrink: 0 }}>
+                        执行状态
+                      </Typography>
+                      {currentStreamStatus && (
+                        currentStreamStatus.done ? (
+                          <CheckCircleIcon sx={{ fontSize: 15, color: 'success.main', flexShrink: 0 }} />
+                        ) : (
+                          <CircularProgress size={13} color="info" thickness={5} sx={{ flexShrink: 0 }} />
+                        )
+                      )}
+                      <Typography
+                        variant="body2"
+                        sx={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {currentStreamStatus?.text ?? '准备中...'}
+                      </Typography>
+                      <Stack direction="row" spacing={0.5} sx={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
+                        {streamStatuses.slice(-3).map((item) => (
+                          <Chip
+                            key={item.id}
+                            size="small"
+                            label={item.text}
+                            color={item.done ? 'default' : 'info'}
+                            variant={item.done ? 'outlined' : 'filled'}
+                            sx={{ maxWidth: 150, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+                          />
+                        ))}
+                      </Stack>
+                    </Stack>
+                  </Box>
+                </Box>
+              )}
               <Stack direction="row" spacing={1} sx={{ p: 1.5 }}>
                 <TextField
                   fullWidth size="small"
@@ -520,7 +827,11 @@ export default function AgentChatPage() {
 
         {/* 右栏：信息面板 280px */}
         {activeConvId !== null && (
-          <Box sx={{ width: 280, borderLeft: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', overflow: 'auto', p: 2, gap: 2 }}>
+          <Box
+            data-testid="agent-chat-side-panel"
+            data-token-source="server-messages"
+            sx={{ width: 280, borderLeft: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', overflow: 'auto', p: 2, gap: 2 }}
+          >
             <Card variant="outlined">
               <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                 <Typography variant="subtitle2" fontWeight={600} gutterBottom>智能体信息</Typography>
@@ -607,18 +918,21 @@ export default function AgentChatPage() {
               <Button
                 size="small" variant="outlined" startIcon={<DownloadIcon />} fullWidth
                 onClick={() => exportMutation.mutate()} disabled={exportMutation.isPending}
+                data-ready-endpoints="/agent/conversation/export"
               >
                 导出对话.md
               </Button>
               <Button
                 size="small" variant="outlined" color="info" startIcon={<ShareIcon />} fullWidth
                 onClick={() => createShareMutation.mutate()} disabled={createShareMutation.isPending}
+                data-ready-endpoints="/agent/share/create"
               >
                 分享对话
               </Button>
               <Button
                 size="small" variant="outlined" color="warning" startIcon={<DeleteSweepIcon />} fullWidth
                 onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending}
+                data-ready-endpoints="/agent/conversation/delete"
               >
                 清空上下文
               </Button>
@@ -628,7 +942,17 @@ export default function AgentChatPage() {
       </Box>
 
       {/* 分享对话框 */}
-      <Dialog open={shareOpen} onClose={() => setShareOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          'data-testid': 'agent-chat-share-dialog',
+          'data-ready-endpoints': '/agent/share/create',
+          'data-input-retained': 'true',
+        }}
+      >
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
             <ShareIcon color="primary" />
@@ -649,6 +973,7 @@ export default function AgentChatPage() {
                   <InputAdornment position="end">
                     <Tooltip title={shareCopying ? '复制中' : '复制链接'}>
                       <IconButton
+                        aria-label="复制分享链接"
                         size="small" onClick={() => {
                           setShareCopying(true)
                           copyShareLinkMutation.mutate(shareLink)

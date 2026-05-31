@@ -45,7 +45,7 @@ export function LayoutTopBar({
       }}
     >
       <Toolbar sx={{ minHeight: LAYOUT_APPBAR_HEIGHT_PX, px: 2 }}>
-        <IconButton edge="start" onClick={onToggleSidebar} sx={{ mr: 1.5 }} size="small">
+        <IconButton edge="start" onClick={onToggleSidebar} sx={{ mr: 1.5 }} size="small" aria-label="打开侧边栏">
           <MenuIcon />
         </IconButton>
         <LayoutBreadcrumbs pathname={pathname} />
@@ -53,14 +53,25 @@ export function LayoutTopBar({
         {!useTopModules && (
           <>
             <Tooltip title={themeMode === 'dark' ? '切换亮色' : '切换暗色'}>
-              <IconButton size="small" onClick={onToggleTheme} sx={{ mr: 1 }}>
+              <IconButton
+                size="small"
+                onClick={onToggleTheme}
+                sx={{ mr: 1 }}
+                aria-label={themeMode === 'dark' ? '切换亮色主题' : '切换暗色主题'}
+              >
                 {themeMode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
               </IconButton>
             </Tooltip>
             <Typography
+              role="button"
+              tabIndex={0}
+              aria-label="打开用户菜单"
               variant="body2"
               sx={{ cursor: 'pointer', py: 1, px: 1.5, '&:hover': { bgcolor: 'action.hover' } }}
               onClick={onUserMenuClick}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') onUserMenuClick(e as unknown as React.MouseEvent<HTMLElement>)
+              }}
             >
               {userDisplayName} · {roleName}
             </Typography>

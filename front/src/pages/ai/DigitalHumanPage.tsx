@@ -56,7 +56,7 @@ export default function DigitalHumanPage() {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
       <PageHeader
         title="数字人"
-        subtitle="本页为管理端同步口播（HeyGen Provider，需配置 API Key）。短视频工作流里的数字人步骤走异步任务（SvDigitalHumanTask / Webhook），与这里不是同一条链路。"
+        subtitle="HeyGen 同步口播（/ai/digital-human）。六产品扣费轨请用 POST /api/v1/digital-human/create（见 api/digital-human-product.ts）。工作流异步任务走 SvDigitalHumanTask/Webhook。"
       />
 
       {statusLoading && <LinearProgress />}

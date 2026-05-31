@@ -24,6 +24,8 @@ const STATUS_MAP: Record<number, { label: string; color: 'default' | 'warning' |
   3: { label: '已拒绝', color: 'error', icon: <CancelOutlinedIcon sx={{ fontSize: 14 }} /> },
 }
 
+const APPROVAL_STATUS_READY_ENDPOINTS = ['/live/script-approval/submit', '/live/script-approval/revoke']
+
 export interface ApprovalStatusBadgeProps {
   approvalStatus: number
   onSubmit?: (comments: string) => Promise<void>
@@ -45,8 +47,21 @@ export const ApprovalStatusBadge = memo(function ApprovalStatusBadge({
   const status = STATUS_MAP[approvalStatus] ?? STATUS_MAP[0]
 
   return (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+    <Box
+      sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+      data-testid="approval-status-badge-root"
+      data-contract-scope="live-script-approval-status-props"
+      data-ready-endpoints={APPROVAL_STATUS_READY_ENDPOINTS.join('|')}
+      data-no-direct-api-request="true"
+      data-approval-status={approvalStatus}
+      data-can-submit={(approvalStatus === 0 || approvalStatus === 3) && onSubmit ? 'true' : 'false'}
+      data-can-revoke={approvalStatus === 1 && onRevoke ? 'true' : 'false'}
+      data-submit-loading={submitLoading ? 'true' : 'false'}
+      data-revoke-loading={revokeLoading ? 'true' : 'false'}
+    >
       <Chip
+        data-testid="approval-status-chip"
+        data-contract-source="approvalStatus-prop"
         label={status.label}
         color={status.color}
         size="small"
@@ -64,6 +79,9 @@ export const ApprovalStatusBadge = memo(function ApprovalStatusBadge({
             startIcon={<SendIcon sx={{ fontSize: 14 }} />}
             onClick={() => setSubmitOpen(true)}
             disabled={submitLoading}
+            data-testid="approval-submit-open-button"
+            data-contract-source="/live/script-approval/submit|onSubmit-prop"
+            data-disabled-reason={submitLoading ? 'submit-loading' : 'ready'}
             sx={{ minWidth: 0, px: 0.5, fontSize: '0.7rem' }}
           >
             提审
@@ -81,6 +99,9 @@ export const ApprovalStatusBadge = memo(function ApprovalStatusBadge({
             startIcon={<UndoIcon sx={{ fontSize: 14 }} />}
             onClick={async () => { await onRevoke?.() }}
             disabled={revokeLoading}
+            data-testid="approval-revoke-button"
+            data-contract-source="/live/script-approval/revoke|onRevoke-prop"
+            data-disabled-reason={revokeLoading ? 'revoke-loading' : 'ready'}
             sx={{ minWidth: 0, px: 0.5, fontSize: '0.7rem' }}
           >
             撤回
@@ -89,9 +110,19 @@ export const ApprovalStatusBadge = memo(function ApprovalStatusBadge({
       )}
 
       {/* 提交审核弹窗 */}
-      <Dialog open={submitOpen} onClose={() => setSubmitOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>提交话术审核</DialogTitle>
-        <DialogContent>
+      <Dialog
+        open={submitOpen}
+        onClose={() => setSubmitOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        data-testid="approval-submit-dialog"
+        data-contract-scope="live-script-approval-submit-dialog"
+        data-contract-source="/live/script-approval/submit|onSubmit-prop"
+        data-no-direct-api-request="true"
+        data-comment-length={comments.length}
+      >
+        <DialogTitle data-testid="approval-submit-title" data-contract-source="/live/script-approval/submit">提交话术审核</DialogTitle>
+        <DialogContent data-testid="approval-submit-content" data-contract-source="/live/script-approval/submit">
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             提交后将进入审核队列，管理员审批通过后方可用于直播。
           </Typography>
@@ -103,13 +134,20 @@ export const ApprovalStatusBadge = memo(function ApprovalStatusBadge({
             value={comments}
             onChange={(e) => setComments(e.target.value)}
             size="small"
+            inputProps={{
+              'data-testid': 'approval-submit-comment-input',
+              'data-contract-source': 'local-comment-state',
+            }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSubmitOpen(false)}>取消</Button>
+          <Button onClick={() => setSubmitOpen(false)} data-testid="approval-submit-cancel-button" data-contract-source="close-submit-dialog">取消</Button>
           <Button
             variant="contained"
             disabled={submitLoading}
+            data-testid="approval-submit-confirm-button"
+            data-contract-source="/live/script-approval/submit|onSubmit-prop"
+            data-disabled-reason={submitLoading ? 'submit-loading' : 'ready'}
             onClick={async () => {
               await onSubmit?.(comments)
               setSubmitOpen(false)

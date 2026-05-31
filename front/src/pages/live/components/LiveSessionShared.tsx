@@ -32,9 +32,25 @@ export function ReadinessSteps({ row }: { row: Record<string, unknown> }) {
   const progress = pc === 0 ? 0 : sc === 0 ? 1 : 2
   const steps = ['选品', '话术', '就绪']
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+    <Box
+      data-testid="live-session-readiness-steps"
+      data-contract-scope="live-session-readiness-steps-derived"
+      data-contract-source="session-row-productCount-scriptCount"
+      data-product-count={pc}
+      data-script-count={sc}
+      data-progress={progress}
+      data-no-direct-api="true"
+      sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+    >
       {steps.map((label, i) => (
-        <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+        <Box
+          key={label}
+          data-testid="live-session-readiness-step"
+          data-step-index={i}
+          data-step-label={label}
+          data-step-state={i < progress ? 'done' : i === progress ? 'current' : 'pending'}
+          sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}
+        >
           {i > 0 && (
             <Box sx={{ width: 12, height: 1, bgcolor: i <= progress ? 'success.main' : 'divider' }} />
           )}
@@ -63,6 +79,14 @@ export function StatusChip({ status }: { status: number }) {
   if (status === 1) {
     return (
       <Chip
+        data-testid="live-session-status-chip"
+        data-contract-scope="live-session-status-chip-derived"
+        data-contract-source="session-row-status"
+        data-status={status}
+        data-status-label={info.label}
+        data-status-tone={info.color}
+        data-live-pulse="true"
+        data-no-direct-api="true"
         icon={
           <FiberManualRecordIcon
             sx={{
@@ -80,7 +104,22 @@ export function StatusChip({ status }: { status: number }) {
       />
     )
   }
-  return <Chip label={info.label} size="small" color={info.color} variant="outlined" />
+  return (
+    <Chip
+      data-testid="live-session-status-chip"
+      data-contract-scope="live-session-status-chip-derived"
+      data-contract-source="session-row-status"
+      data-status={status}
+      data-status-label={info.label}
+      data-status-tone={info.color}
+      data-live-pulse="false"
+      data-no-direct-api="true"
+      label={info.label}
+      size="small"
+      color={info.color}
+      variant="outlined"
+    />
+  )
 }
 
 export function TimeTip({ scheduledTime }: { scheduledTime: unknown }) {
@@ -91,7 +130,16 @@ export function TimeTip({ scheduledTime }: { scheduledTime: unknown }) {
   if (diff > 0 && diff < 30 * 60 * 1000) {
     const mins = Math.ceil(diff / 60000)
     return (
-      <Typography variant="caption" color="warning.main" sx={{ fontWeight: 600 }}>
+      <Typography
+        data-testid="live-session-time-tip"
+        data-contract-scope="live-session-time-tip-derived"
+        data-contract-source="scheduledTime-prop"
+        data-minutes-left={mins}
+        data-no-direct-api="true"
+        variant="caption"
+        color="warning.main"
+        sx={{ fontWeight: 600 }}
+      >
         {mins} 分钟后开播
       </Typography>
     )

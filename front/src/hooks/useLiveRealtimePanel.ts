@@ -126,7 +126,13 @@ export function useLiveRealtimePanel(sessionId: number) {
           })
         },
         onConnected: () => {
-          console.log('SSE 实时推送已连接')
+          setError(null)
+        },
+        onRetryScheduled: ({ retryCount, maxRetries, retryDelayMs }) => {
+          setError(`实时推送重连中：${retryDelayMs}ms 后第 ${retryCount}/${maxRetries} 次重试`)
+        },
+        onRetryExhausted: ({ maxRetries, error }) => {
+          setError(`实时推送已降级：${maxRetries} 次重试失败，${error.message}`)
         },
         onError: (error) => {
           console.error('SSE 推送异常:', error)

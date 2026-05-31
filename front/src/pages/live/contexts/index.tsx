@@ -6,8 +6,11 @@ import { EditorContext } from './EditorContext'
 import { liveApi } from '@/api/live'
 import { productApi } from '@/api/product'
 import { ssePost } from '@/utils/sse-client'
+import { isRecord, normalizeArray as normalizeResponseArray } from '@/utils/response-normalize'
 import type { LiveScript, LiveScriptSave } from '@/api/live'
 import type { LiveProduct } from '@/api/live-product'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { sortLiveProducts, sortLiveScripts } from '../utils/order'
 
 export { useCoreData } from './CoreDataContext'
 export { useGeneration } from './GenerationContext'
@@ -27,6 +30,33 @@ interface SseProgressData {
   [key: string]: unknown
 }
 
+function normalizeWorkspaceArray<T>(value: unknown, label: string): { items: T[]; issue?: string } {
+  const items = normalizeResponseArray<T>(value)
+  if (Array.isArray(value)) return { items }
+  const isWrappedArrayResponse = isRecord(value) && (
+    'list' in value ||
+    'records' in value ||
+    'items' in value ||
+    'rows' in value ||
+    'content' in value ||
+    'data' in value ||
+    'result' in value ||
+    'payload' in value ||
+    'body' in value
+  )
+  if (isWrappedArrayResponse) {
+    return {
+      items,
+      issue: `${label} 接口返回分页结构/包装结构，已通过共享响应归一化读取数组；建议后端保持数组契约。`,
+    }
+  }
+  if (value == null) return { items }
+  return {
+    items,
+    issue: `${label} 接口返回 ${typeof value}，页面已降级为空数组以避免工作台崩溃。`,
+  }
+}
+
 export function WorkspaceProviders({ sessionId, children }: WorkspaceProvidersProps) {
   const qc = useQueryClient()
 
@@ -34,14 +64,31 @@ export function WorkspaceProviders({ sessionId, children }: WorkspaceProvidersPr
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } =
     useQuery({ queryKey: ['wb-session', sessionId], queryFn: () => liveApi.sessionGet(sessionId) })
 
-  const { data: rawProducts = [], refetch: refetchProducts } =
+  const { data: rawProductsResponse, refetch: refetchProducts, isError: productsIsError, error: productsError } =
     useQuery({ queryKey: ['wb-products', sessionId], queryFn: () => liveApi.productBySession(sessionId) })
 
-  const { data: scripts = [], refetch: refetchScripts } =
+  const { data: scriptsResponse, refetch: refetchScripts, isError: scriptsIsError, error: scriptsError } =
     useQuery({ queryKey: ['wb-scripts', sessionId], queryFn: () => liveApi.scriptBySession(sessionId) })
 
   const { data: readiness = null } =
     useQuery({ queryKey: ['wb-readiness', sessionId], queryFn: () => liveApi.sessionReadiness(sessionId) })
+
+  const normalizedProducts = useMemo(
+    () => normalizeWorkspaceArray<LiveProduct>(rawProductsResponse, '/live/product/by-session'),
+    [rawProductsResponse],
+  )
+  const normalizedScripts = useMemo(
+    () => normalizeWorkspaceArray<LiveScript>(scriptsResponse, '/live/script/by-session'),
+    [scriptsResponse],
+  )
+  const rawProducts = useMemo(() => sortLiveProducts(normalizedProducts.items), [normalizedProducts.items])
+  const scripts = useMemo(() => sortLiveScripts(normalizedScripts.items), [normalizedScripts.items])
+  const dependencyIssues = [
+    normalizedProducts.issue,
+    normalizedScripts.issue,
+    productsIsError ? `/live/product/by-session 加载失败：${getErrorMessage(productsError)}` : undefined,
+    scriptsIsError ? `/live/script/by-session 加载失败：${getErrorMessage(scriptsError)}` : undefined,
+  ].filter(Boolean) as string[]
 
   // ── 富化 LiveProduct：合并 DyProduct 字段 ─────────────────────────────────
   // 只在有 productId 时才请求，且仅请求一次（所有商品批量 search）
@@ -62,7 +109,7 @@ export function WorkspaceProviders({ sessionId, children }: WorkspaceProvidersPr
   const products: LiveProduct[] = useMemo(() => {
     if (dyProducts.length === 0) return rawProducts
     const dyMap = new Map(dyProducts.map(d => [d.id, d]))
-    return rawProducts.map(lp => {
+    return sortLiveProducts(rawProducts.map(lp => {
       const dy = dyMap.get(lp.productId)
       if (!dy) return lp
       return {
@@ -73,7 +120,7 @@ export function WorkspaceProviders({ sessionId, children }: WorkspaceProvidersPr
         price: (lp.price ?? 0) > 0 ? lp.price : dy.price,
         profitMarginPct: lp.profitMarginPct ?? dy.profitMarginPct,
       }
-    })
+    }))
   }, [rawProducts, dyProducts])
 
   // ── Generation ────────────────────────────────────────────────────────────
@@ -120,19 +167,50 @@ export function WorkspaceProviders({ sessionId, children }: WorkspaceProvidersPr
             const d = data as SseProgressData
             const pct = typeof d.percent === 'number' ? d.percent
               : typeof d.current === 'number' && typeof d.total === 'number' && d.total > 0
-                ? Math.round(d.current / d.total)
+                ? Math.round((d.current / d.total) * 100)
                 : 0
             setGenerationProgress(pct)
             const label = d.slotType ?? d.slotLabel ?? ''
             setGenerationMessage(label ? `正在生成：${label}` : `已完成 ${d.current ?? 0}/${d.total ?? '?'} 个商品`)
+            setSlotTimeline(prev => [...prev, {
+              scriptId: 0,
+              slotLabel: String(label || '生成进度'),
+              scriptType: '',
+              sequenceNo: typeof d.current === 'number' ? d.current : undefined,
+              percent: pct,
+              current: typeof d.current === 'number' ? d.current : undefined,
+              total: typeof d.total === 'number' ? d.total : undefined,
+              stage: String(label || '生成进度'),
+              event: 'progress',
+              timestamp: Date.now(),
+            }])
           },
           onSlotDone: (data) => {
             setGenerationMessage(`✓ ${data.slotLabel} 已完成`)
-            setSlotTimeline(prev => [...prev, { scriptId: data.scriptId, slotLabel: data.slotLabel, scriptType: data.scriptType, sequenceNo: data.sequenceNo }])
+            setSlotTimeline(prev => [...prev, {
+              scriptId: data.scriptId,
+              slotLabel: data.slotLabel,
+              scriptType: data.scriptType,
+              sequenceNo: data.sequenceNo,
+              index: data.index,
+              content: data.content,
+              event: 'slot_done',
+              timestamp: Date.now(),
+            }])
           },
           onSlotFailed: (data) => {
             setGenerationMessage(`✗ ${data.slotLabel} 失败：${data.errorMsg}`)
-            setSlotTimeline(prev => [...prev, { scriptId: data.scriptId, slotLabel: data.slotLabel, scriptType: '', sequenceNo: data.index, failed: true, errorMsg: data.errorMsg }])
+            setSlotTimeline(prev => [...prev, {
+              scriptId: data.scriptId,
+              slotLabel: data.slotLabel,
+              scriptType: '',
+              sequenceNo: data.index,
+              index: data.index,
+              failed: true,
+              errorMsg: data.errorMsg,
+              event: 'slot_failed',
+              timestamp: Date.now(),
+            }])
           },
           onDone: () => {
             setGenerationProgress(100)
@@ -211,6 +289,7 @@ export function WorkspaceProviders({ sessionId, children }: WorkspaceProvidersPr
     <CoreDataContext.Provider value={{
       session: session ?? null,
       sessionLoading,
+      dependencyIssues,
       products,
       scripts,
       readiness,

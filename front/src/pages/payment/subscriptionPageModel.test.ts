@@ -13,9 +13,11 @@ describe('subscriptionPageModel', () => {
     expect(
       normalizePaymentPlans([
         { planCode: 'pro', planName: '专业版', price: '699', features: ['AI 生成', 99] },
+        { plan: 'enterprise', price: '¥999/月', features: ['企业能力'] },
       ]),
     ).toEqual([
       { planCode: 'pro', planName: '专业版', price: 699, features: ['AI 生成', '99'] },
+      { planCode: 'enterprise', planName: '企业版', price: 999, features: ['企业能力'] },
     ])
   })
 

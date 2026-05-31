@@ -23,7 +23,10 @@ import {
   IconButton,
   Tooltip,
   Alert,
+  alpha,
+  useTheme,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -34,6 +37,12 @@ import * as monitoringApi from '@/api/monitoring';
 
 interface AnomalyAlertsProps {
   alerts: AnomalyAlert[];
+}
+
+type AlertTone = 'error' | 'success';
+
+function semanticColor(theme: Theme, tone: AlertTone) {
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main;
 }
 
 /**
@@ -156,11 +165,16 @@ function AlertActionDialog({
  * 异常告警列表
  */
 export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
+  const theme = useTheme();
   const [selectedAlert, setSelectedAlert] = useState<AnomalyAlert | null>(null);
   const [actionType, setActionType] = useState<'acknowledge' | 'resolve' | null>(
     null
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const quietSurface = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.07 : 0.04);
+  const hoverSurface = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.1 : 0.035);
+  const errorColor = semanticColor(theme, 'error');
+  const successColor = semanticColor(theme, 'success');
 
   /**
    * 打开告警操作对话框
@@ -194,7 +208,7 @@ export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
 
   if (!alerts || alerts.length === 0) {
     return (
-      <Paper sx={{ p: 3, textAlign: 'center' }}>
+      <Paper data-testid="anomaly-alert-empty-surface" sx={{ p: 3, textAlign: 'center', border: `1px solid ${theme.palette.divider}` }}>
         <Typography color="textSecondary">暂无活跃告警 ✅</Typography>
       </Paper>
     );
@@ -204,7 +218,10 @@ export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
     <>
       <Paper sx={{ overflow: 'hidden' }}>
         {/* 告警统计 */}
-        <Box sx={{ p: 2, backgroundColor: '#f5f5f5' }}>
+        <Box
+          data-testid="anomaly-alert-summary-surface"
+          sx={{ p: 2, backgroundColor: quietSurface, borderBottom: `1px solid ${theme.palette.divider}` }}
+        >
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
             活跃告警列表 ({alerts.length})
           </Typography>
@@ -218,7 +235,7 @@ export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
         <TableContainer>
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+              <TableRow data-testid="anomaly-alert-table-head-surface" sx={{ backgroundColor: quietSurface }}>
                 <TableCell align="center" width="80px">
                   严重级别
                 </TableCell>
@@ -245,11 +262,14 @@ export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
                 return (
                   <TableRow
                     key={alert.alertId}
+                    data-testid="anomaly-alert-row-surface"
+                    data-alert-severity={alert.severity}
+                    data-critical-border-color={alert.severity === 'critical' ? errorColor : 'none'}
                     sx={{
-                      '&:hover': { backgroundColor: '#fafafa' },
+                      '&:hover': { backgroundColor: hoverSurface },
                       borderLeft:
                         alert.severity === 'critical'
-                          ? '4px solid #f44336'
+                          ? `4px solid ${errorColor}`
                           : 'none',
                     }}
                   >
@@ -296,18 +316,24 @@ export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
                     {/* 指标值 */}
                     <TableCell align="right">
                       <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                        {(() => {
+                          const exceedsThreshold = (alert.currentValue ?? 0) > (alert.threshold ?? 0);
+                          const metricColor = exceedsThreshold ? errorColor : theme.palette.text.secondary;
+                          return (
                         <Typography
+                          data-testid="anomaly-alert-metric-value-surface"
+                          data-metric-tone={exceedsThreshold ? 'error' : 'text'}
+                          data-metric-color={metricColor}
                           variant="body2"
                           sx={{
                             fontWeight: 600,
-                            color:
-                              (alert.currentValue ?? 0) > (alert.threshold ?? 0)
-                                ? '#f44336'
-                                : '#666',
+                            color: metricColor,
                           }}
                         >
                           {(alert.currentValue ?? 0).toFixed(2)}
                         </Typography>
+                          );
+                        })()}
                         <Typography variant="caption" color="textSecondary">
                           / {(alert.threshold ?? 0).toFixed(2)}
                         </Typography>
@@ -341,6 +367,8 @@ export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
                       {alert.status === 'active' ? (
                         <Tooltip title="查看详情">
                           <IconButton
+                            aria-label="查看详情"
+                            data-testid="anomaly-alert-acknowledge-action-surface"
                             size="small"
                             onClick={() =>
                               handleOpenActionDialog(alert, 'acknowledge')
@@ -351,11 +379,13 @@ export function AnomalyAlerts({ alerts }: AnomalyAlertsProps) {
                         </Tooltip>
                       ) : alert.status === 'acknowledged' ? (
                         <Button
+                          data-testid="anomaly-alert-resolve-action-surface"
+                          data-action-color={successColor}
                           size="small"
                           onClick={() =>
                             handleOpenActionDialog(alert, 'resolve')
                           }
-                          sx={{ color: '#4caf50' }}
+                          sx={{ color: successColor }}
                         >
                           解决
                         </Button>

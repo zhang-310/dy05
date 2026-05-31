@@ -94,4 +94,23 @@ describe('VersionDiffView', () => {
     const cells = screen.getAllByRole('cell')
     expect(cells.length).toBeGreaterThan(0)
   })
+
+  it('uses semantic diff tones instead of legacy fixed colors', () => {
+    render(<VersionDiffView {...mockProps} />)
+
+    const root = screen.getByTestId('version-diff-view')
+    const header = screen.getByTestId('version-diff-header-row')
+    const addedCells = document.querySelectorAll('[data-diff-line-tone="added"]')
+    const removedCells = document.querySelectorAll('[data-diff-line-tone="removed"]')
+
+    expect(root).toHaveAttribute('data-diff-tone', 'semantic')
+    expect(header).toHaveAttribute('data-diff-tone', 'header')
+    expect(addedCells.length).toBeGreaterThan(0)
+    expect(removedCells.length).toBeGreaterThan(0)
+    expect(root.outerHTML).not.toContain('#c8e6c9')
+    expect(root.outerHTML).not.toContain('#ffcdd2')
+    expect(root.outerHTML).not.toContain('#f5f5f5')
+    expect(root.outerHTML).not.toContain('#d32f2f')
+    expect(root.outerHTML).not.toContain('#388e3c')
+  })
 })

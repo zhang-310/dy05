@@ -20,7 +20,7 @@ function cellString(value: unknown): string {
 export function renderStatusChip(
   statusMap: Record<string, StatusChipDef>,
 ): (params: GridRenderCellParams) => ReactNode {
-  return (params: GridRenderCellParams) => {
+  return function StatusChipCell(params: GridRenderCellParams) {
     const key = params.value == null ? '' : String(params.value)
     const def = statusMap[key]
     if (!def) return <Chip size="small" label={key || '-'} variant="outlined" />
@@ -47,7 +47,7 @@ export function renderBooleanChip(
   trueLabel = '是',
   falseLabel = '否',
 ): (params: GridRenderCellParams) => ReactNode {
-  return (params: GridRenderCellParams) => {
+  return function BooleanChipCell(params: GridRenderCellParams) {
     const on = params.value === true || params.value === 1 || params.value === '1'
     return (
       <Chip

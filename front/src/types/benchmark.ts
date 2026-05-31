@@ -8,35 +8,58 @@ import { BasicQuery } from './common';
 
 export interface BenchmarkAccount {
   id: number;
-  ownerId: number;
+  ownerId?: number;
   accountName: string;
+  platform?: string;
   accountUrl: string;
   secUid: string;
-  avatarUrl?: string;
+  douyinId?: string;
+  category?: string;
+  fanCount?: number;
+  /** 兼容旧前端字段；SDK 会由 fanCount 归一生成 */
   followerCount?: number;
   videoCount?: number;
+  avgViewCount?: number;
+  avgLikeCount?: number;
+  notes?: string;
+  isActive?: boolean;
+  avatarUrl?: string;
   likeCount?: number;
   description?: string;
   tags?: string;
   lastCollectTime?: string;
-  createTime: string;
-  updateTime: string;
+  createTime?: string;
+  updateTime?: string;
 }
 
 export interface BenchmarkAccountSearchVO extends BasicQuery {
   keyword?: string;
+  platform?: string;
+  category?: string;
+  isActive?: boolean;
+  minFanCount?: number;
+  maxFanCount?: number;
+  /** 兼容旧调用方；SDK 会转换为 minFanCount */
   minFollowerCount?: number;
-  tags?: string;
 }
 
 export interface BenchmarkAccountSaveVO {
   id?: number;
   accountName: string;
+  platform?: string;
   accountUrl: string;
-  secUid: string;
-  avatarUrl?: string;
-  followerCount?: number;
+  secUid?: string;
+  douyinId?: string;
+  category?: string;
+  fanCount?: number;
   videoCount?: number;
+  avgViewCount?: number;
+  avgLikeCount?: number;
+  notes?: string;
+  isActive?: boolean;
+  /** 兼容旧调用方；SDK 会转换为 fanCount */
+  followerCount?: number;
+  avatarUrl?: string;
   likeCount?: number;
   description?: string;
   tags?: string;
@@ -44,19 +67,26 @@ export interface BenchmarkAccountSaveVO {
 
 export interface SearchAccountByKeywordVO {
   keyword: string;
+  minFanCount?: number;
+  /** 兼容旧调用方；SDK 会转换为 minFanCount */
   minFollowerCount?: number;
   maxResults?: number;
+  cookieId?: number;
 }
 
 export interface AnalyzeAccountByUrlVO {
   accountUrl: string;
+  minLikeCount?: number;
+  maxVideos?: number;
+  cookieId?: number;
+  autoAnalyze?: boolean;
 }
 
 // ==================== 对标视频 ====================
 
 export interface BenchmarkVideo {
   id: number;
-  ownerId: number;
+  ownerId?: number;
   benchmarkAccountId: number;
   videoId: string;
   videoUrl: string;
@@ -64,17 +94,22 @@ export interface BenchmarkVideo {
   description?: string;
   coverUrl?: string;
   duration?: number;
+  viewCount?: number;
   likeCount?: number;
   commentCount?: number;
   shareCount?: number;
+  favoriteCount?: number;
   collectCount?: number;
   publishTime?: string;
+  isQualified?: boolean;
   localPath?: string;
   bosUrl?: string;
+  localVideoPath?: string;
+  bosVideoUrl?: string;
   analysisStatus: 'pending' | 'processing' | 'completed' | 'failed';
   analysisErrorMsg?: string;
-  createTime: string;
-  updateTime: string;
+  createTime?: string;
+  updateTime?: string;
 }
 
 export interface BenchmarkVideoSearchVO extends BasicQuery {
@@ -93,24 +128,31 @@ export interface BenchmarkVideoSaveVO {
   description?: string;
   coverUrl?: string;
   duration?: number;
+  viewCount?: number;
   likeCount?: number;
   commentCount?: number;
   shareCount?: number;
+  favoriteCount?: number;
   collectCount?: number;
   publishTime?: string;
+  isQualified?: boolean;
+  analysisStatus?: string;
+  localVideoPath?: string;
+  bosVideoUrl?: string;
 }
 
 export interface CollectAccountVideosVO {
   benchmarkAccountId: number;
   minLikeCount?: number;
   maxVideos?: number;
+  cookieId?: number;
 }
 
 // ==================== 深度分析 ====================
 
 export interface BenchmarkAnalysis {
   id: number;
-  ownerId: number;
+  ownerId?: number;
   benchmarkVideoId: number;
 
   // 文案内容
@@ -152,8 +194,8 @@ export interface BenchmarkAnalysis {
   tokensUsed?: number;
   analysisDurationMs?: number;
 
-  createTime: string;
-  updateTime: string;
+  createTime?: string;
+  updateTime?: string;
 }
 
 export interface AnalyzeVideoVO {

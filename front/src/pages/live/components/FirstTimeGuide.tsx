@@ -29,6 +29,8 @@ const STEPS = [
   { label: '逐项优化', desc: '点击任一块可编辑，或使用 AI 润色、AI 分析师进一步优化', icon: <EditIcon sx={{ fontSize: 40, color: 'primary.main' }} /> },
 ]
 
+const GUIDE_READY_SOURCES = ['showInStandalone-prop', 'localStorage:live-script-first-guide-done']
+
 export interface FirstTimeGuideProps {
   /** 是否在独立页（LiveScriptBuilderPage）显示，ScriptTab 可选隐藏 */
   showInStandalone?: boolean
@@ -63,23 +65,54 @@ export function FirstTimeGuide({ showInStandalone = true }: FirstTimeGuideProps)
     setOpen(false)
   }
 
-  if (!open) return null
+  if (!open) {
+    return (
+      <Box
+        data-testid="first-time-guide-hidden-state"
+        data-contract-scope="live-first-time-guide-state"
+        data-ready-sources={GUIDE_READY_SOURCES.join('|')}
+        data-show-in-standalone={showInStandalone ? 'true' : 'false'}
+        data-open="false"
+        data-no-direct-api-request="true"
+        sx={{ display: 'none' }}
+      />
+    )
+  }
 
   const current = STEPS[step]
   const isLast = step === STEPS.length - 1
 
   return (
-    <Dialog open onClose={handleSkip} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
-      <DialogTitle>欢迎使用话术工作台</DialogTitle>
-      <DialogContent>
-        <Stepper activeStep={step} sx={{ mb: 2 }}>
+    <Dialog
+      open
+      onClose={handleSkip}
+      maxWidth="sm"
+      fullWidth
+      data-testid="first-time-guide-dialog"
+      data-contract-scope="live-first-time-guide-dialog"
+      data-ready-sources={GUIDE_READY_SOURCES.join('|')}
+      data-show-in-standalone={showInStandalone ? 'true' : 'false'}
+      data-step={step}
+      data-step-count={STEPS.length}
+      data-open="true"
+      data-no-direct-api-request="true"
+      PaperProps={{ sx: { borderRadius: 2 } }}
+    >
+      <DialogTitle data-testid="first-time-guide-title" data-contract-source="local-guide-copy">欢迎使用话术工作台</DialogTitle>
+      <DialogContent data-testid="first-time-guide-content" data-contract-source="local-guide-copy|localStorage">
+        <Stepper activeStep={step} sx={{ mb: 2 }} data-testid="first-time-guide-stepper" data-contract-source="local-guide-steps">
           {STEPS.map((s, i) => (
-            <Step key={s.label} completed={i < step}>
+            <Step key={s.label} completed={i < step} data-testid="first-time-guide-step" data-step-index={i}>
               <StepLabel>{s.label}</StepLabel>
             </Step>
           ))}
         </Stepper>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, py: 1 }}>
+        <Box
+          sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, py: 1 }}
+          data-testid="first-time-guide-current-step"
+          data-step={step}
+          data-step-label={current.label}
+        >
           {current.icon}
           <Typography variant="body1" color="text.primary">
             {current.desc}
@@ -87,8 +120,14 @@ export function FirstTimeGuide({ showInStandalone = true }: FirstTimeGuideProps)
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={handleSkip} color="inherit">跳过</Button>
-        <Button variant="contained" onClick={isLast ? handleFinish : handleNext}>
+        <Button onClick={handleSkip} color="inherit" data-testid="first-time-guide-skip-button" data-contract-source="localStorage-dismiss">跳过</Button>
+        <Button
+          variant="contained"
+          onClick={isLast ? handleFinish : handleNext}
+          data-testid="first-time-guide-next-button"
+          data-contract-source="localStorage-dismiss|local-step-state"
+          data-action={isLast ? 'finish' : 'next'}
+        >
           {isLast ? '开始使用' : '下一步'}
         </Button>
       </DialogActions>

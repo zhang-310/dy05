@@ -24,4 +24,20 @@ describe('StatCard', () => {
     await user.click(screen.getByText('1'))
     expect(onClick).toHaveBeenCalledTimes(1)
   })
+
+  it('uses theme surface tone and removes legacy fixed colors', () => {
+    renderWithProviders(<StatCard title="转化率" value={12.5} unit="%" trend={{ value: 8, label: '较昨日' }} color="success" />)
+
+    const surface = screen.getByTestId('base-stat-card-surface')
+    expect(surface).toHaveAttribute('data-stat-tone', 'success')
+    expect(screen.getByTestId('base-stat-card-title')).toHaveStyle({ color: 'rgba(0, 0, 0, 0.6)' })
+    expect(screen.getByTestId('base-stat-card-value')).toHaveStyle({ color: 'rgba(0, 0, 0, 0.87)' })
+    expect(screen.getByTestId('base-stat-card-unit')).toHaveStyle({ color: 'rgba(0, 0, 0, 0.6)' })
+    expect(screen.getByTestId('base-stat-card-trend-label')).toHaveStyle({ color: 'rgba(0, 0, 0, 0.6)' })
+    expect(surface.outerHTML).not.toContain('#1E293B')
+    expect(surface.outerHTML).not.toContain('#334155')
+    expect(surface.outerHTML).not.toContain('#F1F5F9')
+    expect(surface.outerHTML).not.toContain('#475569')
+    expect(surface.outerHTML).not.toContain('#00D084')
+  })
 })

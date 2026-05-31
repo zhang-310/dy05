@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import { TextField, InputAdornment, IconButton } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { Search as SearchIcon, Clear as ClearIcon } from '@mui/icons-material'
 
 interface SearchInputProps {
@@ -14,9 +15,9 @@ interface SearchInputProps {
  * 应用设计系统规范：
  * - 高度：44px
  * - 圆角：6px (border-radius-md)
- * - 背景：color-surface-dark
- * - 边框：color-surface-light
- * - 焦点：绿色边框 + 阴影
+ * - 背景：background.paper
+ * - 边框：divider
+ * - 焦点：primary 边框 + 阴影
  */
 export function SearchInput({
   placeholder = '搜索...',
@@ -35,7 +36,7 @@ export function SearchInput({
     onClear?.()
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSearch()
     }
@@ -48,29 +49,40 @@ export function SearchInput({
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
       fullWidth
-      sx={{
+      data-testid="base-search-input"
+      data-search-tone="neutral"
+      inputProps={{ 'data-testid': 'base-search-input-field' }}
+      sx={(theme) => ({
         '& .MuiOutlinedInput-root': {
           minHeight: '44px',
           padding: '12px 16px',
           borderRadius: '6px', // border-radius-md
-          backgroundColor: '#0F172A', // color-surface-dark
-          color: '#F1F5F9', // color-text-primary
-          border: '1px solid #334155', // color-surface-light
+          backgroundColor: theme.palette.background.paper,
+          color: theme.palette.text.primary,
           transition: 'all 200ms cubic-bezier(0.4, 0, 0.2, 1)',
+          '& .MuiOutlinedInput-notchedOutline': {
+            borderColor: theme.palette.divider,
+          },
           '&:hover': {
-            borderColor: '#475569', // color-text-secondary
+            backgroundColor: theme.palette.action.hover,
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: theme.palette.text.secondary,
+            },
           },
           '&.Mui-focused': {
-            borderColor: '#00D084', // color-primary
-            boxShadow: '0 0 0 3px rgba(0, 208, 132, 0.1)',
+            backgroundColor: theme.palette.background.paper,
+            boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.12)}`,
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: theme.palette.primary.main,
+            },
           },
         },
         '& .MuiOutlinedInput-input': {
           fontSize: '14px', // font-size-base
-          color: '#F1F5F9', // color-text-primary
+          color: theme.palette.text.primary,
           padding: 0,
           '&::placeholder': {
-            color: '#475569', // color-text-secondary
+            color: theme.palette.text.secondary,
             opacity: 0.7,
           },
         },
@@ -79,12 +91,12 @@ export function SearchInput({
         },
         '& .MuiInputAdornment-positionStart': {
           marginRight: '8px', // spacing-sm
-          color: '#475569', // color-text-secondary
+          color: theme.palette.text.secondary,
         },
         '& .MuiInputAdornment-positionEnd': {
           marginRight: 0,
         },
-      }}
+      })}
       InputProps={{
         startAdornment: (
           <InputAdornment position="start">
@@ -99,9 +111,9 @@ export function SearchInput({
               aria-label="清除"
               sx={{
                 padding: '4px',
-                color: '#475569', // color-text-secondary
+                color: 'text.secondary',
                 '&:hover': {
-                  color: '#F1F5F9', // color-text-primary
+                  color: 'text.primary',
                 },
               }}
             >

@@ -52,18 +52,24 @@ describe('live-approval API', () => {
   })
 
   it('getApprovalHistory posts sessionId', async () => {
-    mockPost.mockResolvedValue([])
+    mockPost.mockResolvedValue({ data: { records: [{ id: 1, sessionId: 12, action: 'approve', operatorId: 9 }] } })
 
-    await getApprovalHistory({ sessionId: 12 })
+    const result = await getApprovalHistory({ sessionId: 12 })
 
     expect(mockPost).toHaveBeenCalledWith('/live/approval/history', { sessionId: 12 })
+    expect(result).toEqual([
+      expect.objectContaining({ id: 1, sessionId: 12, action: 'approve', operatorId: 9 }),
+    ])
   })
 
   it('getPendingApprovals posts without body', async () => {
-    mockPost.mockResolvedValue([])
+    mockPost.mockResolvedValue({ items: [{ id: 18, userId: 1, liveTitle: '待审批直播' }] })
 
-    await getPendingApprovals()
+    const result = await getPendingApprovals()
 
     expect(mockPost).toHaveBeenCalledWith('/live/approval/pending')
+    expect(result).toEqual([
+      expect.objectContaining({ id: 18, liveTitle: '待审批直播' }),
+    ])
   })
 })

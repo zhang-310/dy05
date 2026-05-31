@@ -12,8 +12,9 @@ import HistoryIcon from '@mui/icons-material/History'
 import AssessmentIcon from '@mui/icons-material/Assessment'
 import StorageIcon from '@mui/icons-material/Storage'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import type { GridColDef } from '@mui/x-data-grid'
-import { StandardDataGrid } from '@/components/base'
+import { PageHeader, StandardDataGrid } from '@/components/base'
 import { aiApi, type KnowledgeBase } from '@/api/ai'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -29,6 +30,26 @@ import type { EvolveRoiPayload, QualityScoreTrendPoint } from '@/types/evolution
 import { AnalysisResultSection } from '@/pages/ai/knowledge-evolution/AnalysisResultSection'
 
 const TREND_DAY_OPTIONS = [7, 14, 30] as const
+const KNOWLEDGE_EVOLUTION_READY_ENDPOINTS = [
+  '/ai/knowledge-base/list',
+  '/ai/evolution/task/list',
+  '/ai/evolution/roi',
+  '/ai/evolution/score-trend',
+  '/ai/evolution/task/trigger',
+  '/ai/knowledge-evolution/analyze',
+  '/ai/knowledge-evolution/auto-optimize',
+  '/ai/knowledge-evolution/report',
+].join('|')
+
+const KNOWLEDGE_EVOLUTION_UNSUPPORTED_ENDPOINTS = [
+  '/ai/evolution/task/mock',
+  '/ai/evolution/roi/mock',
+  '/ai/evolution/score-trend/mock',
+  '/ai/knowledge-evolution/local-analyze',
+  '/ai/knowledge-evolution/local-optimize',
+  '/ai/knowledge-evolution/export-local',
+  '/script/template/writeback',
+].join('|')
 
 /** ECharts axis tooltip single series row (narrow, avoids `any`) */
 interface AxisTooltipRow {
@@ -43,6 +64,43 @@ function trendTooltipFormatter(params: unknown, points: QualityScoreTrendPoint[]
   const axis = row?.axisValue ?? ''
   const val = row?.value ?? 0
   return `${axis}<br/>质量分: ${val}<br/>任务数: ${points[idx]?.count ?? 0}`
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  return '未知错误'
+}
+
+function buildQualityDiagnostics(
+  roiData: EvolveRoiPayload,
+  trendArr: QualityScoreTrendPoint[],
+  taskTotal: number,
+  selectedKbName: string,
+): string[] {
+  const avgScore = Number(roiData.avgScore ?? 0)
+  const totalRuns = Number(roiData.totalRuns ?? 0)
+  const coveredDocs = Number(roiData.coveredDocs ?? 0)
+  const messages: string[] = []
+
+  if (avgScore > 0 && avgScore < 60) {
+    messages.push(`平均质量分 ${avgScore}/100 偏低：优先检查低分任务详情、知识分块是否过短、是否缺少可检索来源和引用。`)
+  }
+  if (totalRuns === 0) {
+    messages.push(`${selectedKbName} 近期开启后尚无完成任务：可能是主题池为空、调度未触发、模型未配置或任务仍在异步排队。`)
+  }
+  if (coveredDocs === 0) {
+    messages.push('覆盖知识库为 0：当前 ROI 没有关联到可统计 KB，请确认任务 targetKbId/kbId 是否写入。')
+  }
+  if (trendArr.length === 0) {
+    messages.push('暂无趋势点：质量评分任务尚未落库，或筛选范围/天数内没有完成任务。')
+  }
+  if (taskTotal === 0) {
+    messages.push('任务列表为空：若后台日志出现“主题池为空”或“无可进化内容”，这是明确降级，不会写入任务行。')
+  }
+  if (messages.length === 0) {
+    messages.push('质量链路正常：已有 ROI、趋势或任务数据，可从任务详情继续追踪评分明细和优化结果。')
+  }
+  return messages
 }
 
 export default function KnowledgeEvolutionPage() {
@@ -125,9 +183,39 @@ export default function KnowledgeEvolutionPage() {
   const taskList = tasksQuery.data?.list ?? []
   const taskTotal = tasksQuery.data?.total ?? 0
   const kbList = (kbsQuery.data ?? []) as KnowledgeBase[]
+  const selectedKb = kbList.find(k => String(k.id) === scopeKbId)
+  const selectedKbName = selectedKb?.kbName ?? '全部知识库'
+  const diagnostics = buildQualityDiagnostics(roiData, trendArr, taskTotal, selectedKbName)
 
   const hasDataError =
     kbsQuery.isError || tasksQuery.isError || roiQuery.isError || trendQuery.isError
+
+  const dataErrorItems = [
+    {
+      active: kbsQuery.isError,
+      label: '知识库列表加载失败',
+      endpoint: '/ai/knowledge-base/list',
+      message: errorMessage(kbsQuery.error),
+    },
+    {
+      active: tasksQuery.isError,
+      label: '进化任务列表加载失败',
+      endpoint: '/ai/evolution/task/list',
+      message: errorMessage(tasksQuery.error),
+    },
+    {
+      active: roiQuery.isError,
+      label: 'ROI 指标加载失败',
+      endpoint: '/ai/evolution/roi',
+      message: errorMessage(roiQuery.error),
+    },
+    {
+      active: trendQuery.isError,
+      label: '质量趋势加载失败',
+      endpoint: '/ai/evolution/score-trend',
+      message: errorMessage(trendQuery.error),
+    },
+  ].filter(item => item.active)
 
   const refetchAll = () => {
     void kbsQuery.refetch()
@@ -203,35 +291,76 @@ export default function KnowledgeEvolutionPage() {
       // 避免作为 flex 子项时被侧栏+main 的布局压扁固定高度区块（表格/图表）
       alignSelf: 'stretch',
       boxSizing: 'border-box',
-    }}>
-      <Box>
-        <Typography variant="h5" color="text.primary">进化监控看板</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          按选定知识库展示进化任务、ROI 与质量趋势；完整编排与多 Tab 能力见
-          <Link component={RouterLink} to="/admin/ai/evolution" sx={{ ml: 0.5 }}>自进化引擎</Link>
-          。服务端「触发定时知识进化」仅表示调度已调用引擎；若该库无可用主题或未配置进化模型，不会产生任务行，请结合同时间段「主题池为空」等 WARN 日志排查。
-        </Typography>
-      </Box>
+    }}
+      data-testid="knowledge-evolution-workbench"
+      data-ready-endpoints={KNOWLEDGE_EVOLUTION_READY_ENDPOINTS}
+      data-unsupported-endpoints={KNOWLEDGE_EVOLUTION_UNSUPPORTED_ENDPOINTS}
+      data-no-local-roi-fallback="true"
+      data-no-local-task-fallback="true"
+      data-no-local-trend-fallback="true"
+      data-no-client-score-synthesis="true"
+      data-no-optimistic-evolution-mutation="true"
+    >
+      <PageHeader
+        title="进化监控看板"
+        subtitle="按选定知识库展示进化任务、ROI、质量趋势与自动优化结果；调度触发不等于任务必然入库，页面会明确显示空任务、低分和趋势缺失原因。"
+        breadcrumbs={[{ label: 'AI 中心' }, { label: '知识进化' }]}
+        actions={(
+          <Link component={RouterLink} to="/admin/ai/evolution" variant="body2">
+            打开自进化引擎
+          </Link>
+        )}
+      />
 
       {hasDataError ? (
         <Alert
           severity="error"
+          data-testid="knowledge-evolution-load-error"
+          data-no-local-roi-fallback="true"
+          data-no-local-task-fallback="true"
+          data-no-local-trend-fallback="true"
           action={(
             <Button color="inherit" size="small" onClick={refetchAll}>
               重试
             </Button>
           )}
         >
-          部分数据加载失败：
-          {kbsQuery.isError ? ' 知识库列表' : ''}
-          {tasksQuery.isError ? ' 任务列表' : ''}
-          {roiQuery.isError ? ' ROI' : ''}
-          {trendQuery.isError ? ' 趋势' : ''}
-          。请检查登录与后端服务。
+          <Typography variant="subtitle2" fontWeight={600} component="div">
+            部分数据加载失败，请检查登录状态、后端服务和接口日志。
+          </Typography>
+          <Stack component="ul" sx={{ pl: 2, my: 0.5 }} spacing={0.25}>
+            {dataErrorItems.map(item => (
+              <Typography key={item.endpoint} component="li" variant="body2">
+                {item.label}（{item.endpoint}）：{item.message}
+              </Typography>
+            ))}
+          </Stack>
         </Alert>
       ) : null}
 
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+      {triggerMut.isError ? (
+        <Alert
+          severity="error"
+          data-testid="knowledge-evolution-trigger-error"
+          data-no-local-task-insertion="true"
+          data-filter-retained="true"
+        >
+          进化任务触发失败（/ai/evolution/task/trigger）：{errorMessage(triggerMut.error)}
+        </Alert>
+      ) : null}
+
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        flexWrap="wrap"
+        gap={1}
+        data-testid="knowledge-evolution-filter-contract"
+        data-selected-kb-id={scopeKbId || 'all'}
+        data-task-type={taskType || 'all'}
+        data-status-category={statusCategory || 'all'}
+        data-server-filter="true"
+      >
         <Typography variant="h6" fontWeight={600} color="text.primary">指标与快捷触发</Typography>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <FormControl size="small" sx={{ minWidth: 200 }}>
@@ -262,6 +391,27 @@ export default function KnowledgeEvolutionPage() {
           </Button>
         </Stack>
       </Stack>
+
+      <Alert
+        severity={diagnostics.some(m => m.includes('偏低') || m.includes('为空') || m.includes('尚无')) ? 'warning' : 'success'}
+        icon={<WarningAmberIcon fontSize="inherit" />}
+        data-testid="knowledge-evolution-quality-diagnostics"
+        data-source-endpoints="/ai/evolution/roi|/ai/evolution/score-trend|/ai/evolution/task/list"
+        data-no-client-score-synthesis="true"
+        data-no-local-diagnostic-fallback="true"
+        data-selected-kb-name={selectedKbName}
+      >
+        <Typography variant="subtitle2" fontWeight={600} component="div">
+          质量分与任务链路诊断（{selectedKbName}）
+        </Typography>
+        <Stack component="ul" sx={{ pl: 2, my: 0.5 }} spacing={0.25}>
+          {diagnostics.map((msg, i) => (
+            <Typography key={i} component="li" variant="body2">
+              {msg}
+            </Typography>
+          ))}
+        </Stack>
+      </Alert>
 
       <Grid container spacing={2}>
         <Grid item xs={12} sm={6} md={3}>
@@ -319,7 +469,14 @@ export default function KnowledgeEvolutionPage() {
       </Grid>
 
       {trendArr.length > 0 && (
-        <Card variant="outlined" sx={{ flexShrink: 0, width: '100%' }}>
+        <Card
+          variant="outlined"
+          sx={{ flexShrink: 0, width: '100%' }}
+          data-testid="knowledge-evolution-trend-contract"
+          data-source-endpoint="/ai/evolution/score-trend"
+          data-no-local-trend-fallback="true"
+          data-trend-count={String(trendArr.length)}
+        >
           <CardContent>
             <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} sx={{ mb: 1 }}>
               <Typography variant="subtitle2" fontWeight={600} color="text.primary">
@@ -347,7 +504,13 @@ export default function KnowledgeEvolutionPage() {
       )}
 
       {trendArr.length === 0 && !trendQuery.isFetching && !trendQuery.isError ? (
-        <Card variant="outlined" sx={{ flexShrink: 0, width: '100%' }}>
+        <Card
+          variant="outlined"
+          sx={{ flexShrink: 0, width: '100%' }}
+          data-testid="knowledge-evolution-trend-empty"
+          data-source-endpoint="/ai/evolution/score-trend"
+          data-no-local-trend-fallback="true"
+        >
           <CardContent>
             <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
               <Typography variant="subtitle2" color="text.secondary">暂无趋势数据，可切换天数或等待任务打分</Typography>
@@ -415,7 +578,12 @@ export default function KnowledgeEvolutionPage() {
       </Box>
 
       {taskTotal === 0 && !tasksQuery.isFetching && !tasksQuery.isError && (
-        <Alert severity="info">
+        <Alert
+          severity="info"
+          data-testid="knowledge-evolution-task-empty"
+          data-source-endpoint="/ai/evolution/task/list"
+          data-no-local-task-fallback="true"
+        >
           暂无匹配任务。若日志里已有「触发定时知识进化」但列表仍为空：请把「知识库范围」选为「全部知识库」、状态选「全部」；并查看服务端是否出现「主题池为空（kbId=…）」等跳过说明（该情况下不会写入任务表）。
         </Alert>
       )}

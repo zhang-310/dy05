@@ -1,12 +1,47 @@
 import { memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Box } from '@mui/material'
+import { alpha, Box, useTheme } from '@mui/material'
+import type { Theme } from '@mui/material/styles'
 
-const statusStyles: Record<string, { border: string; bg: string }> = {
-  idle: { border: '#e0e0e0', bg: '#fff' },
-  processing: { border: '#1976d2', bg: 'rgba(25, 118, 210, 0.08)' },
-  completed: { border: '#2e7d32', bg: 'rgba(46, 125, 50, 0.08)' },
-  failed: { border: '#d32f2f', bg: 'rgba(211, 47, 47, 0.08)' },
+type WorkflowStatusTone = 'default' | 'primary' | 'success' | 'error'
+
+function semanticColor(theme: Theme, tone: Exclude<WorkflowStatusTone, 'default'>) {
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main
+}
+
+function statusStyle(theme: Theme, status: string, selected: boolean) {
+  const tone: WorkflowStatusTone =
+    status === 'processing'
+      ? 'primary'
+      : status === 'completed'
+        ? 'success'
+        : status === 'failed'
+          ? 'error'
+          : 'default'
+
+  if (selected) {
+    const color = semanticColor(theme, 'primary')
+    return {
+      tone,
+      border: color,
+      bg: alpha(color, theme.palette.mode === 'dark' ? 0.2 : 0.12),
+    }
+  }
+
+  if (tone === 'default') {
+    return {
+      tone,
+      border: theme.palette.divider,
+      bg: theme.palette.background.paper,
+    }
+  }
+
+  const color = semanticColor(theme, tone)
+  return {
+    tone,
+    border: color,
+    bg: alpha(color, theme.palette.mode === 'dark' ? 0.16 : 0.08),
+  }
 }
 
 interface WorkflowNodeData {
@@ -19,20 +54,25 @@ interface WorkflowNodeData {
 }
 
 function WorkflowNode(props: NodeProps) {
+  const theme = useTheme()
   const data = props.data as WorkflowNodeData
   const status = data?.status ?? 'idle'
   const selected = data?.selected === true
-  const style = statusStyles[status] ?? statusStyles.idle
+  const style = statusStyle(theme, status, selected)
 
   return (
     <Box
+      data-testid="workflow-node-surface"
+      data-workflow-status={status}
+      data-workflow-tone={style.tone}
+      data-workflow-border={style.border}
       sx={{
         px: 2,
         py: 1.5,
         borderRadius: 2,
-        border: `2px solid ${selected ? '#1976d2' : style.border}`,
+        border: `2px solid ${style.border}`,
         boxShadow: selected ? 4 : 2,
-        bgcolor: selected ? 'rgba(25, 118, 210, 0.12)' : style.bg,
+        bgcolor: style.bg,
         minWidth: 140,
       }}
     >

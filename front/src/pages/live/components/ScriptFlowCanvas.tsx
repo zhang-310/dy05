@@ -15,6 +15,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Box, Typography, Button } from '@mui/material'
+import { useTheme } from '@mui/material/styles'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import type { LiveScript, LiveProduct } from '@/api/live'
 import ScriptFlowNode, { type ScriptFlowNodeData } from './ScriptFlowNode'
@@ -23,8 +24,17 @@ import { SCRIPT_TYPE_LABEL } from './constants'
 const NODE_HEIGHT = 80
 const NODE_HEIGHT_COLLAPSED = 48
 const GAP = 40
+const READY_ENDPOINTS = '/live/script/by-session|/live/product/by-session'
+const UNSUPPORTED_ACTIONS = 'direct-script-create|direct-script-update|direct-script-delete|direct-api-call|local-script-fallback'
 
 const nodeTypes = { scriptFlow: ScriptFlowNode }
+
+function scriptMiniMapTone(scriptType?: string): 'primary' | 'secondary' | 'warning' | 'success' {
+  if (scriptType === 'opening') return 'primary'
+  if (scriptType === 'closing') return 'secondary'
+  if (scriptType === 'transition') return 'warning'
+  return 'success'
+}
 
 function scriptsToNodesAndEdges(
   scripts: LiveScript[],
@@ -111,6 +121,7 @@ export interface ScriptFlowCanvasProps {
 
 const LARGE_LIST_THRESHOLD = 25
 export function ScriptFlowCanvas({ scripts, sortedProducts, selectedId, onSelect, onGenerateFull }: ScriptFlowCanvasProps) {
+  const theme = useTheme()
   const [collapsedScriptIds, setCollapsedScriptIds] = useState<Set<number>>(() => {
     if (scripts.length <= LARGE_LIST_THRESHOLD) return new Set()
     const ids = new Set<number>()
@@ -168,20 +179,72 @@ export function ScriptFlowCanvas({ scripts, sortedProducts, selectedId, onSelect
 
   if (scripts.length === 0) {
     return (
-      <Box sx={{ p: 4, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <Box
+        data-testid="script-flow-canvas-root"
+        data-contract-scope="live-script-flow-canvas-props-visualizer"
+        data-contract-source="scripts-prop|sortedProducts-prop|selectedId-prop|onSelect-prop"
+        data-ready-endpoints={READY_ENDPOINTS}
+        data-unsupported-actions={UNSUPPORTED_ACTIONS}
+        data-no-direct-api="true"
+        data-no-local-script-fallback="true"
+        data-script-count={scripts.length}
+        data-product-count={sortedProducts.length}
+        data-selected-id={selectedId ?? ''}
+        data-collapsed-count={collapsedScriptIds.size}
+        data-large-list-threshold={LARGE_LIST_THRESHOLD}
+        sx={{ width: '100%', height: '100%', minHeight: 240 }}
+      >
+        <Box
+          data-testid="script-flow-empty-state"
+          data-contract-scope="live-script-flow-empty-state"
+          data-contract-source="scripts-prop"
+          data-can-generate={onGenerateFull ? 'true' : 'false'}
+          data-no-local-script-fallback="true"
+          sx={{ p: 4, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+        >
         <AutoAwesomeIcon sx={{ fontSize: 48, color: 'action.disabled' }} />
         <Typography variant="body1" color="text.secondary">暂无话术，一键生成全场</Typography>
         {onGenerateFull && (
-          <Button size="medium" variant="contained" startIcon={<AutoAwesomeIcon />} onClick={onGenerateFull}>
+          <Button
+            data-testid="script-flow-empty-generate-button"
+            data-contract-source="onGenerateFull-prop"
+            size="medium"
+            variant="contained"
+            startIcon={<AutoAwesomeIcon />}
+            onClick={onGenerateFull}
+          >
             一键生成
           </Button>
         )}
+        </Box>
       </Box>
     )
   }
 
   return (
-    <Box sx={{ width: '100%', height: '100%', minHeight: 400 }}>
+    <Box
+      data-testid="script-flow-canvas-root"
+      data-contract-scope="live-script-flow-canvas-props-visualizer"
+      data-contract-source="scripts-prop|sortedProducts-prop|selectedId-prop|onSelect-prop"
+      data-ready-endpoints={READY_ENDPOINTS}
+      data-unsupported-actions={UNSUPPORTED_ACTIONS}
+      data-no-direct-api="true"
+      data-no-local-script-fallback="true"
+      data-script-count={scripts.length}
+      data-product-count={sortedProducts.length}
+      data-selected-id={selectedId ?? ''}
+      data-collapsed-count={collapsedScriptIds.size}
+      data-large-list-threshold={LARGE_LIST_THRESHOLD}
+      sx={{ width: '100%', height: '100%', minHeight: 400 }}
+    >
+      <Box
+        data-testid="script-flow-react-flow-surface"
+        data-contract-source="react-flow-props"
+        data-node-count={nodes.length}
+        data-edge-count={edges.length}
+        data-selected-id={selectedId ?? ''}
+        sx={{ width: '100%', height: '100%' }}
+      >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -200,9 +263,11 @@ export function ScriptFlowCanvas({ scripts, sortedProducts, selectedId, onSelect
         <Controls />
         <MiniMap nodeColor={(n) => {
           const d = n.data as ScriptFlowNodeData
-          return d?.scriptType === 'opening' ? '#1976d2' : d?.scriptType === 'closing' ? '#9c27b0' : d?.scriptType === 'transition' ? '#ed6c02' : '#2e7d32'
+          const tone = scriptMiniMapTone(d?.scriptType)
+          return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main
         }} />
       </ReactFlow>
+      </Box>
     </Box>
   )
 }

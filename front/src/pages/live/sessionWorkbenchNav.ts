@@ -1,3 +1,5 @@
+import { alpha, type Theme } from '@mui/material/styles'
+
 export type WorkspaceTab = 'products' | 'generate' | 'scripts' | 'readiness' | 'data'
 
 export const STEP_TO_TAB: WorkspaceTab[] = ['products', 'generate', 'scripts', 'readiness', 'data']
@@ -14,12 +16,40 @@ export const STEP_LABELS: Record<WorkspaceTab, string> = {
   data:     '数据复盘',
 }
 
-export const STEP_COLORS: Record<WorkspaceTab, { bg: string; active: string }> = {
-  products:  { bg: '#e3f2fd', active: '#1565c0' },
-  generate:  { bg: '#f3e5f5', active: '#7b1fa2' },
-  scripts:   { bg: '#fff3e0', active: '#e65100' },
-  readiness: { bg: '#e8f5e9', active: '#2e7d32' },
-  data:      { bg: '#e0f7fa', active: '#00838f' },
+type StepPalette = 'primary' | 'secondary' | 'warning' | 'success' | 'info'
+
+export const STEP_COLOR_TONES: Record<WorkspaceTab, StepPalette> = {
+  products: 'primary',
+  generate: 'secondary',
+  scripts: 'warning',
+  readiness: 'success',
+  data: 'info',
+}
+
+export const STEP_COLORS: Record<WorkspaceTab, { tone: StepPalette; bg: string; active: string }> = {
+  products: { tone: STEP_COLOR_TONES.products, bg: 'primary.soft', active: 'primary.main' },
+  generate: { tone: STEP_COLOR_TONES.generate, bg: 'secondary.soft', active: 'secondary.main' },
+  scripts: { tone: STEP_COLOR_TONES.scripts, bg: 'warning.soft', active: 'warning.main' },
+  readiness: { tone: STEP_COLOR_TONES.readiness, bg: 'success.soft', active: 'success.main' },
+  data: { tone: STEP_COLOR_TONES.data, bg: 'info.soft', active: 'info.main' },
+}
+
+export function getStepThemeColors(theme: Theme, tab: WorkspaceTab, active: boolean) {
+  const tone = STEP_COLOR_TONES[tab]
+  const palette = theme.palette[tone]
+  const main = palette.main
+  const contrast = palette.contrastText
+  const softAlpha = theme.palette.mode === 'dark' ? 0.18 : 0.1
+
+  return {
+    tone,
+    chipBg: active ? main : alpha(main, softAlpha),
+    chipColor: active ? contrast : main,
+    chipBorder: active ? main : alpha(main, theme.palette.mode === 'dark' ? 0.36 : 0.22),
+    chipHoverBg: active ? main : alpha(main, theme.palette.mode === 'dark' ? 0.26 : 0.16),
+    badgeBg: active ? contrast : main,
+    badgeColor: active ? main : contrast,
+  }
 }
 
 export function parseStepFromSearch(sp: URLSearchParams): number {

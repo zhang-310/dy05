@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { normalizeArray } from '@/utils/response-normalize'
 
 export interface LiveApprovalHistoryRecord {
   id: number
@@ -49,10 +50,10 @@ export function rejectScript(data: { sessionId: number; scriptId: number; commen
 }
 
 export function getApprovalHistory(data: { sessionId: number }) {
-  return request.post<LiveApprovalHistoryRecord[]>('/live/approval/history', data)
+  return request.post<unknown>('/live/approval/history', data).then(raw => normalizeArray<LiveApprovalHistoryRecord>(raw))
 }
 
 /** 待审批场次列表；后端无需请求体。 */
 export function getPendingApprovals() {
-  return request.post<PendingApprovalSession[]>('/live/approval/pending')
+  return request.post<unknown>('/live/approval/pending').then(raw => normalizeArray<PendingApprovalSession>(raw))
 }

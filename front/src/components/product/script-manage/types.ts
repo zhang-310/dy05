@@ -45,6 +45,7 @@ export interface ScriptStyleListProps {
   onActivate: (script: ProductScript) => void
   onDelete: (script: ProductScript) => void
   onHistory: (script: ProductScript) => void
+  onExportShortVideo?: (script: ProductScript) => void
   onRefine: (script: ProductScript) => void
   onCopy: (script: ProductScript) => void
 }

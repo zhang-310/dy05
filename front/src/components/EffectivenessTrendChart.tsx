@@ -15,22 +15,48 @@ import {
   Paper,
   Grid,
   Stack,
+  alpha,
+  useTheme,
 } from '@mui/material'
 import ReactECharts from 'echarts-for-react'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import TrendingDownIcon from '@mui/icons-material/TrendingDown'
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat'
 import type { TrendPoint, TrendAnalysis } from '@/types/effectiveness'
+import type { Theme } from '@mui/material/styles'
 
 interface EffectivenessTrendChartProps {
   data: TrendPoint[]
   analysis?: TrendAnalysis | null
 }
 
-const getTrendIcon = (trend: string) => {
-  if (trend === 'up') return <TrendingUpIcon sx={{ color: '#4caf50' }} />
-  if (trend === 'down') return <TrendingDownIcon sx={{ color: '#f44336' }} />
-  return <TrendingFlatIcon sx={{ color: '#ff9800' }} />
+type EffectivenessTone = 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info'
+
+const semanticColor = (theme: Theme, tone: EffectivenessTone) =>
+  theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main
+
+const getTrendTone = (trend: string): EffectivenessTone => {
+  if (trend === 'up') return 'success'
+  if (trend === 'down') return 'error'
+  return 'warning'
+}
+
+const getScoreChangeTone = (scoreChange: number): EffectivenessTone => {
+  if (scoreChange > 0) return 'success'
+  if (scoreChange < 0) return 'error'
+  return 'warning'
+}
+
+const getTrendIcon = (trend: string, color: string, tone: EffectivenessTone) => {
+  const iconProps = {
+    'data-testid': 'effectiveness-trend-icon-surface',
+    'data-trend-tone': tone,
+    'data-trend-color': color,
+    sx: { color },
+  }
+  if (trend === 'up') return <TrendingUpIcon {...iconProps} />
+  if (trend === 'down') return <TrendingDownIcon {...iconProps} />
+  return <TrendingFlatIcon {...iconProps} />
 }
 
 const getTrendText = (trend: string) => {
@@ -46,8 +72,16 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
   data,
   analysis,
 }) => {
+  const theme = useTheme()
   const [timePeriod, setTimePeriod] = useState<'7' | '30' | '90'>('30')
   const [groupBy, setGroupBy] = useState<'day' | 'week'>('day')
+
+  const scoreColor = semanticColor(theme, 'secondary')
+  const usageColor = semanticColor(theme, 'success')
+  const conversionColor = semanticColor(theme, 'primary')
+  const likesColor = semanticColor(theme, 'warning')
+  const neutralCardBackground = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.07 : 0.04)
+  const neutralCardBorder = alpha(theme.palette.divider, theme.palette.mode === 'dark' ? 0.9 : 0.7)
 
   if (!data || data.length === 0) {
     return (
@@ -116,10 +150,21 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
       {analysis && (
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ backgroundColor: '#f5f5f5' }}>
+            <Card
+              data-testid="effectiveness-analysis-card-surface"
+              data-card-tone={getTrendTone(analysis.overallTrend)}
+              sx={{
+                backgroundColor: neutralCardBackground,
+                border: `1px solid ${neutralCardBorder}`,
+              }}
+            >
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  {getTrendIcon(analysis.overallTrend)}
+                  {getTrendIcon(
+                    analysis.overallTrend,
+                    semanticColor(theme, getTrendTone(analysis.overallTrend)),
+                    getTrendTone(analysis.overallTrend),
+                  )}
                   <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
                     总体趋势
                   </Typography>
@@ -130,10 +175,17 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
           </Grid>
 
           <Grid item xs={12} sm={6} md={3}>
+            {(() => {
+              const tone = getScoreChangeTone(analysis.scoreChange)
+              const color = semanticColor(theme, tone)
+              return (
             <Card
+              data-testid="effectiveness-score-change-card-surface"
+              data-card-tone={tone}
+              data-card-color={color}
               sx={{
-                backgroundColor:
-                  analysis.scoreChange > 0 ? '#e8f5e9' : analysis.scoreChange < 0 ? '#ffebee' : '#fff3e0',
+                backgroundColor: alpha(color, theme.palette.mode === 'dark' ? 0.18 : 0.1),
+                border: `1px solid ${alpha(color, theme.palette.mode === 'dark' ? 0.38 : 0.24)}`,
               }}
             >
               <CardContent>
@@ -141,25 +193,30 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
                   评分变化
                 </Typography>
                 <Typography
+                  data-testid="effectiveness-score-change-value-surface"
+                  data-score-tone={tone}
+                  data-score-color={color}
                   variant="h6"
-                  sx={{
-                    color:
-                      analysis.scoreChange > 0
-                        ? '#4caf50'
-                        : analysis.scoreChange < 0
-                          ? '#f44336'
-                          : '#ff9800',
-                  }}
+                  sx={{ color }}
                 >
                   {analysis.scoreChange > 0 ? '+' : ''}
                   {analysis.scoreChange.toFixed(2)}
                 </Typography>
               </CardContent>
             </Card>
+              )
+            })()}
           </Grid>
 
           <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ backgroundColor: '#f5f5f5' }}>
+            <Card
+              data-testid="effectiveness-analysis-card-surface"
+              data-card-tone="primary"
+              sx={{
+                backgroundColor: neutralCardBackground,
+                border: `1px solid ${neutralCardBorder}`,
+              }}
+            >
               <CardContent>
                 <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
                   最高评分日期
@@ -170,7 +227,14 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
           </Grid>
 
           <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ backgroundColor: '#f5f5f5' }}>
+            <Card
+              data-testid="effectiveness-analysis-card-surface"
+              data-card-tone="info"
+              sx={{
+                backgroundColor: neutralCardBackground,
+                border: `1px solid ${neutralCardBorder}`,
+              }}
+            >
               <CardContent>
                 <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
                   波动度
@@ -188,6 +252,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
           <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
             评分趋势（主轴）
           </Typography>
+          <Box data-testid="effectiveness-score-trend-chart-surface" data-chart-color={scoreColor}>
           <ReactECharts
             option={{
               xAxis: { type: 'category', data: data.map((d) => d.date) },
@@ -198,10 +263,10 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
                   type: 'line',
                   name: '评分',
                   smooth: true,
-                  lineStyle: { width: 3, color: '#ff7043' },
+                  lineStyle: { width: 3, color: scoreColor },
                   symbol: 'circle',
                   symbolSize: 4,
-                  itemStyle: { color: '#ff7043' },
+                  itemStyle: { color: scoreColor },
                 }
               ],
               tooltip: { trigger: 'axis' },
@@ -209,6 +274,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
             }}
             style={{ height: '300px' }}
           />
+          </Box>
         </CardContent>
       </Card>
 
@@ -218,6 +284,10 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
           <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
             使用次数与转化率趋势
           </Typography>
+          <Box
+            data-testid="effectiveness-usage-conversion-chart-surface"
+            data-chart-colors={`${usageColor}|${conversionColor}`}
+          >
           <ReactECharts
             option={{
               xAxis: { type: 'category', data: data.map((d) => d.date) },
@@ -232,7 +302,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
                   name: '使用次数',
                   yAxisIndex: 0,
                   smooth: true,
-                  lineStyle: { width: 2, dashArray: [5, 5], color: '#4caf50' },
+                  lineStyle: { width: 2, dashArray: [5, 5], color: usageColor },
                   symbol: 'none',
                 },
                 {
@@ -241,7 +311,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
                   name: '转化率',
                   yAxisIndex: 1,
                   smooth: true,
-                  lineStyle: { width: 2, dashArray: [5, 5], color: '#2196f3' },
+                  lineStyle: { width: 2, dashArray: [5, 5], color: conversionColor },
                   symbol: 'none',
                 }
               ],
@@ -250,6 +320,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
             }}
             style={{ height: '300px' }}
           />
+          </Box>
         </CardContent>
       </Card>
 
@@ -259,6 +330,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
           <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
             互动数据趋势
           </Typography>
+          <Box data-testid="effectiveness-likes-chart-surface" data-chart-color={likesColor}>
           <ReactECharts
             option={{
               xAxis: { type: 'category', data: data.map((d) => d.date) },
@@ -269,7 +341,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
                   type: 'line',
                   name: '点赞数',
                   smooth: true,
-                  lineStyle: { width: 2, color: '#ff9800' },
+                  lineStyle: { width: 2, color: likesColor },
                   symbol: 'none',
                 }
               ],
@@ -278,6 +350,7 @@ export const EffectivenessTrendChart: React.FC<EffectivenessTrendChartProps> = (
             }}
             style={{ height: '300px' }}
           />
+          </Box>
         </CardContent>
       </Card>
     </Box>

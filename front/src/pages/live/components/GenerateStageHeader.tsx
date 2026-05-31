@@ -18,6 +18,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import TuneIcon from '@mui/icons-material/Tune'
@@ -27,6 +28,30 @@ import { PresetSelector } from './PresetSelector'
 import { TrendingTopicsPanel } from './TrendingTopicsPanel'
 import { ShortVideoInspirationPanel } from './ShortVideoInspirationPanel'
 import type { BuilderState } from '../hooks/useLiveScriptBuilder'
+
+const GENERATE_STAGE_HEADER_READY_ENDPOINTS = [
+  '/ai/model/list-by-task',
+  '/ai/model/list',
+  '/ai/knowledge-base/:kbId/search',
+  '/live/generation-preset/list',
+  '/live/generation-preset/save',
+  '/live/generation-preset/delete',
+  '/ai/brain/trends/current',
+  '/short-video/viral/recommended',
+] as const
+
+const GENERATE_STAGE_HEADER_UNSUPPORTED_ACTIONS = [
+  'local-model-fallback',
+  'local-preset-fallback',
+  'local-kb-search-fallback',
+  'local-trend-fallback',
+  'local-viral-video-fallback',
+  'direct-script-generation',
+  'direct-script-mutation',
+  'direct-product-mutation',
+  'shortvideo-project-create',
+  'session-status-mutation',
+] as const
 
 export interface GenerateStageHeaderProps {
   builder: BuilderState
@@ -41,7 +66,7 @@ function getAdvancedSummary(builder: BuilderState): string {
   const parts: string[] = []
   if (builder.ipType) parts.push(`IP:${builder.ipType === 'phenomenal' ? '现象级' : '顶级'}`)
   if (builder.materialType) {
-    const labels: Record<string, string> = { joke: '段子', chicken_soup: '鸡汤', quote: '名言', interactive_game: '互动' }
+    const labels: Record<string, string> = { joke: '段子', chicken_soup: '鸡汤', quote: '名言', jingle: '顺口溜', proverb: '歇后语', interactive_game: '互动' }
     parts.push(`素材:${labels[builder.materialType] ?? builder.materialType}`)
   }
   if (builder.scriptModule) {
@@ -68,15 +93,49 @@ export const GenerateStageHeader = memo(function GenerateStageHeader({
 }: GenerateStageHeaderProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const advancedSummary = getAdvancedSummary(builder)
+  const nextDisabledReason = builder.genLoading ? 'generation-running' : canAdvance ? 'ready' : 'blocked-by-parent-context'
+  const hotKeywords = builder.hotKeywords ?? []
 
   return (
-    <Box sx={{ flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}>
+    <Box
+      data-testid="generate-stage-header-root"
+      data-contract-scope="live-generate-stage-header-orchestrator"
+      data-ready-endpoints={GENERATE_STAGE_HEADER_READY_ENDPOINTS.join('|')}
+      data-unsupported-actions={GENERATE_STAGE_HEADER_UNSUPPORTED_ACTIONS.join('|')}
+      data-model-count={builder.llmModels.length}
+      data-selected-model-id={builder.selectedModelId ?? ''}
+      data-kb-ref-enabled={String(builder.useKbRef)}
+      data-kb-query-empty={String(kbRefQuery.trim().length === 0)}
+      data-hot-keyword-count={hotKeywords.length}
+      data-next-disabled-reason={nextDisabledReason}
+      data-no-local-model-fallback="true"
+      data-no-direct-generation="true"
+      sx={{ flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}
+    >
       {/* ━━━ 第一层：核心导航 ━━━ */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, pt: 1, pb: 0.5 }}>
-        <Button size="small" startIcon={<ArrowBackIcon />} onClick={onPrev}>返回选品</Button>
+      <Box
+        data-testid="generate-stage-header-toolbar"
+        data-contract-source={GENERATE_STAGE_HEADER_READY_ENDPOINTS.join('|')}
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, pt: 1, pb: 0.5 }}
+      >
+        <Button
+          size="small"
+          startIcon={<ArrowBackIcon />}
+          onClick={onPrev}
+          data-testid="generate-stage-prev-button"
+          data-contract-source="onPrev-prop"
+        >
+          返回选品
+        </Button>
         <Typography variant="subtitle1" fontWeight={700} sx={{ flexShrink: 0 }}>生成话术</Typography>
         {builder.llmModels.length > 0 && (
-          <FormControl size="small" sx={{ minWidth: 130 }}>
+          <FormControl
+            size="small"
+            sx={{ minWidth: 130 }}
+            data-testid="generate-stage-model-selector"
+            data-contract-source="/ai/model/list-by-task|/ai/model/list"
+            data-no-local-model-fallback="true"
+          >
             <Select
               value={builder.selectedModelId ?? ''}
               displayEmpty
@@ -97,6 +156,8 @@ export const GenerateStageHeader = memo(function GenerateStageHeader({
           </FormControl>
         )}
         <FormControlLabel
+          data-testid="generate-stage-kb-switch"
+          data-contract-source="local-generation-options-store"
           control={<Switch size="small" checked={builder.useKbRef} onChange={(e) => builder.setUseKbRef(e.target.checked)} />}
           label={<Typography variant="body2">话术库</Typography>}
           sx={{ mr: 0, ml: 0 }}
@@ -132,7 +193,7 @@ export const GenerateStageHeader = memo(function GenerateStageHeader({
             const current = builder.hotKeywords ?? []
             if (!current.includes(kw)) builder.setHotKeywords([...current, kw])
           }}
-          selectedKeywords={builder.hotKeywords ?? []}
+          selectedKeywords={hotKeywords}
         />
         <ShortVideoInspirationPanel
           onAdaptHook={(hookLine) => {
@@ -149,20 +210,44 @@ export const GenerateStageHeader = memo(function GenerateStageHeader({
                 {advancedSummary}
               </Typography>
             )}
-            <IconButton size="small" sx={{ p: 0.25 }}>
+            <IconButton data-testid="generate-stage-advanced-toggle" size="small" sx={{ p: 0.25 }}>
               <TuneIcon sx={{ fontSize: 18 }} />
               <ExpandMoreIcon sx={{ fontSize: 14, transition: 'transform 0.2s', transform: advancedOpen ? 'rotate(180deg)' : 'rotate(0deg)' }} />
             </IconButton>
           </Box>
         </Tooltip>
-        <Button variant="contained" size="small" endIcon={<ArrowForwardIcon />} disabled={!canAdvance} onClick={onNext} sx={{ flexShrink: 0 }}>
+        <Button
+          variant="contained"
+          size="small"
+          endIcon={<ArrowForwardIcon />}
+          disabled={!canAdvance || builder.genLoading}
+          onClick={onNext}
+          data-testid="generate-stage-next-button"
+          data-contract-source="onNext-prop"
+          data-disabled-reason={nextDisabledReason}
+          sx={{ flexShrink: 0 }}
+        >
           下一步：编辑
         </Button>
       </Box>
 
       {/* ━━━ 第二层：高级配置（可收起） ━━━ */}
       <Collapse in={advancedOpen}>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, px: 2, py: 0.75, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider' }}>
+        <Box
+          data-testid="generate-stage-advanced-surface"
+          sx={(theme) => ({
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 1.5,
+            px: 2,
+            py: 0.75,
+            bgcolor: theme.palette.mode === 'dark'
+              ? alpha(theme.palette.common.white, 0.04)
+              : theme.palette.action.hover,
+            borderTop: 1,
+            borderColor: 'divider',
+          })}
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>IP:</Typography>
             {([
@@ -189,6 +274,8 @@ export const GenerateStageHeader = memo(function GenerateStageHeader({
               { label: '段子', value: 'joke' },
               { label: '鸡汤', value: 'chicken_soup' },
               { label: '名言', value: 'quote' },
+              { label: '顺口溜', value: 'jingle' },
+              { label: '歇后语', value: 'proverb' },
               { label: '互动', value: 'interactive_game' },
             ] as const).map((item) => (
               <Chip

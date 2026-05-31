@@ -76,19 +76,24 @@ export function ImageUploader({
   return (
     <Box>
       <Box
+        data-testid="shortvideo-image-upload-zone"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        sx={{
+        sx={(theme) => ({
           border: '2px dashed',
           borderColor: dragging ? 'primary.main' : 'divider',
           borderRadius: 2,
           p: 3,
           textAlign: 'center',
-          bgcolor: dragging ? 'action.hover' : 'grey.50',
+          bgcolor: dragging
+            ? 'action.hover'
+            : theme.palette.mode === 'dark'
+              ? theme.palette.background.paper
+              : theme.palette.grey[50],
           cursor: 'pointer',
           transition: 'all 0.2s',
-        }}
+        })}
         onClick={() => document.getElementById('image-uploader-input')?.click()}
       >
         <input

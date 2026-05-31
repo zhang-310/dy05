@@ -1,12 +1,80 @@
 import request from '@/utils/request'
-import type { PageResult } from '@/types/common'
 import type { LiveScriptSearchVO, LiveScriptSaveVO, LiveScriptVO } from '@/types/live'
+import { isRecord, normalizeArray, normalizePage } from '@/utils/response-normalize'
 
 /** 直播话术完整类型（保留向后兼容） */
 export type LiveScript = LiveScriptVO & { [key: string]: unknown }
 
+function boolish(value: unknown): boolean | undefined {
+  if (value === true || value === 1 || value === '1' || value === 'true') return true
+  if (value === false || value === 0 || value === '0' || value === 'false') return false
+  return undefined
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  if (value == null || value === '') return undefined
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
+function normalizeLiveScriptRow(raw: unknown): LiveScript {
+  const row = isRecord(raw) ? raw : {}
+  const sequenceNo = numberOrUndefined(row.sequenceNo ?? row.sortOrder ?? row.position)
+  const durationLimitSec = numberOrUndefined(row.durationLimitSec ?? row.duration ?? row.estimatedDurationSeconds)
+
+  return {
+    ...(row as unknown as LiveScript),
+    id: Number(row.id ?? 0),
+    sessionId: Number(row.sessionId ?? 0),
+    scriptContent: String(row.scriptContent ?? row.content ?? ''),
+    scriptType: row.scriptType == null ? undefined : String(row.scriptType),
+    style: row.style == null ? undefined : String(row.style),
+    requirement: row.requirement == null ? undefined : String(row.requirement),
+    durationLimitSec,
+    duration: durationLimitSec,
+    productId: numberOrUndefined(row.productId),
+    aiGenerated: boolish(row.aiGenerated) ?? Boolean(row.aiGenerated),
+    violationChecked: boolish(row.violationChecked) ?? Boolean(row.violationChecked),
+    viewerDelta: numberOrUndefined(row.viewerDelta),
+    interactionDelta: numberOrUndefined(row.interactionDelta),
+    conversionDelta: numberOrUndefined(row.conversionDelta),
+    effectivenessScore: numberOrUndefined(row.effectivenessScore ?? row.score),
+    sequenceNo,
+    sortOrder: sequenceNo,
+    executed: numberOrUndefined(row.executed) ?? 0,
+    createTime: String(row.createTime ?? ''),
+    updateTime: String(row.updateTime ?? ''),
+  } as LiveScript
+}
+
+function normalizeLiveScriptArray(raw: unknown): LiveScript[] {
+  return normalizeArray<unknown>(raw).map(normalizeLiveScriptRow)
+}
+
+function normalizeVersionRow(raw: unknown): LiveScriptVersionVO {
+  const row = isRecord(raw) ? raw : {}
+  return {
+    ...(row as unknown as LiveScriptVersionVO),
+    id: Number(row.id ?? 0),
+    scriptId: Number(row.scriptId ?? 0),
+    versionNumber: Number(row.versionNumber ?? row.versionNo ?? 0),
+    scriptContent: String(row.scriptContent ?? row.content ?? ''),
+    scriptType: row.scriptType == null ? undefined : String(row.scriptType),
+    style: row.style == null ? undefined : String(row.style),
+    durationLimitSec: numberOrUndefined(row.durationLimitSec ?? row.duration),
+    requirement: row.requirement == null ? undefined : String(row.requirement),
+    effectivenessScore: numberOrUndefined(row.effectivenessScore),
+    editorId: numberOrUndefined(row.editorId),
+    editorName: row.editorName == null ? undefined : String(row.editorName),
+    isCurrent: Number(row.isCurrent ?? (row.versionStatus === 'active' ? 1 : 0)),
+    createTime: String(row.createTime ?? ''),
+  }
+}
+
 export function searchScripts(data?: LiveScriptSearchVO) {
-  return request.post<PageResult<LiveScript>>('/live/script/search', data || {})
+  const params = data || {}
+  return request.post<unknown>('/live/script/search', params)
+    .then(raw => normalizePage<unknown, LiveScript>(raw, normalizeLiveScriptRow, params.page ?? 0, params.rows ?? 20))
 }
 
 /** 批量排序话术（按 scriptIds 顺序更新 sequenceNo） */
@@ -16,7 +84,7 @@ export function batchSortScripts(sessionId: number, scriptIds: number[]) {
 
 /** 场次话术列表 */
 export function getScriptsBySession(sessionId: number) {
-  return request.post<LiveScript[]>('/live/script/by-session', { sessionId })
+  return request.post<unknown>('/live/script/by-session', { sessionId }).then(normalizeLiveScriptArray)
 }
 
 /** 初始化话术槽位（有产品无话术时创建占位槽位） */
@@ -61,7 +129,7 @@ export function saveLiveScript(data: LiveScriptSaveVO) {
 
 /** 批量保存话术（单次事务，最多 500 条） */
 export function batchSaveLiveScripts(sessionId: number, scripts: LiveScriptSaveVO[]) {
-  return request.post<LiveScript[]>('/live/script/batch-save', { sessionId, scripts })
+  return request.post<unknown>('/live/script/batch-save', { sessionId, scripts }).then(normalizeLiveScriptArray)
 }
 
 /** 删除话术 */
@@ -76,7 +144,7 @@ export function updateScriptExecuted(id: number, executed: number) {
 
 /** 话术效果排行（单场次内） */
 export function getScriptEffectiveness(sessionId: number) {
-  return request.post<LiveScript[]>('/live/script/effectiveness', { sessionId })
+  return request.post<unknown>('/live/script/effectiveness', { sessionId }).then(normalizeLiveScriptArray)
 }
 
 // ========== 话术版本管理 API ==========
@@ -100,7 +168,8 @@ export interface LiveScriptVersionVO {
 
 /** 获取话术版本列表（对齐后端 /live/script/version/getByScriptId，body 为 scriptId） */
 export function getScriptVersions(scriptId: number) {
-  return request.post<LiveScriptVersionVO[]>('/live/script/version/getByScriptId', { scriptId })
+  return request.post<unknown>('/live/script/version/getByScriptId', { scriptId })
+    .then(raw => normalizeArray<unknown>(raw).map(normalizeVersionRow))
 }
 
 /** 获取指定版本（对齐后端 getByScriptIdAndVersionNumber） */
@@ -167,12 +236,13 @@ export function revokeScriptApproval(scriptId: number) {
 
 /** 分页查询审核记录 */
 export function searchScriptApprovals(params: { scriptId?: number; sessionId?: number; status?: number; page?: number; rows?: number }) {
-  return request.post<{ total: number; list: ScriptApprovalVO[] }>('/live/script-approval/search', params)
+  return request.post<unknown>('/live/script-approval/search', params)
+    .then(raw => normalizePage<unknown, ScriptApprovalVO>(raw, item => item as ScriptApprovalVO, params.page ?? 0, params.rows ?? 20))
 }
 
 /** 查询话术审核历史 */
 export function getScriptApprovalHistory(scriptId: number) {
-  return request.post<ScriptApprovalVO[]>('/live/script-approval/history', { scriptId })
+  return request.post<unknown>('/live/script-approval/history', { scriptId }).then(raw => normalizeArray<ScriptApprovalVO>(raw))
 }
 
 // ─── 话术模板库 ─────────────────────────────────────────────
@@ -206,7 +276,8 @@ export function searchTemplates(params: {
   page?: number
   rows?: number
 }) {
-  return request.post<{ total: number; list: ScriptTemplate[] }>('/live/template/search', params)
+  return request.post<unknown>('/live/template/search', params)
+    .then(raw => normalizePage<unknown, ScriptTemplate>(raw, item => item as ScriptTemplate, params.page ?? 0, params.rows ?? 20))
 }
 
 /** 应用模板 */
@@ -246,7 +317,7 @@ export interface ScriptComment {
 
 /** 获取脚本评论列表 */
 export function listScriptComments(scriptId: number) {
-  return request.post<ScriptComment[]>('/live/script-comment/by-script', { scriptId })
+  return request.post<unknown>('/live/script-comment/by-script', { scriptId }).then(raw => normalizeArray<ScriptComment>(raw))
 }
 
 /** 添加评论 */

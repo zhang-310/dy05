@@ -1,5 +1,10 @@
 import request from '@/utils/request'
 import { ssePost } from '@/utils/sse-client'
+import {
+  isRecord,
+  normalizeArray as normalizeResponseArray,
+  normalizeRecord,
+} from '@/utils/response-normalize'
 
 const VIRAL_BASE = '/short-video/viral'
 
@@ -60,6 +65,38 @@ export interface DeepAnalyzeStatusResult {
   transcriptDisplayLabel?: string
   sceneDisplayLabel?: string
   inferenceRisk?: boolean
+}
+
+type HotTopicPoolRow = { id: number; topic: string; heat?: number; source?: string; createdAt?: string }
+
+function normalizeHotTopicRows(raw: unknown): HotTopicPoolRow[] {
+  return normalizeResponseArray<unknown>(raw)
+      .map((item): HotTopicPoolRow | null => {
+        const obj = normalizeRecord(item)
+        if (!isRecord(obj)) return null
+        const id = Number(obj.id ?? obj.hotTopicId ?? obj.hot_topic_id)
+        const topic = String(obj.topic ?? obj.keyword ?? obj.title ?? obj.name ?? '').trim()
+        if (!Number.isFinite(id) && !topic) return null
+        const heat = Number(obj.heat ?? obj.hotScore ?? obj.hot_score ?? obj.score)
+        return {
+          id: Number.isFinite(id) ? id : 0,
+          topic,
+          heat: Number.isFinite(heat) ? heat : undefined,
+          source: obj.source != null ? String(obj.source) : undefined,
+          createdAt: obj.createdAt != null ? String(obj.createdAt) : obj.create_time != null ? String(obj.create_time) : undefined,
+        }
+      })
+      .filter((item): item is HotTopicPoolRow => !!item && !!item.topic)
+}
+
+function readRecordRows(raw: unknown): Record<string, unknown>[] {
+  return normalizeResponseArray<unknown>(raw)
+    .map(item => normalizeRecord(item))
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+}
+
+function readRecordPayload(raw: unknown): Record<string, unknown> {
+  return normalizeRecord(raw)
 }
 
 export interface DeepAnalyzeEvidenceDetails {
@@ -271,10 +308,10 @@ export function batchDeepAnalyzeStatus(ids: number[]) {
 
 /** 统一热点池（与 ViralLibrary 热点借势共用） */
 export function fetchHotTopicPool(limit?: number) {
-  return request.post<{ hotTopics?: Array<{ id: number; topic: string; heat?: number; source?: string }> }>(
+  return request.post<unknown>(
     '/short-video/cross/hot-topic-pool',
     { limit: limit ?? 30 }
-  )
+  ).then((raw) => ({ hotTopics: normalizeHotTopicRows(raw) }))
 }
 
 /** 仅 ASR 口播 */
@@ -284,27 +321,27 @@ export function extractTranscript(id: number) {
 
 /** 人设匹配 */
 export function matchPersonas(viralVideoId: number) {
-  return request.post<Record<string, unknown>[]>('/short-video/persona-fusion/match-personas', {
+  return request.post<unknown>('/short-video/persona-fusion/match-personas', {
     viralVideoId,
-  })
+  }).then(readRecordRows)
 }
 
 /** 爆款×人设 融合脚本 */
 export function generateFusedScript(viralVideoId: number, personaId: number, remakeType?: string) {
-  return request.post<Record<string, unknown>>('/short-video/persona-fusion/generate-fused-script', {
+  return request.post<unknown>('/short-video/persona-fusion/generate-fused-script', {
     viralVideoId,
     personaId,
     remakeType: remakeType ?? 'form_imitation',
-  })
+  }).then(readRecordPayload)
 }
 
 /** 热点×人设×产品 */
 export function generateHotspotFused(hotTopicId: number, personaId: number, productId?: number) {
-  return request.post<Record<string, unknown>>('/short-video/persona-fusion/generate-hotspot-fused', {
+  return request.post<unknown>('/short-video/persona-fusion/generate-hotspot-fused', {
     hotTopicId,
     personaId,
     productId,
-  })
+  }).then(readRecordPayload)
 }
 
 /** 获取爆款视频评论（分页） */

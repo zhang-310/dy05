@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Box, Button, Card, CardContent, Grid, IconButton, Paper, Stack, Typography, Alert,
 } from '@mui/material'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import DeleteIcon from '@mui/icons-material/Delete'
 import FileDownloadIcon from '@mui/icons-material/FileDownload'
+import { alpha, useTheme } from '@mui/material/styles'
 import ReactECharts from 'echarts-for-react'
 import { useQuery } from '@tanstack/react-query'
 import { aiApi } from '@/api/ai'
@@ -17,20 +18,28 @@ export interface EvolutionMapTabProps {
 
 export function EvolutionMapTab({ scopeKbId }: EvolutionMapTabProps) {
   const [selectedNode, setSelectedNode] = useState<AiEvolveTopicVO | null>(null)
+  const theme = useTheme()
 
-  const { data: topicsRaw } = useQuery({
+  const { data: topicsRaw, isError, error } = useQuery({
     queryKey: ['evolve-topics-map', scopeKbId || 'all'],
     queryFn: () => aiApi.topicList(scopeKbId ? { kbId: Number(scopeKbId) } : {}),
   })
 
   const topics = topicsRaw ?? []
 
-  const NODE_COLORS: Record<string, string> = {
-    active: '#1976d2',
-    gap: '#ff9800',
-    expired: '#f44336',
-    new: '#e0e0e0',
-  }
+  const nodeColors = useMemo(() => ({
+    active: theme.palette.primary.main,
+    gap: theme.palette.warning.main,
+    expired: theme.palette.error.main,
+    new: alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.42 : 0.24),
+  }), [theme])
+
+  const legendItems = useMemo(() => [
+    { color: nodeColors.active, label: '核心知识' },
+    { color: nodeColors.gap, label: '缺口待补' },
+    { color: nodeColors.expired, label: '过期待更新' },
+    { color: nodeColors.new, label: '新增' },
+  ], [nodeColors])
 
   const nodes = topics.map((t, i) => {
     const tier = displayTopicTier(t.priority)
@@ -38,7 +47,7 @@ export function EvolutionMapTab({ scopeKbId }: EvolutionMapTabProps) {
       id: String(t.id ?? i),
       name: String(t.topicName ?? t.topic ?? `主题${i + 1}`),
       symbolSize: 40 + (tier === 1 ? 20 : 0),
-      itemStyle: { color: NODE_COLORS[String(t.status === 1 ? 'active' : t.status === 0 ? 'expired' : 'new')] },
+      itemStyle: { color: nodeColors[String(t.status === 1 ? 'active' : t.status === 0 ? 'expired' : 'new') as keyof typeof nodeColors] },
       value: t,
     }
   })
@@ -64,19 +73,30 @@ export function EvolutionMapTab({ scopeKbId }: EvolutionMapTabProps) {
   }
 
   return (
-    <Box>
+    <Box
+      data-testid="evolution-map-tab-contract"
+      data-contract-scope="ai-evolution-map"
+      data-ready-endpoints="/ai/evolution/topic/list"
+      data-unsupported-actions="static-topology|local-dependency-graph|client-inferred-knowledge-dependencies"
+      data-no-static-topology-fallback="true"
+      data-no-local-dependency-graph="true"
+    >
       <Alert severity="info" sx={{ mb: 2, bgcolor: 'var(--color-surface)', color: 'var(--color-text-primary)' }}>
         连线仅按主题列表顺序示意，不代表真实知识依赖；用于快速总览主题分布。
       </Alert>
+      {isError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          主题拓扑加载失败（POST /ai/evolution/topic/list）：{error instanceof Error ? error.message : '请检查后端服务'}。页面不会用静态拓扑替代真实主题池。
+        </Alert>
+      ) : null}
       <Stack direction="row" spacing={1} mb={2} alignItems="center">
         <AccountTreeIcon fontSize="small" sx={{ color: 'var(--color-primary)' }} />
         <Typography variant="subtitle2" sx={{ color: 'var(--color-text-primary)' }}>主题示意拓扑（力导向）</Typography>
         <Box sx={{ flex: 1 }} />
         <Stack direction="row" spacing={1}>
-          {[{ color: '#1976d2', label: '核心知识' }, { color: '#ff9800', label: '缺口待补' },
-            { color: '#f44336', label: '过期待更新' }, { color: '#e0e0e0', label: '新增' }].map(n => (
+          {legendItems.map(n => (
             <Stack key={n.label} direction="row" spacing={0.5} alignItems="center">
-              <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: n.color }} />
+              <Box data-testid="evolution-map-legend-dot-surface" sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: n.color }} />
               <Typography variant="caption" sx={{ color: 'var(--color-text-secondary)' }}>{n.label}</Typography>
             </Stack>
           ))}

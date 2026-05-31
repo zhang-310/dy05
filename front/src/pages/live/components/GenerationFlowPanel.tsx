@@ -7,6 +7,28 @@ import { FlowStepList } from './generation/FlowStepList'
 import { FlowActionBar } from './generation/FlowActionBar'
 import type { FlowStep, GroupedSteps } from './generation/types'
 
+const GENERATION_FLOW_READY_ENDPOINTS = [
+  '/live/ai/generate-full-pipelined-sse',
+  '/live/ai/generate-full-sse',
+  '/live/ai/generate-skeleton-sse',
+  '/live/script/save-batch-to-library',
+  '/live/script/export',
+]
+
+const GENERATION_FLOW_CONTEXT_SOURCES = [
+  'steps-prop',
+  'groupedSteps-prop',
+  'generation-state-props',
+]
+
+const GENERATION_FLOW_UNSUPPORTED_ACTIONS = [
+  'direct-network-call',
+  'local-step-fallback',
+  'script-mutation-in-panel',
+  'product-mutation',
+  'shortvideo-mutation',
+]
+
 // Re-export types so existing imports keep working
 export type { FlowStep } from './generation/types'
 export interface GenerationFlowPanelProps {
@@ -63,6 +85,18 @@ export const GenerationFlowPanel = memo(function GenerationFlowPanel({
   const [groupAccordionExpanded, setGroupAccordionExpanded] = useState<Record<number, boolean>>({})
   const lastStepRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
+  const doneCount = steps.filter((s) => s.status === 'done').length
+  const failedCount = steps.filter((s) => s.status === 'failed').length
+  const loadingCount = steps.filter((s) => s.status === 'loading').length
+  const pendingCount = steps.filter((s) => s.status === 'pending').length
+  const groupedStepCount = groupedSteps?.reduce((sum, group) => sum + group.steps.length, 0) ?? 0
+  const generationState = isGenerating
+    ? 'running'
+    : justCompleted
+      ? 'completed'
+      : steps.length > 0 || groupedStepCount > 0
+        ? 'ready'
+        : 'empty'
 
   useEffect(() => {
     if (!open || !onClose) return
@@ -130,9 +164,21 @@ export const GenerationFlowPanel = memo(function GenerationFlowPanel({
   const isInline = variant === 'inline'
 
   // Empty state for inline variant
-  if (isInline && steps.length === 0 && !currentLabel && !isGenerating) {
+  if (isInline && steps.length === 0 && groupedStepCount === 0 && !currentLabel && !isGenerating) {
     return (
       <Box
+        data-testid="generation-flow-empty-state"
+        data-contract-scope="live-generation-flow-props-orchestrator"
+        data-contract-source={GENERATION_FLOW_READY_ENDPOINTS.join('|')}
+        data-context-sources={GENERATION_FLOW_CONTEXT_SOURCES.join('|')}
+        data-unsupported-actions={GENERATION_FLOW_UNSUPPORTED_ACTIONS.join('|')}
+        data-variant={variant}
+        data-generation-state="empty"
+        data-step-count="0"
+        data-group-count={groupedSteps?.length ?? 0}
+        data-grouped-step-count={groupedStepCount}
+        data-no-direct-api-request="true"
+        data-no-local-step-fallback="true"
         sx={{
           height: '100%',
           display: 'flex',
@@ -164,6 +210,25 @@ export const GenerationFlowPanel = memo(function GenerationFlowPanel({
   const panelContent = (
     <Paper
       elevation={0}
+      data-testid="generation-flow-panel-root"
+      data-contract-scope="live-generation-flow-props-orchestrator"
+      data-contract-source={GENERATION_FLOW_READY_ENDPOINTS.join('|')}
+      data-context-sources={GENERATION_FLOW_CONTEXT_SOURCES.join('|')}
+      data-unsupported-actions={GENERATION_FLOW_UNSUPPORTED_ACTIONS.join('|')}
+      data-variant={variant}
+      data-generation-state={generationState}
+      data-step-count={steps.length}
+      data-group-count={groupedSteps?.length ?? 0}
+      data-grouped-step-count={groupedStepCount}
+      data-done-count={doneCount}
+      data-failed-count={failedCount}
+      data-loading-count={loadingCount}
+      data-pending-count={pendingCount}
+      data-current-label={currentLabel ?? ''}
+      data-total={total}
+      data-model-name={modelName ?? ''}
+      data-no-direct-api-request="true"
+      data-no-local-step-fallback="true"
       sx={{
         height: '100%',
         display: 'flex',

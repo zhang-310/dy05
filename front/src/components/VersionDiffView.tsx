@@ -16,6 +16,7 @@ import {
   Button,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
+import { alpha, type Theme } from '@mui/material/styles'
 
 /**
  * 版本差异数据结构
@@ -47,6 +48,28 @@ interface DiffLine {
   type: 'added' | 'removed' | 'same'
   lineNumber: number
   content: string
+}
+
+function getLineBackgroundColor(theme: Theme, type: 'added' | 'removed' | 'same'): string {
+  switch (type) {
+    case 'added':
+      return alpha(theme.palette.success.main, theme.palette.mode === 'dark' ? 0.22 : 0.14)
+    case 'removed':
+      return alpha(theme.palette.error.main, theme.palette.mode === 'dark' ? 0.22 : 0.14)
+    case 'same':
+      return 'transparent'
+  }
+}
+
+function getOperatorColor(theme: Theme, type: 'added' | 'removed' | 'same'): string {
+  switch (type) {
+    case 'added':
+      return theme.palette.success.main
+    case 'removed':
+      return theme.palette.error.main
+    case 'same':
+      return theme.palette.text.secondary
+  }
 }
 
 /**
@@ -132,18 +155,6 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({
 
   const maxLines = Math.max(leftLines.length, rightLines.length)
 
-  // 获取行背景色
-  const getLineBackgroundColor = (type: 'added' | 'removed' | 'same'): string => {
-    switch (type) {
-      case 'added':
-        return '#c8e6c9' // 淡绿
-      case 'removed':
-        return '#ffcdd2' // 淡红
-      case 'same':
-        return 'transparent'
-    }
-  }
-
   // 获取操作符
   const getOperator = (type: 'added' | 'removed' | 'same'): string => {
     switch (type) {
@@ -169,7 +180,7 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({
   }
 
   return (
-    <Box sx={{ p: 2 }}>
+    <Box data-testid="version-diff-view" data-diff-tone="semantic" sx={{ p: 2 }}>
       {/* 顶部标题和关闭按钮 */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
@@ -217,7 +228,11 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({
       <TableContainer component={Paper} sx={{ maxHeight: 600, overflow: 'auto' }}>
         <Table stickyHeader size="small">
           <TableHead>
-            <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+            <TableRow
+              data-testid="version-diff-header-row"
+              data-diff-tone="header"
+              sx={(theme) => ({ backgroundColor: theme.palette.action.hover })}
+            >
               <TableCell align="center" sx={{ width: '40px', fontWeight: 'bold' }}>
                 行号
               </TableCell>
@@ -244,41 +259,39 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({
                 <TableRow key={idx} sx={{ height: 32 }}>
                   {/* 左边行号 */}
                   <TableCell
+                    data-diff-line-tone={leftLine?.type ?? 'empty'}
                     align="center"
-                    sx={{
+                    sx={(theme) => ({
                       fontSize: '0.75rem',
-                      backgroundColor: leftLine ? getLineBackgroundColor(leftLine.type) : 'transparent',
-                    }}
+                      backgroundColor: leftLine ? getLineBackgroundColor(theme, leftLine.type) : 'transparent',
+                    })}
                   >
                     {leftLine ? leftLine.lineNumber : ''}
                   </TableCell>
 
                   {/* 左边操作符 */}
                   <TableCell
+                    data-diff-line-tone={leftLine?.type ?? 'empty'}
                     align="center"
-                    sx={{
+                    sx={(theme) => ({
                       fontSize: '0.8rem',
                       fontWeight: 'bold',
-                      backgroundColor: leftLine ? getLineBackgroundColor(leftLine.type) : 'transparent',
-                      color:
-                        leftLine?.type === 'removed'
-                          ? '#d32f2f'
-                          : leftLine?.type === 'added'
-                            ? '#388e3c'
-                            : 'textSecondary',
-                    }}
+                      backgroundColor: leftLine ? getLineBackgroundColor(theme, leftLine.type) : 'transparent',
+                      color: leftLine ? getOperatorColor(theme, leftLine.type) : theme.palette.text.secondary,
+                    })}
                   >
                     {leftLine ? getOperator(leftLine.type) : ''}
                   </TableCell>
 
                   {/* 左边内容 */}
                   <TableCell
+                    data-diff-line-tone={leftLine?.type ?? 'empty'}
                     sx={{
                       fontSize: '0.85rem',
                       fontFamily: 'monospace',
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-all',
-                      backgroundColor: leftLine ? getLineBackgroundColor(leftLine.type) : 'transparent',
+                      backgroundColor: (theme) => leftLine ? getLineBackgroundColor(theme, leftLine.type) : 'transparent',
                     }}
                   >
                     {leftLine ? leftLine.content : ''}
@@ -286,30 +299,27 @@ export const VersionDiffView: React.FC<VersionDiffViewProps> = ({
 
                   {/* 右边操作符 */}
                   <TableCell
+                    data-diff-line-tone={rightLine?.type ?? 'empty'}
                     align="center"
-                    sx={{
+                    sx={(theme) => ({
                       fontSize: '0.8rem',
                       fontWeight: 'bold',
-                      backgroundColor: rightLine ? getLineBackgroundColor(rightLine.type) : 'transparent',
-                      color:
-                        rightLine?.type === 'removed'
-                          ? '#d32f2f'
-                          : rightLine?.type === 'added'
-                            ? '#388e3c'
-                            : 'textSecondary',
-                    }}
+                      backgroundColor: rightLine ? getLineBackgroundColor(theme, rightLine.type) : 'transparent',
+                      color: rightLine ? getOperatorColor(theme, rightLine.type) : theme.palette.text.secondary,
+                    })}
                   >
                     {rightLine ? getOperator(rightLine.type) : ''}
                   </TableCell>
 
                   {/* 右边内容 */}
                   <TableCell
+                    data-diff-line-tone={rightLine?.type ?? 'empty'}
                     sx={{
                       fontSize: '0.85rem',
                       fontFamily: 'monospace',
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-all',
-                      backgroundColor: rightLine ? getLineBackgroundColor(rightLine.type) : 'transparent',
+                      backgroundColor: (theme) => rightLine ? getLineBackgroundColor(theme, rightLine.type) : 'transparent',
                     }}
                   >
                     {rightLine ? rightLine.content : ''}

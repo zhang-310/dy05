@@ -13,8 +13,14 @@ describe('useRolePrefix', () => {
     vi.clearAllMocks()
   })
 
+  function mockRole(roleCode = '') {
+    vi.mocked(useUserStore).mockImplementation((selector: any) => selector({
+      userInfo: roleCode ? { roles: [roleCode] } : null,
+    }) as any)
+  }
+
   it('returns /admin when pathname starts with /admin', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: ['user'] } } as any)
+    mockRole('user')
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/admin/products']}>{children}</MemoryRouter>
@@ -26,7 +32,7 @@ describe('useRolePrefix', () => {
   })
 
   it('returns /org when pathname starts with /org', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: ['user'] } } as any)
+    mockRole('user')
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/org/dashboard']}>{children}</MemoryRouter>
@@ -38,7 +44,7 @@ describe('useRolePrefix', () => {
   })
 
   it('returns /talent when pathname starts with /talent', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: ['user'] } } as any)
+    mockRole('user')
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/talent/videos']}>{children}</MemoryRouter>
@@ -49,8 +55,20 @@ describe('useRolePrefix', () => {
     expect(result.current).toBe('/talent')
   })
 
+  it('returns /user when pathname starts with /user', () => {
+    mockRole('admin')
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <MemoryRouter initialEntries={['/user/dashboard']}>{children}</MemoryRouter>
+    )
+
+    const { result } = renderHook(() => useRolePrefix(), { wrapper })
+
+    expect(result.current).toBe('/user')
+  })
+
   it('returns /admin for admin role when pathname does not match', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: ['admin'] } } as any)
+    mockRole('admin')
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/other']}>{children}</MemoryRouter>
@@ -58,14 +76,11 @@ describe('useRolePrefix', () => {
 
     const { result } = renderHook(() => useRolePrefix(), { wrapper })
 
-    // Bug in implementation: ROLE_PREFIX lookup uses roleCode ?? '' which becomes ''
-    // and ROLE_PREFIX[''] is undefined, so it falls back to '/talent'
-    // This test documents the actual behavior
-    expect(result.current).toBe('/talent')
+    expect(result.current).toBe('/admin')
   })
 
   it('returns /org for institution role when pathname does not match', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: ['institution'] } } as any)
+    mockRole('institution')
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/other']}>{children}</MemoryRouter>
@@ -73,12 +88,11 @@ describe('useRolePrefix', () => {
 
     const { result } = renderHook(() => useRolePrefix(), { wrapper })
 
-    // Bug in implementation: same issue as above
-    expect(result.current).toBe('/talent')
+    expect(result.current).toBe('/org')
   })
 
   it('returns /talent for talent role when pathname does not match', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: ['talent'] } } as any)
+    mockRole('talent')
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/other']}>{children}</MemoryRouter>
@@ -89,8 +103,8 @@ describe('useRolePrefix', () => {
     expect(result.current).toBe('/talent')
   })
 
-  it('returns /talent for user role when pathname does not match', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: ['user'] } } as any)
+  it('returns /user for user role when pathname does not match', () => {
+    mockRole('user')
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/other']}>{children}</MemoryRouter>
@@ -98,11 +112,13 @@ describe('useRolePrefix', () => {
 
     const { result } = renderHook(() => useRolePrefix(), { wrapper })
 
-    expect(result.current).toBe('/talent')
+    expect(result.current).toBe('/user')
   })
 
-  it('returns /talent when no roles are present', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: { roles: [] } } as any)
+  it('returns /user when no roles are present', () => {
+    vi.mocked(useUserStore).mockImplementation((selector: any) => selector({
+      userInfo: { roles: [] },
+    }) as any)
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/other']}>{children}</MemoryRouter>
@@ -110,11 +126,11 @@ describe('useRolePrefix', () => {
 
     const { result } = renderHook(() => useRolePrefix(), { wrapper })
 
-    expect(result.current).toBe('/talent')
+    expect(result.current).toBe('/user')
   })
 
-  it('returns /talent when userInfo is null', () => {
-    vi.mocked(useUserStore).mockReturnValue({ userInfo: null } as any)
+  it('returns /user when userInfo is null', () => {
+    mockRole()
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={['/other']}>{children}</MemoryRouter>
@@ -122,6 +138,6 @@ describe('useRolePrefix', () => {
 
     const { result } = renderHook(() => useRolePrefix(), { wrapper })
 
-    expect(result.current).toBe('/talent')
+    expect(result.current).toBe('/user')
   })
 })

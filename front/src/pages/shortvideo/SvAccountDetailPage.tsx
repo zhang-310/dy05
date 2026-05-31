@@ -21,6 +21,7 @@ import {
   MenuItem,
   Paper,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import EditIcon from '@mui/icons-material/Edit'
@@ -47,6 +48,7 @@ import { shortvideoRoutes } from '@/constants/shortvideoRoutes'
 import { useToast } from '@/contexts/ToastContext'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDate } from '@/utils/date'
+import { getErrorMessage } from '@/utils/errorHandler'
 
 function formatNumber(num: number | null | undefined): string {
   if (num == null) return '0'
@@ -58,6 +60,50 @@ function formatFloat(n: number | null | undefined, digits = 1): string {
   if (n == null || Number.isNaN(n)) return '0'
   return n.toFixed(digits)
 }
+
+const ACCOUNT_DETAIL_ENDPOINTS = {
+  get: '/short-video/account/get',
+  update: '/short-video/account/update',
+  refreshStats: '/short-video/account/refresh-stats',
+  videos: '/short-video/account/videos',
+  analytics: '/short-video/account/analytics',
+  deepAnalyzeBatch: '/short-video/viral/deep-analyze/batch',
+} as const
+const ACCOUNT_DETAIL_READY_ENDPOINTS = [
+  ACCOUNT_DETAIL_ENDPOINTS.get,
+  ACCOUNT_DETAIL_ENDPOINTS.update,
+  ACCOUNT_DETAIL_ENDPOINTS.refreshStats,
+  ACCOUNT_DETAIL_ENDPOINTS.videos,
+  ACCOUNT_DETAIL_ENDPOINTS.analytics,
+  ACCOUNT_DETAIL_ENDPOINTS.deepAnalyzeBatch,
+] as const
+const ACCOUNT_DETAIL_UNSUPPORTED_ENDPOINTS = [
+  '/short-video/account/mock',
+  '/short-video/account/local-get',
+  '/short-video/account/local-update',
+  '/short-video/account/local-refresh-stats',
+  '/short-video/account/local-videos',
+  '/short-video/account/static-analytics',
+  '/short-video/viral/local-deep-analyze',
+  '/short-video/viral/static-deep-progress',
+] as const
+const ACCOUNT_DETAIL_READY_ROUTES = [
+  shortvideoRoutes.accounts,
+  `${shortvideoRoutes.accounts}/:id`,
+  `${shortvideoRoutes.accounts}/:id?tab=videos`,
+  `${shortvideoRoutes.accounts}/:id?tab=analysis`,
+  `${shortvideoRoutes.viralVideos}?videoId=:id`,
+].join('|')
+const ACCOUNT_DETAIL_SUPPORTED_ACTIONS = [
+  'refresh-account-stats',
+  'edit-account-metadata',
+  'server-filter-account-videos',
+  'navigate-viral-detail',
+  'submit-single-deep-analyze',
+  'submit-selected-deep-analyze',
+  'submit-page-pending-deep-analyze',
+  'view-account-analytics',
+].join('|')
 
 function AccountAnalyticsPanel(props: {
   account: SvAccountDetail
@@ -72,7 +118,7 @@ function AccountAnalyticsPanel(props: {
 
   if (!a || a.videoCount <= 0) {
     return (
-      <Stack spacing={2}>
+      <Stack spacing={2} data-testid="sv-account-analytics-empty" data-no-static-analytics-fallback="true">
         <Alert severity="warning">
           当前账号在系统中尚无已采集入库的短视频，请先通过「账号视频采集」拉取作品后再查看综合分析。
         </Alert>
@@ -98,7 +144,7 @@ function AccountAnalyticsPanel(props: {
     a.deepPendingCount + a.deepProcessingCount + a.deepCompletedCount + a.deepFailedCount + a.deepOtherCount
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} data-testid="sv-account-analytics-panel" data-source-endpoint="/short-video/account/analytics">
       <Grid container spacing={2}>
         <Grid item xs={12} sm={6} md={3}>
           <Card variant="outlined">
@@ -236,14 +282,17 @@ export default function SvAccountDetailPage() {
   const VIRAL_BATCH_MAX = 30
 
   // 查询账号详情
-  const { data: account } = useQuery({
+  const { data: account, isLoading: accountLoading, isError: accountIsError, error: accountError, refetch: refetchAccount } = useQuery({
     queryKey: ['sv-account', accountId],
     queryFn: () => accountGet(accountId),
     enabled: !!accountId,
   })
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [deepAnalyzeError, setDeepAnalyzeError] = useState<string | null>(null)
 
   // 查询账号视频（该账号下已采集的全部爆款库视频，分页 / 筛选 / 排序）
-  const { data: videosData, isFetching: videosFetching, refetch: refetchVideos } = useQuery({
+  const { data: videosData, isFetching: videosFetching, isError: videosIsError, error: videosError, refetch: refetchVideos } = useQuery({
     queryKey: ['sv-account-videos', accountId, videoQuery],
     queryFn: () =>
       accountVideos({
@@ -268,13 +317,18 @@ export default function SvAccountDetailPage() {
     mutationFn: (ids: number[]) => batchDeepAnalyze(ids),
     onSuccess: () => {
       toast('深度拆解任务已提交', 'success')
+      setDeepAnalyzeError(null)
       setVideoRowSelection([])
       void qc.invalidateQueries({ queryKey: ['sv-account-videos', accountId] })
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e) => {
+      const message = getErrorMessage(e)
+      setDeepAnalyzeError(message)
+      toast(`深度拆解提交失败：${message}`, 'error')
+    },
   })
 
-  const { data: analyticsData, isFetching: analyticsFetching } = useQuery({
+  const { data: analyticsData, isFetching: analyticsFetching, isError: analyticsIsError, error: analyticsError, refetch: refetchAnalytics } = useQuery({
     queryKey: ['sv-account-analytics', accountId],
     queryFn: () => accountAnalytics(accountId),
     enabled: !!accountId && tabValue === 2,
@@ -291,13 +345,18 @@ export default function SvAccountDetailPage() {
 
   // 更新账号
   const updateMut = useMutation({
-    mutationFn: accountUpdate,
+    mutationFn: (params: Parameters<typeof accountUpdate>[0]) => accountUpdate(params),
     onSuccess: () => {
       toast('账号信息已更新', 'success')
+      setUpdateError(null)
       setEditing(false)
       void qc.invalidateQueries({ queryKey: ['sv-account', accountId] })
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e) => {
+      const message = getErrorMessage(e)
+      setUpdateError(message)
+      toast(`账号信息更新失败：${message}`, 'error')
+    },
   })
 
   // 刷新统计
@@ -305,9 +364,14 @@ export default function SvAccountDetailPage() {
     mutationFn: () => accountRefreshStats(accountId),
     onSuccess: () => {
       toast('统计数据已刷新', 'success')
+      setRefreshError(null)
       void qc.invalidateQueries({ queryKey: ['sv-account', accountId] })
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e) => {
+      const message = getErrorMessage(e)
+      setRefreshError(message)
+      toast(`刷新统计失败：${message}`, 'error')
+    },
   })
 
   const handleEdit = () => {
@@ -457,6 +521,8 @@ export default function SvAccountDetailPage() {
               size="small"
               onClick={() => navigate(`${shortvideoRoutes.viralVideos}?videoId=${row.id}`)}
               aria-label="open-viral-detail"
+              data-testid="sv-account-video-open-viral-button"
+              data-target-route={`${shortvideoRoutes.viralVideos}?videoId=${row.id}`}
             >
               <OpenInNewIcon fontSize="small" />
             </IconButton>
@@ -469,6 +535,9 @@ export default function SvAccountDetailPage() {
                 disabled={batchDeepMut.isPending || row.deepAnalyzeStatus === 'processing'}
                 onClick={() => batchDeepMut.mutate([row.id])}
                 aria-label="deep-analyze"
+                data-testid="sv-account-video-deep-analyze-button"
+                data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.deepAnalyzeBatch}
+                data-no-local-deep-analyze="true"
               >
                 <PsychologyIcon fontSize="small" />
               </IconButton>
@@ -479,18 +548,76 @@ export default function SvAccountDetailPage() {
     },
   ]
 
-  if (!account) {
+  if (accountLoading && !account) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box
+        data-testid="sv-account-detail-page"
+        data-ready-endpoints={ACCOUNT_DETAIL_READY_ENDPOINTS.join('|')}
+        data-ready-routes={ACCOUNT_DETAIL_READY_ROUTES}
+        data-supported-actions={ACCOUNT_DETAIL_SUPPORTED_ACTIONS}
+        data-unsupported-endpoints={ACCOUNT_DETAIL_UNSUPPORTED_ENDPOINTS.join('|')}
+        data-no-local-account-fallback="true"
+        data-no-static-analytics-fallback="true"
+        sx={{ p: 3 }}
+      >
         <Typography>加载中...</Typography>
       </Box>
     )
   }
 
+  if (accountIsError || !account) {
+    return (
+      <Box
+        data-testid="sv-account-detail-page"
+        data-ready-endpoints={ACCOUNT_DETAIL_READY_ENDPOINTS.join('|')}
+        data-ready-routes={ACCOUNT_DETAIL_READY_ROUTES}
+        data-supported-actions={ACCOUNT_DETAIL_SUPPORTED_ACTIONS}
+        data-unsupported-endpoints={ACCOUNT_DETAIL_UNSUPPORTED_ENDPOINTS.join('|')}
+        data-no-local-account-fallback="true"
+        data-no-static-analytics-fallback="true"
+        sx={{ p: 3 }}
+      >
+        <Stack spacing={2}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <IconButton
+              onClick={() => navigate(shortvideoRoutes.accounts)}
+              data-testid="sv-account-detail-back-button"
+              data-target-route={shortvideoRoutes.accounts}
+            >
+              <ArrowBackIcon />
+            </IconButton>
+            <Typography variant="h5">账号详情</Typography>
+          </Stack>
+          <Alert
+            data-testid="sv-account-detail-load-error"
+            data-no-local-account-fallback="true"
+            severity="error"
+            action={<Button color="inherit" size="small" onClick={() => void refetchAccount()}>重试</Button>}
+          >
+            账号详情加载失败（POST {ACCOUNT_DETAIL_ENDPOINTS.get}）：{getErrorMessage(accountError)}。请检查账号 ID 和当前用户数据权限。
+          </Alert>
+        </Stack>
+      </Box>
+    )
+  }
+
   return (
-    <Box>
+    <Box
+      data-testid="sv-account-detail-page"
+      data-ready-endpoints={ACCOUNT_DETAIL_READY_ENDPOINTS.join('|')}
+      data-ready-routes={ACCOUNT_DETAIL_READY_ROUTES}
+      data-supported-actions={ACCOUNT_DETAIL_SUPPORTED_ACTIONS}
+      data-unsupported-endpoints={ACCOUNT_DETAIL_UNSUPPORTED_ENDPOINTS.join('|')}
+      data-no-local-account-fallback="true"
+      data-no-local-video-fallback="true"
+      data-no-static-analytics-fallback="true"
+    >
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
-        <IconButton onClick={() => navigate('/admin/shortvideo/accounts')}>
+        <IconButton
+          onClick={() => navigate(shortvideoRoutes.accounts)}
+          data-testid="sv-account-detail-back-button"
+          data-target-route={shortvideoRoutes.accounts}
+        >
           <ArrowBackIcon />
         </IconButton>
         <Typography variant="h5">账号详情</Typography>
@@ -501,16 +628,31 @@ export default function SvAccountDetailPage() {
             startIcon={<RefreshIcon />}
             onClick={() => refreshMut.mutate()}
             disabled={refreshMut.isPending}
+            data-testid="sv-account-refresh-stats-button"
+            data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.refreshStats}
+            data-no-local-refresh-stats="true"
           >
             刷新统计
           </Button>
           {!editing && (
-            <Button variant="outlined" startIcon={<EditIcon />} onClick={handleEdit}>
+            <Button
+              variant="outlined"
+              startIcon={<EditIcon />}
+              onClick={handleEdit}
+              data-testid="sv-account-edit-button"
+              data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.update}
+            >
               编辑
             </Button>
           )}
         </Stack>
       </Stack>
+
+      {refreshError && (
+        <Alert data-testid="sv-account-refresh-error" data-no-local-refresh-stats="true" severity="error" sx={{ mb: 2 }}>
+          刷新统计失败（POST {ACCOUNT_DETAIL_ENDPOINTS.refreshStats}）：{refreshError}。当前详情数据保持不变。
+        </Alert>
+      )}
 
       {/* 基本信息卡片 */}
       <Card sx={{ mb: 3 }}>
@@ -606,6 +748,11 @@ export default function SvAccountDetailPage() {
 
         {/* Tab 1: 详细信息 */}
         <TabPanel value={tabValue} index={0}>
+          {updateError && (
+            <Alert data-testid="sv-account-update-error" data-input-retained="true" data-no-local-account-mutation="true" severity="error" sx={{ mb: 2 }}>
+              保存账号信息失败（POST {ACCOUNT_DETAIL_ENDPOINTS.update}）：{updateError}。编辑内容已保留。
+            </Alert>
+          )}
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
               <Typography variant="subtitle2" gutterBottom>
@@ -705,6 +852,9 @@ export default function SvAccountDetailPage() {
                     startIcon={<SaveIcon />}
                     onClick={handleSave}
                     disabled={updateMut.isPending}
+                    data-testid="sv-account-save-button"
+                    data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.update}
+                    data-no-local-account-mutation="true"
                   >
                     保存
                   </Button>
@@ -712,6 +862,7 @@ export default function SvAccountDetailPage() {
                     variant="outlined"
                     startIcon={<CancelIcon />}
                     onClick={() => setEditing(false)}
+                    data-testid="sv-account-cancel-edit-button"
                   >
                     取消
                   </Button>
@@ -733,6 +884,25 @@ export default function SvAccountDetailPage() {
             </Typography>
           </Alert>
 
+          {videosIsError && (
+            <Alert
+              data-testid="sv-account-videos-error"
+              data-input-retained="true"
+              data-no-local-video-fallback="true"
+              severity="error"
+              sx={{ mb: 2 }}
+              action={<Button color="inherit" size="small" onClick={() => void refetchVideos()}>重试</Button>}
+            >
+              账号视频加载失败（POST {ACCOUNT_DETAIL_ENDPOINTS.videos}）：{getErrorMessage(videosError)}。请检查爆款库账号归属和采集任务入库状态；页面不会补本地视频。
+            </Alert>
+          )}
+
+          {deepAnalyzeError && (
+            <Alert data-testid="sv-account-deep-analyze-error" data-input-retained="true" data-no-local-deep-analyze="true" severity="error" sx={{ mb: 2 }}>
+              深度拆解提交失败（POST {ACCOUNT_DETAIL_ENDPOINTS.deepAnalyzeBatch}）：{deepAnalyzeError}。当前勾选视频已保留。
+            </Alert>
+          )}
+
           <Paper
             variant="outlined"
             sx={{
@@ -742,10 +912,11 @@ export default function SvAccountDetailPage() {
             }}
           >
             <Box
+              data-testid="sv-account-video-filter-header"
               sx={{
                 px: 2,
                 py: 1.25,
-                bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'grey.50'),
+                bgcolor: (t) => (t.palette.mode === 'dark' ? alpha(t.palette.common.white, 0.04) : t.palette.grey[50]),
                 borderBottom: 1,
                 borderColor: 'divider',
               }}
@@ -787,10 +958,24 @@ export default function SvAccountDetailPage() {
                 <MenuItem value="failed">失败</MenuItem>
               </TextField>
               <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
-                <Button variant="contained" size="small" disableElevation onClick={applyVideoFilters}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  disableElevation
+                  onClick={applyVideoFilters}
+                  data-testid="sv-account-videos-apply-filter-button"
+                  data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.videos}
+                >
                   应用筛选
                 </Button>
-                <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={() => void refetchVideos()}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<RefreshIcon />}
+                  onClick={() => void refetchVideos()}
+                  data-testid="sv-account-videos-refresh-button"
+                  data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.videos}
+                >
                   刷新
                 </Button>
               </Stack>
@@ -798,7 +983,14 @@ export default function SvAccountDetailPage() {
 
             <Divider />
 
-            <Box sx={{ px: 2, py: 2, bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(0,0,0,0.12)' : 'grey.50') }}>
+            <Box
+              data-testid="sv-account-video-batch-panel"
+              sx={{
+                px: 2,
+                py: 2,
+                bgcolor: (t) => (t.palette.mode === 'dark' ? alpha(t.palette.common.black, 0.12) : t.palette.grey[50]),
+              }}
+            >
               <Stack
                 direction={{ xs: 'column', md: 'row' }}
                 spacing={2}
@@ -821,6 +1013,9 @@ export default function SvAccountDetailPage() {
                     color="secondary"
                     disableElevation
                     disabled={batchDeepMut.isPending || videoRowSelection.length === 0}
+                    data-testid="sv-account-deep-analyze-selected-button"
+                    data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.deepAnalyzeBatch}
+                    data-no-local-deep-analyze="true"
                     onClick={() => {
                       const ids = videoRowSelection.map((x) => Number(x)).filter((n) => Number.isFinite(n))
                       const take = ids.slice(0, VIRAL_BATCH_MAX)
@@ -835,6 +1030,9 @@ export default function SvAccountDetailPage() {
                     size="small"
                     variant="outlined"
                     disabled={batchDeepMut.isPending}
+                    data-testid="sv-account-deep-analyze-page-pending-button"
+                    data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.deepAnalyzeBatch}
+                    data-no-local-deep-analyze="true"
                     onClick={() => {
                       const rows = videosData?.list ?? []
                       const pendingIds = rows
@@ -862,29 +1060,31 @@ export default function SvAccountDetailPage() {
             共 {Number(videosData?.total ?? 0)} 条 · 支持表头排序（服务端）
           </Typography>
           <Box sx={{ width: '100%', height: { xs: 440, sm: 520 }, minHeight: 360 }}>
-            <StandardDataGrid
-              rows={videosData?.list || []}
-              columns={videoColumns}
-              loading={videosFetching}
-              rowCount={Number(videosData?.total ?? 0)}
-              paginationMode="server"
-              sortingMode="server"
-              sortModel={videoSortModel}
-              onSortModelChange={onVideoSortModelChange}
-              paginationModel={{ page: videoQuery.page, pageSize: videoQuery.pageSize }}
-              onPaginationModelChange={(model) =>
-                setVideoQuery((q) => ({ ...q, page: model.page, pageSize: model.pageSize }))
-              }
-              getRowId={(r) => r.id}
-              checkboxSelection
-              rowSelectionModel={videoRowSelection}
-              onRowSelectionModelChange={(m) => setVideoRowSelection(m)}
-              pageSizeOptions={[10, 20, 30, 50]}
-              density="compact"
-              sx={{
-                '& .MuiDataGrid-row': { minHeight: '52px !important' },
-              }}
-            />
+            <Box data-testid="sv-account-videos-grid" data-source-endpoint={ACCOUNT_DETAIL_ENDPOINTS.videos} data-no-local-video-fallback="true" sx={{ height: '100%' }}>
+              <StandardDataGrid
+                rows={videosData?.list || []}
+                columns={videoColumns}
+                loading={videosFetching}
+                rowCount={Number(videosData?.total ?? 0)}
+                paginationMode="server"
+                sortingMode="server"
+                sortModel={videoSortModel}
+                onSortModelChange={onVideoSortModelChange}
+                paginationModel={{ page: videoQuery.page, pageSize: videoQuery.pageSize }}
+                onPaginationModelChange={(model) =>
+                  setVideoQuery((q) => ({ ...q, page: model.page, pageSize: model.pageSize }))
+                }
+                getRowId={(r) => r.id}
+                checkboxSelection
+                rowSelectionModel={videoRowSelection}
+                onRowSelectionModelChange={(m) => setVideoRowSelection(m)}
+                pageSizeOptions={[10, 20, 30, 50]}
+                density="compact"
+                sx={{
+                  '& .MuiDataGrid-row': { minHeight: '52px !important' },
+                }}
+              />
+            </Box>
           </Box>
         </TabPanel>
 
@@ -894,6 +1094,17 @@ export default function SvAccountDetailPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             以下统计基于该账号关联的全部已采集视频（爆款库）实时聚合，用于横向对比账号整体内容表现与深度分析进度。
           </Typography>
+          {analyticsIsError && (
+            <Alert
+              data-testid="sv-account-analytics-error"
+              data-no-static-analytics-fallback="true"
+              severity="error"
+              sx={{ mb: 2 }}
+              action={<Button color="inherit" size="small" onClick={() => void refetchAnalytics()}>重试</Button>}
+            >
+              账号综合分析加载失败（POST {ACCOUNT_DETAIL_ENDPOINTS.analytics}）：{getErrorMessage(analyticsError)}。请检查爆款视频聚合查询；页面不会展示静态聚合结果。
+            </Alert>
+          )}
           <AccountAnalyticsPanel account={account} analytics={analyticsData} loading={analyticsFetching} />
         </TabPanel>
       </Card>

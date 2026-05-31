@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import {
   Box,
+  Button,
   LinearProgress,
   Tooltip,
   Typography,
@@ -72,6 +73,17 @@ export const FlowProgressHeader = memo(function FlowProgressHeader({
     <>
       {/* Title bar */}
       <Box
+        data-testid="flow-progress-header"
+        data-contract-scope="live-generation-flow-header"
+        data-contract-source="/live/ai/generate-full-pipelined-sse|/live/ai/generate-full-sse|/live/ai/generate-skeleton-sse"
+        data-step-count={steps.length}
+        data-done-count={doneCount}
+        data-failed-count={failedCount}
+        data-loading-count={loadingCount}
+        data-pending-count={pendingCount}
+        data-is-generating={isGenerating ? 'true' : 'false'}
+        data-sse-reconnecting={sseReconnecting ? 'true' : 'false'}
+        data-no-local-step-fallback="true"
         sx={{
           px: 1,
           py: 0.25,
@@ -115,12 +127,24 @@ export const FlowProgressHeader = memo(function FlowProgressHeader({
         {hasExpandableSteps && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
             <Tooltip title="全部展开">
-              <IconButton size="small" sx={{ p: 0.25 }} onClick={onExpandAll}>
+              <IconButton
+                size="small"
+                sx={{ p: 0.25 }}
+                onClick={onExpandAll}
+                data-testid="flow-progress-expand-all-button"
+                data-contract-source="onExpandAll-prop"
+              >
                 <ExpandMoreIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </Tooltip>
             <Tooltip title="全部收缩">
-              <IconButton size="small" sx={{ p: 0.25 }} onClick={onCollapseAll}>
+              <IconButton
+                size="small"
+                sx={{ p: 0.25 }}
+                onClick={onCollapseAll}
+                data-testid="flow-progress-collapse-all-button"
+                data-contract-source="onCollapseAll-prop"
+              >
                 <ExpandLessIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </Tooltip>
@@ -128,7 +152,14 @@ export const FlowProgressHeader = memo(function FlowProgressHeader({
         )}
 
         {!isInline && onClose && (
-          <IconButton size="small" onClick={onClose} title="收起" sx={{ p: 0.25 }}>
+          <IconButton
+            size="small"
+            onClick={onClose}
+            title="收起"
+            sx={{ p: 0.25 }}
+            data-testid="flow-progress-close-button"
+            data-contract-source="onClose-prop"
+          >
             <CloseIcon sx={{ fontSize: 16 }} />
           </IconButton>
         )}
@@ -136,7 +167,14 @@ export const FlowProgressHeader = memo(function FlowProgressHeader({
 
       {/* Statistics summary */}
       {steps.length > 0 && (
-        <Box sx={{ px: 1, py: 0.25, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
+        <Box
+          data-testid="flow-progress-summary"
+          data-contract-source="/live/ai/generate-full-pipelined-sse|/live/ai/generate-full-sse|/live/ai/generate-skeleton-sse"
+          data-percent={pct}
+          data-quality-count={qPass + qWarn + qFail}
+          data-no-local-step-fallback="true"
+          sx={{ px: 1, py: 0.25, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.125, flexWrap: 'wrap' }}>
             <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600, color: 'text.primary' }}>
               {doneCount}
@@ -169,20 +207,16 @@ export const FlowProgressHeader = memo(function FlowProgressHeader({
               </Typography>
             )}
             {failedCount > 0 && !isGenerating && onRetryAllFailed && (
-              <Typography
-                component="span"
-                variant="caption"
-                sx={{
-                  fontSize: '0.7rem',
-                  color: 'primary.main',
-                  cursor: 'pointer',
-                  ml: 0.25,
-                  '&:hover': { textDecoration: 'underline' },
-                }}
+              <Button
+                size="small"
+                variant="text"
                 onClick={onRetryAllFailed}
+                data-testid="flow-progress-retry-all-failed-button"
+                data-contract-source="onRetryAllFailed-prop"
+                sx={{ fontSize: '0.7rem', minWidth: 0, px: 0.5, py: 0, ml: 0.25 }}
               >
                 重试失败
-              </Typography>
+              </Button>
             )}
             {/* P1-03: 预估剩余时间 */}
             {estimatedRemaining && isGenerating && (
@@ -227,6 +261,9 @@ export const FlowProgressHeader = memo(function FlowProgressHeader({
       {/* SSE reconnecting banner */}
       {sseReconnecting && (
         <Box
+          data-testid="flow-progress-reconnecting-banner"
+          data-contract-source="/live/ai/generate-full-pipelined-sse|/live/ai/generate-full-sse|/live/ai/generate-skeleton-sse"
+          data-no-local-step-fallback="true"
           sx={{
             px: 2,
             py: 0.75,

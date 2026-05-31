@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { Fab, Zoom, Badge } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 
 export interface GenerationProgressFabProps {
@@ -23,7 +24,17 @@ export const GenerationProgressFab = memo(function GenerationProgressFab({
         size="small"
         color="primary"
         onClick={onClick}
-        sx={{
+        data-testid="generation-progress-fab-surface"
+        data-contract-scope="live-generation-progress-fab"
+        data-ready-sources="generation-progress-props|onClick-prop"
+        data-no-direct-api-request="true"
+        data-generation-loading={genLoading ? 'true' : 'false'}
+        data-done-count={doneCount}
+        data-total-count={totalCount}
+        data-disabled-reason="ready"
+        sx={(theme) => {
+          const pulseColor = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.5 : 0.38)
+          return {
           position: 'fixed',
           bottom: 24,
           right: 24,
@@ -31,11 +42,11 @@ export const GenerationProgressFab = memo(function GenerationProgressFab({
           ...(genLoading ? {
             animation: 'pulse 1.5s ease-in-out infinite',
             '@keyframes pulse': {
-              '0%, 100%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0.4)' },
-              '50%': { boxShadow: '0 0 0 10px rgba(25, 118, 210, 0)' },
+              '0%, 100%': { boxShadow: `0 0 0 0 ${pulseColor}` },
+              '50%': { boxShadow: `0 0 0 10px ${alpha(theme.palette.primary.main, 0)}` },
             },
           } : {}),
-        }}
+        }}}
         title={`查看进度 (${doneCount}/${totalCount})`}
       >
         <Badge badgeContent={totalCount > 0 ? `${doneCount}/${totalCount}` : undefined} color="error" sx={{ '& .MuiBadge-badge': { fontSize: '0.6rem', minWidth: 16, height: 16 } }}>

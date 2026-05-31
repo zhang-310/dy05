@@ -26,6 +26,48 @@ export function analyzeScript(versionId: number): Promise<ScriptAnalysisResultVO
   });
 }
 
+export function analyzeProductScriptVersion(
+  scriptVersionId: number,
+  dataSource = 'PRODUCT_SCRIPT',
+  analysisType = 'COMPREHENSIVE',
+): Promise<ScriptAnalysisResultVO> {
+  return request.post<ScriptAnalysisResultVO>('/product/script/analyze', {
+    scriptVersionId,
+    dataSource,
+    analysisType,
+  });
+}
+
+export function getProductScriptOptimizationSuggestions(
+  scriptVersionId: number,
+  analysisResultId: number,
+  topN = 5,
+): Promise<OptimizationSuggestionVO[]> {
+  return request.post<OptimizationSuggestionVO[]>('/product/script/suggestions', {
+    scriptVersionId,
+    analysisResultId,
+    topN,
+  });
+}
+
+export interface ProductScriptRegenerateResponse {
+  regenerationTaskId: string;
+  variants: RegeneratedScriptVO[];
+  generatedAt: string;
+}
+
+export function regenerateProductScriptBySuggestion(
+  scriptVersionId: number,
+  suggestionId: number,
+  generationStyles: string[] = ['FRIENDLY', 'HUMOROUS', 'PREMIUM'],
+): Promise<ProductScriptRegenerateResponse> {
+  return request.post<ProductScriptRegenerateResponse>('/product/script/regenerate', {
+    scriptVersionId,
+    suggestionId,
+    generationStyles,
+  });
+}
+
 /**
  * 获取优化建议列表
  */

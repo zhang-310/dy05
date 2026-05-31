@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
-import { Box, Typography } from '@mui/material'
+import { Box, Typography, useTheme } from '@mui/material'
+import type { Theme } from '@mui/material/styles'
 
 interface GmvCounterProps {
   value: number
@@ -7,7 +8,21 @@ interface GmvCounterProps {
   fontSize?: number
 }
 
+type GmvTone = 'success' | 'warning' | 'text'
+
+function getGmvTone(value: number): GmvTone {
+  if (value >= 10000000) return 'success'
+  if (value >= 5000000) return 'warning'
+  return 'text'
+}
+
+function getGmvColor(theme: Theme, tone: GmvTone) {
+  if (tone === 'text') return theme.palette.text.secondary
+  return theme.palette.mode === 'dark' ? theme.palette[tone].light : theme.palette[tone].main
+}
+
 export default function GmvCounter({ value, duration = 1000, fontSize = 48 }: GmvCounterProps) {
+  const theme = useTheme()
   const [displayValue, setDisplayValue] = useState(0)
   const [flyingDigits, setFlyingDigits] = useState<{ id: number; digit: string; delay: number }[]>([])
   const prevValueRef = useRef(0)
@@ -49,11 +64,16 @@ export default function GmvCounter({ value, duration = 1000, fontSize = 48 }: Gm
   }, [value, duration])
 
   const formatted = displayValue.toLocaleString('zh-CN')
-  const color = displayValue >= 10000000 ? '#4caf50' : displayValue >= 5000000 ? '#ff9800' : '#666'
+  const tone = getGmvTone(displayValue)
+  const color = getGmvColor(theme, tone)
+  const flyingDigitColor = getGmvColor(theme, 'success')
 
   return (
     <Box sx={{ position: 'relative', display: 'inline-block' }}>
       <Typography
+        data-testid="gmv-counter-value-surface"
+        data-gmv-tone={tone}
+        data-gmv-color={color}
         sx={{
           fontSize,
           fontWeight: 700,
@@ -67,13 +87,16 @@ export default function GmvCounter({ value, duration = 1000, fontSize = 48 }: Gm
       {flyingDigits.map(({ id, digit, delay }) => (
         <Box
           key={id}
+          data-testid="gmv-counter-flying-digit-surface"
+          data-gmv-tone="success"
+          data-gmv-color={flyingDigitColor}
           sx={{
             position: 'absolute',
             top: 0,
             right: 0,
             fontSize: fontSize * 0.6,
             fontWeight: 700,
-            color: '#4caf50',
+            color: flyingDigitColor,
             animation: 'flyUp 0.8s ease-out forwards',
             animationDelay: `${delay}ms`,
             '@keyframes flyUp': {

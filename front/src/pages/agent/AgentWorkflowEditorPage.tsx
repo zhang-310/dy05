@@ -16,6 +16,8 @@ import { PageHeader } from '@/components/base'
 import { useToast } from '@/contexts/ToastContext'
 import { workflowApi, agentApi, type Agent, type WorkflowSave } from '@/api/agent'
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { normalizeArray, normalizeStringArray } from '@/utils/response-normalize'
 
 interface StepForm {
   id?: number
@@ -45,6 +47,23 @@ const SKIP_CONDITION_OPTIONS = [
   { value: 'has-result:', label: 'has-result:（上一步无结果时跳过）' },
 ]
 
+const WORKFLOW_EDITOR_READY_ENDPOINTS = [
+  '/agent/list',
+  '/agent/workflow/get',
+  '/agent/workflow/save',
+  '/agent/workflow/execute',
+].join('|')
+
+const WORKFLOW_EDITOR_UNSUPPORTED_ENDPOINTS = [
+  '/agent/workflow/mock',
+  '/agent/workflow/local-save',
+  '/agent/workflow/local-execute',
+  '/agent/workflow/execution/local-create',
+  '/agent/workflow/execution/get',
+  '/agent/workflow/export',
+  '/agent/workflow/import-local',
+].join('|')
+
 function StepCard({
   step, allSteps, agents, onChange, onRemove,
 }: {
@@ -65,7 +84,13 @@ function StepCard({
   const update = (patch: Partial<StepForm>) => onChange({ ...step, ...patch })
 
   return (
-    <Card variant="outlined" sx={{ mb: 1.5 }}>
+    <Card
+      variant="outlined"
+      sx={{ mb: 1.5 }}
+      data-testid="agent-workflow-step-card"
+      data-step-order={String(step.stepOrder)}
+      data-no-local-step-persistence="true"
+    >
       <CardContent sx={{ pb: 1, '&:last-child': { pb: 1 } }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Chip label={`步骤 ${step.stepOrder}`} size="small" color="primary" />
@@ -195,7 +220,13 @@ function StepCard({
 function DagPreview({ steps }: { steps: StepForm[] }) {
   if (steps.length === 0) {
     return (
-      <Paper variant="outlined" sx={{ p: 2 }}>
+      <Paper
+        variant="outlined"
+        sx={{ p: 2 }}
+        data-testid="agent-workflow-dag-preview"
+        data-form-only-preview="true"
+        data-no-server-persistence="true"
+      >
         <Typography variant="body2" color="text.secondary">添加步骤后可在 DAG 预览中查看执行层级</Typography>
       </Paper>
     )
@@ -224,7 +255,13 @@ function DagPreview({ steps }: { steps: StepForm[] }) {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
+    <Paper
+      variant="outlined"
+      sx={{ p: 2 }}
+      data-testid="agent-workflow-dag-preview"
+      data-form-only-preview="true"
+      data-no-server-persistence="true"
+    >
       <Typography variant="subtitle2" sx={{ mb: 1.5 }}>DAG 执行预览</Typography>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {layers.map((layer, li) => (
@@ -263,15 +300,17 @@ export default function AgentWorkflowEditorPage() {
   const [steps, setSteps] = useState<StepForm[]>([])
   const [activeTab, setActiveTab] = useState(0)
   const [userInput, setUserInput] = useState('')
+  const [actionError, setActionError] = useState('')
 
   // Load agents for dropdown
-  const { data: agents = [] } = useQuery({
+  const { data: rawAgents, isError: agentsError, error: agentsLoadError, refetch: refetchAgents } = useQuery({
     queryKey: ['agents', 'all'],
-    queryFn: () => agentApi.list({ rows: 1000 }).then(r => r.list),
+    queryFn: () => agentApi.list({ rows: 1000 }),
   })
+  const agents = normalizeArray<Agent>(rawAgents)
 
   // Load workflow if editing
-  const { data: workflow } = useQuery({
+  const { data: workflow, isError: workflowError, error: workflowLoadError, refetch: refetchWorkflow } = useQuery({
     queryKey: ['workflow', 'detail', workflowId],
     queryFn: () => workflowId ? workflowApi.get(workflowId) : Promise.resolve(null),
     enabled: !!workflowId,
@@ -282,16 +321,16 @@ export default function AgentWorkflowEditorPage() {
       setName(workflow.name)
       setDescription(workflow.description ?? '')
       setStatus(workflow.status)
-      setSteps(workflow.steps.map(s => ({
+      setSteps(normalizeArray<typeof workflow.steps[number]>(workflow.steps).map((s, index) => ({
         id: s.id,
-        stepOrder: s.stepOrder,
+        stepOrder: s.stepOrder ?? index + 1,
         agentId: s.agentId,
         agentName: s.agentName,
         stepName: s.stepName ?? '',
         inputTemplate: s.inputTemplate ?? '',
         outputKey: s.outputKey ?? '',
         skipCondition: s.skipCondition ?? '',
-        dependsOn: s.dependsOn ?? [],
+        dependsOn: normalizeStringArray(s.dependsOn),
         executionMode: s.executionMode ?? 0,
         retryCount: s.retryCount ?? 1,
         timeoutSeconds: s.timeoutSeconds ?? 300,
@@ -323,11 +362,15 @@ export default function AgentWorkflowEditorPage() {
     },
     onSuccess: (newId) => {
       toast('保存成功', 'success')
+      setActionError('')
       if (!isEditing && newId) {
-        navigate(`/ai/agent/workflow/edit/${newId}`, { replace: true })
+        navigate(`/admin/ai/agent/workflow/edit/${newId}`, { replace: true })
       }
     },
-    onError: () => toast('保存失败', 'error'),
+    onError: (error) => {
+      setActionError(`保存工作流失败（POST /agent/workflow/save）：${getErrorMessage(error)}。页面已保留工作流名称、状态、描述和全部步骤配置。`)
+      toast('保存失败', 'error')
+    },
   })
 
   const executeMutation = useMutation({
@@ -335,8 +378,14 @@ export default function AgentWorkflowEditorPage() {
       if (!workflowId) return Promise.reject(new Error('No workflow id'))
       return workflowApi.execute(workflowId, userInput)
     },
-    onSuccess: () => toast('工作流已启动', 'success'),
-    onError: () => toast('启动失败', 'error'),
+    onSuccess: () => {
+      setActionError('')
+      toast('工作流已启动', 'success')
+    },
+    onError: (error) => {
+      setActionError(`执行工作流失败（POST /agent/workflow/execute）：${getErrorMessage(error)}。页面不会伪造执行记录，已保留快速执行输入和当前步骤配置。`)
+      toast('启动失败', 'error')
+    },
   })
 
   const addStep = () => {
@@ -370,7 +419,13 @@ export default function AgentWorkflowEditorPage() {
   const canSave = name.trim().length > 0 && steps.length > 0
 
   return (
-    <Box>
+    <Box
+      data-testid="agent-workflow-editor-page"
+      data-ready-endpoints={WORKFLOW_EDITOR_READY_ENDPOINTS}
+      data-unsupported-endpoints={WORKFLOW_EDITOR_UNSUPPORTED_ENDPOINTS}
+      data-no-local-workflow-mutation="true"
+      data-no-local-execution-record="true"
+    >
       <PageHeader
         title={isEditing ? `编辑工作流: ${name}` : '新建工作流'}
         actions={
@@ -391,8 +446,67 @@ export default function AgentWorkflowEditorPage() {
         }
       />
 
+      <Alert
+        severity="info"
+        sx={{ mb: 2 }}
+        data-testid="agent-workflow-editor-boundary-contract"
+        data-source-endpoints={WORKFLOW_EDITOR_READY_ENDPOINTS}
+        data-no-local-workflow-mutation="true"
+        data-no-local-execution-record="true"
+      >
+        编辑页只读取 <code>/agent/list</code> 与 <code>/agent/workflow/get</code>，保存和快速执行分别提交到 <code>/agent/workflow/save</code>、<code>/agent/workflow/execute</code>。
+        DAG 预览只基于当前表单配置，不代表已经持久化或产生执行记录。
+      </Alert>
+
+      {agentsError && (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          data-testid="agent-workflow-editor-agents-error"
+          data-source-endpoint="/agent/list"
+          data-no-local-agent-fallback="true"
+          action={<Button color="inherit" size="small" onClick={() => refetchAgents()}>重试</Button>}
+        >
+          智能体列表加载失败（POST /agent/list）：{getErrorMessage(agentsLoadError)}。无法选择工作流步骤执行者，已配置步骤不会被清空。
+        </Alert>
+      )}
+
+      {workflowError && (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          data-testid="agent-workflow-editor-detail-error"
+          data-source-endpoint="/agent/workflow/get"
+          data-no-local-workflow-fallback="true"
+          action={<Button color="inherit" size="small" onClick={() => refetchWorkflow()}>重试</Button>}
+        >
+          工作流详情加载失败（POST /agent/workflow/get）：{getErrorMessage(workflowLoadError)}。请确认工作流是否存在或当前账号是否有权限。
+        </Alert>
+      )}
+
+      {actionError && (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          data-testid="agent-workflow-editor-action-error"
+          data-input-retained="true"
+          data-no-local-workflow-mutation="true"
+          data-no-local-execution-record="true"
+          onClose={() => setActionError('')}
+        >
+          {actionError}
+        </Alert>
+      )}
+
       {isEditing && (
-        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Paper
+          variant="outlined"
+          sx={{ p: 2, mb: 2 }}
+          data-testid="agent-workflow-quick-execute-contract"
+          data-source-endpoint="/agent/workflow/execute"
+          data-input-retained="true"
+          data-no-local-execution-record="true"
+        >
           <Typography variant="subtitle2" sx={{ mb: 1 }}>快速执行</Typography>
           <Stack direction="row" spacing={1}>
             <TextField fullWidth size="small" placeholder="输入内容，敲击回车执行"
@@ -419,7 +533,14 @@ export default function AgentWorkflowEditorPage() {
 
       {activeTab === 0 && (
         <Box>
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Paper
+            variant="outlined"
+            sx={{ p: 2, mb: 2 }}
+            data-testid="agent-workflow-editor-form-contract"
+            data-source-endpoint="/agent/workflow/save"
+            data-input-retained="true"
+            data-no-local-workflow-mutation="true"
+          >
             <Grid container spacing={2}>
               <Grid item xs={12} sm={8}>
                 <TextField fullWidth size="small" label="工作流名称" value={name}
@@ -443,7 +564,12 @@ export default function AgentWorkflowEditorPage() {
             </Grid>
           </Paper>
 
-          <Box sx={{ mb: 2 }}>
+          <Box
+            sx={{ mb: 2 }}
+            data-testid="agent-workflow-steps-contract"
+            data-source-endpoint="/agent/workflow/save"
+            data-no-local-step-persistence="true"
+          >
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
               <Typography variant="subtitle1" fontWeight={600}>步骤配置</Typography>
               <Button size="small" startIcon={<AddIcon />} onClick={addStep}

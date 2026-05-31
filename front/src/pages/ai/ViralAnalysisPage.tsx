@@ -15,16 +15,20 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
+  Alert,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { aiApi, type EvolutionStatsVO, type EvolutionViralItem } from '@/api/ai'
 import { douyinApi, type DyVideo } from '@/api/douyin'
-import { StandardDataGrid, PageHeader, ConfirmDialog } from '@/components/base'
+import { StandardDataGrid, PageHeader, ConfirmDialog, DataGridEmptyOverlay, ErrorAlert } from '@/components/base'
 import { useToast } from '@/contexts/ToastContext'
 import type { GridColDef } from '@mui/x-data-grid'
 import { useDebouncedValue } from '@/hooks/useDebouncedCallback'
+import { getErrorMessage } from '@/utils/errorHandler'
+import { alpha } from '@mui/material/styles'
+import { normalizeArray, readTotal } from '@/utils/response-normalize'
 
 /** 与 AiViralAnalysis：0=分析中 1=完成 2=失败 */
 const STATUS_LABELS: Record<number, { label: string; color: 'default' | 'info' | 'success' | 'error' }> = {
@@ -40,6 +44,23 @@ const STAT_CARDS: { key: keyof EvolutionStatsVO; label: string }[] = [
   { key: 'liveReviewDone', label: '直播复盘已完成' },
   { key: 'indexQueuePending', label: '索引队列待处理' },
 ]
+const VIRAL_READY_ENDPOINTS = [
+  '/ai/evolution/viral/list',
+  '/ai/evolution/viral/get',
+  '/ai/evolution/viral/trigger',
+  '/ai/evolution/viral/delete',
+  '/ai/evolution/stats',
+  '/douyin/video/search',
+].join(',')
+const VIRAL_UNSUPPORTED_ENDPOINTS = [
+  '/ai/evolution/viral/mock',
+  '/ai/evolution/viral/local-list',
+  '/ai/evolution/viral/static-report',
+  '/ai/evolution/viral/local-trigger',
+  '/ai/evolution/viral/local-delete',
+  '/ai/evolution/viral/download-video',
+  '/ai/evolution/viral/asr-local',
+].join(',')
 
 function num(v: unknown): number {
   if (v == null) return 0
@@ -47,29 +68,38 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function readAlias<T = unknown>(raw: Record<string, unknown>, keys: string[]): T | undefined {
+  for (const key of keys) {
+    if (raw[key] != null) return raw[key] as T
+  }
+  return undefined
+}
+
 function isValidViralItem(o: unknown): o is EvolutionViralItem {
   if (!o || typeof o !== 'object') return false
-  return num((o as Partial<EvolutionViralItem>).id) > 0
+  const row = o as Record<string, unknown>
+  return num(readAlias(row, ['id', 'analysisId', 'analysis_id'])) > 0
 }
 
 function normalizeViralRow(raw: Partial<EvolutionViralItem>): EvolutionViralItem {
+  const record = raw as Record<string, unknown>
   return {
-    id: num(raw.id),
-    videoId: raw.videoId ?? undefined,
-    videoTitle: raw.videoTitle ?? undefined,
-    accountId: raw.accountId ?? null,
-    ownerId: raw.ownerId ?? undefined,
-    viralScore: raw.viralScore ?? undefined,
-    viewCount: raw.viewCount ?? undefined,
-    avgViewCount: raw.avgViewCount ?? undefined,
-    successFactors: raw.successFactors ?? null,
-    replicableMethods: raw.replicableMethods ?? null,
-    reportContent: raw.reportContent ?? null,
-    qualityScore: raw.qualityScore ?? undefined,
-    modelUsed: raw.modelUsed ?? null,
-    tokensUsed: raw.tokensUsed ?? undefined,
-    status: num(raw.status),
-    createTime: raw.createTime ?? undefined,
+    id: num(readAlias(record, ['id', 'analysisId', 'analysis_id'])),
+    videoId: num(readAlias(record, ['videoId', 'video_id'])) || undefined,
+    videoTitle: readAlias<string>(record, ['videoTitle', 'video_title', 'title']) ?? undefined,
+    accountId: num(readAlias(record, ['accountId', 'account_id'])) || null,
+    ownerId: num(readAlias(record, ['ownerId', 'owner_id'])) || undefined,
+    viralScore: num(readAlias(record, ['viralScore', 'viral_score', 'score'])) || undefined,
+    viewCount: num(readAlias(record, ['viewCount', 'view_count', 'playCount', 'play_count'])) || undefined,
+    avgViewCount: num(readAlias(record, ['avgViewCount', 'avg_view_count'])) || undefined,
+    successFactors: readAlias<string>(record, ['successFactors', 'success_factors']) ?? null,
+    replicableMethods: readAlias<string>(record, ['replicableMethods', 'replicable_methods']) ?? null,
+    reportContent: readAlias<string>(record, ['reportContent', 'report_content', 'report']) ?? null,
+    qualityScore: num(readAlias(record, ['qualityScore', 'quality_score'])) || undefined,
+    modelUsed: readAlias<string>(record, ['modelUsed', 'model_used']) ?? null,
+    tokensUsed: num(readAlias(record, ['tokensUsed', 'tokens_used'])) || undefined,
+    status: num(readAlias(record, ['status', 'analysisStatus', 'analysis_status'])),
+    createTime: readAlias<string>(record, ['createTime', 'create_time', 'createdAt', 'created_at']) ?? undefined,
   }
 }
 
@@ -90,17 +120,19 @@ export default function ViralAnalysisPage() {
   const debouncedPick = useDebouncedValue(videoPickInput, 400)
   const [videoOptions, setVideoOptions] = useState<DyVideo[]>([])
   const [videoLoading, setVideoLoading] = useState(false)
+  const [videoSearchError, setVideoSearchError] = useState<string | null>(null)
 
   const statusParam = statusFilter === 'all' ? undefined : statusFilter
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['viral-analysis-list', page, statusParam],
     queryFn: async () => {
       const res = await aiApi.evolveList({ page, rows: 20, status: statusParam })
-      const list = (res.list ?? [])
+      const normalizedRows = normalizeArray<Partial<EvolutionViralItem>>(res)
+      const list = normalizedRows
         .filter(isValidViralItem)
         .map(normalizeViralRow)
-      return { ...res, list }
+      return { ...res, total: readTotal(res, normalizedRows.length), list }
     },
     refetchInterval: (query) => {
       const list = query.state.data?.list ?? []
@@ -110,14 +142,15 @@ export default function ViralAnalysisPage() {
   })
   const list = data?.list ?? []
   const total = data?.total ?? 0
+  const deleteTarget = useMemo(() => list.find(row => row.id === deleteTargetId), [deleteTargetId, list])
 
-  const { data: statsData } = useQuery({
+  const { data: statsData, isError: statsIsError, error: statsError } = useQuery({
     queryKey: ['viral-stats'],
     queryFn: () => aiApi.evolveStats(),
   })
   const stats = statsData
 
-  const { data: detailFetched, isLoading: detailLoading } = useQuery({
+  const { data: detailFetched, isLoading: detailLoading, isError: detailIsError, error: detailError, refetch: refetchDetail } = useQuery({
     queryKey: ['viral-analysis-detail', detailId],
     queryFn: async () => {
       if (detailId == null) return null
@@ -132,16 +165,21 @@ export default function ViralAnalysisPage() {
     const q = debouncedPick.trim()
     if (!q) {
       setVideoOptions([])
+      setVideoSearchError(null)
       return
     }
     setVideoLoading(true)
+    setVideoSearchError(null)
     void douyinApi
-      .videoSearch({ page: 0, rows: 30, keyword: q })
+      .videoSearch({ page: 0, rows: 30, title: q })
       .then((res) => {
         if (!cancelled) setVideoOptions(res.list ?? [])
       })
-      .catch(() => {
-        if (!cancelled) setVideoOptions([])
+      .catch((e) => {
+        if (!cancelled) {
+          setVideoOptions([])
+          setVideoSearchError(getErrorMessage(e))
+        }
       })
       .finally(() => {
         if (!cancelled) setVideoLoading(false)
@@ -164,7 +202,7 @@ export default function ViralAnalysisPage() {
       void qc.invalidateQueries({ queryKey: ['viral-analysis-list'] })
       void qc.invalidateQueries({ queryKey: ['viral-stats'] })
     },
-    onError: (e: Error) => toast(e.message || '触发失败', 'error'),
+    onError: (e: Error) => toast(`触发失败：${getErrorMessage(e) || '请检查 videoId/accountId'}`, 'error'),
   })
 
   const deleteMutation = useMutation({
@@ -177,8 +215,15 @@ export default function ViralAnalysisPage() {
       void qc.invalidateQueries({ queryKey: ['viral-analysis-list'] })
       void qc.invalidateQueries({ queryKey: ['viral-stats'] })
     },
-    onError: (e: Error) => toast(e.message || '删除失败', 'error'),
+    onError: (e: Error) => toast(`删除失败：${getErrorMessage(e) || '请检查当前登录用户权限'}`, 'error'),
   })
+
+  const triggerErrorText = triggerMutation.isError
+    ? `触发失败（POST /ai/evolution/viral/trigger）：${getErrorMessage(triggerMutation.error)}。videoId=${videoIdInput || '未填写'}、accountId=${accountIdInput || '空'} 会保留。`
+    : null
+  const deleteErrorText = deleteMutation.isError && deleteTargetId != null
+    ? `删除失败（POST /ai/evolution/viral/delete?id=${deleteTargetId}）：${getErrorMessage(deleteMutation.error)}。拆解记录 #${deleteTarget?.id ?? deleteTargetId} 会保留。`
+    : null
 
   const openDetail = (row: EvolutionViralItem) => {
     setDetailId(row.id)
@@ -189,6 +234,22 @@ export default function ViralAnalysisPage() {
     () => [
       { field: 'id', headerName: 'ID', width: 72 },
       { field: 'videoId', headerName: '视频ID', width: 100 },
+      {
+        field: 'videoTitle',
+        headerName: '视频标题',
+        minWidth: 160,
+        flex: 0.7,
+        renderCell: ({ value }) => {
+          const title = typeof value === 'string' ? value.trim() : ''
+          return title ? (
+            <Typography variant="body2" noWrap title={title}>
+              {title}
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary">—</Typography>
+          )
+        },
+      },
       { field: 'accountId', headerName: '账号ID', width: 100,
         valueFormatter: (v) => (v == null || v === '' ? '—' : String(v)) },
       { field: 'viewCount', headerName: '播放量', width: 100, type: 'number' },
@@ -231,7 +292,14 @@ export default function ViralAnalysisPage() {
             <Button size="small" onClick={() => openDetail(r)}>
               详情
             </Button>
-            <Button size="small" color="error" onClick={() => setDeleteTargetId(r.id)}>
+            <Button
+              size="small"
+              color="error"
+              onClick={() => {
+                deleteMutation.reset()
+                setDeleteTargetId(r.id)
+              }}
+            >
               删除
             </Button>
           </Stack>
@@ -263,14 +331,28 @@ export default function ViralAnalysisPage() {
   const detail = detailFetched
 
   return (
-    <Box data-testid="viral-analysis-page" sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box
+      data-testid="viral-analysis-page"
+      data-ready-endpoints={VIRAL_READY_ENDPOINTS}
+      data-unsupported-endpoints={VIRAL_UNSUPPORTED_ENDPOINTS}
+      data-no-local-list="true"
+      data-no-static-report="true"
+      data-no-local-trigger="true"
+      data-no-local-delete="true"
+      sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}
+    >
       <PageHeader
         title="爆款分析"
         subtitle="基于 AI 进化引擎对抖音视频做轻量爆款拆解（ai_viral_analysis，结构化 JSON 报告）。短视频「爆款库深度分析」走 /short-video/viral，与本页接口不同。"
       />
 
+      <Alert data-testid="viral-analysis-boundary-contract" data-no-local-analysis="true" data-no-static-report="true" severity="info" variant="outlined">
+        真实接口：<code>POST /ai/evolution/viral/list</code>、<code>/get</code>、<code>/trigger</code>、<code>/delete</code>、<code>/ai/evolution/stats</code>。
+        本页分析仅基于已同步的 DouyinVideo 元数据；不会下载视频流，也不会生成 ASR 或逐帧画面结论。
+      </Alert>
+
       {stats ? (
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
+        <Stack data-testid="viral-analysis-stats-cards" data-ready-endpoint="/ai/evolution/stats" direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
           {STAT_CARDS.map(({ key, label }) => (
             <Card key={key} variant="outlined" sx={{ flex: '1 1 140px', minWidth: 140 }}>
               <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -286,7 +368,18 @@ export default function ViralAnalysisPage() {
         </Stack>
       ) : null}
 
-      <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+      {statsIsError && (
+        <Box data-testid="viral-analysis-stats-error" data-no-static-stats="true">
+          <ErrorAlert
+            severity="warning"
+            title="统计数据不可用"
+            message={`${getErrorMessage(statsError)}。请检查 POST /ai/evolution/stats；列表仍可继续使用，统计卡片按空值降级。`}
+            onRetry={() => qc.invalidateQueries({ queryKey: ['viral-stats'] })}
+          />
+        </Box>
+      )}
+
+      <Stack data-testid="viral-analysis-filter-surface" direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
         <Typography variant="body2" color="text.secondary">
           状态筛选
         </Typography>
@@ -307,7 +400,7 @@ export default function ViralAnalysisPage() {
         </ToggleButtonGroup>
       </Stack>
 
-      <Stack direction="row" spacing={2} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+      <Stack data-testid="viral-analysis-action-surface" direction="row" spacing={2} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
         <Button
           variant="outlined"
           startIcon={<RefreshIcon />}
@@ -318,12 +411,33 @@ export default function ViralAnalysisPage() {
         >
           刷新
         </Button>
-        <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={() => setTriggerOpen(true)}>
+        <Button
+          variant="contained"
+          startIcon={<PlayArrowIcon />}
+          onClick={() => {
+            triggerMutation.reset()
+            setTriggerOpen(true)
+          }}
+        >
           触发拆解
         </Button>
       </Stack>
 
-      <Box sx={{ flex: 1, minHeight: 420 }}>
+      {isError && (
+        <Box data-testid="viral-analysis-list-error" data-no-local-list="true">
+          <ErrorAlert
+            title="爆款分析列表加载失败"
+            message={`${getErrorMessage(error)}。请检查登录态、POST /ai/evolution/viral/list 和 ai_viral_analysis 数据权限。`}
+            onRetry={() => refetch()}
+          />
+        </Box>
+      )}
+
+      {deleteErrorText && (
+        <Alert data-testid="viral-analysis-delete-error" data-no-local-delete-mutation="true" severity="error">{deleteErrorText}</Alert>
+      )}
+
+      <Box data-testid="viral-analysis-grid" data-pagination-mode="server" data-no-local-list="true" sx={{ flex: 1, minHeight: 420 }}>
         <StandardDataGrid
           rows={list}
           columns={columns}
@@ -334,14 +448,22 @@ export default function ViralAnalysisPage() {
           paginationModel={{ page, pageSize: 20 }}
           onPaginationModelChange={(m) => setPage(m.page)}
           pageSizeOptions={[20]}
+          slots={{ noRowsOverlay: DataGridEmptyOverlay }}
         />
       </Box>
 
       <Dialog open={triggerOpen} onClose={() => !triggerMutation.isPending && setTriggerOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>触发爆款拆解</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
+          <Stack
+            data-testid="viral-analysis-trigger-dialog"
+            data-ready-endpoints="/ai/evolution/viral/trigger,/douyin/video/search"
+            data-no-local-trigger="true"
+            spacing={2}
+            sx={{ mt: 1 }}
+          >
             <Autocomplete
+              data-testid="viral-analysis-video-search"
               loading={videoLoading}
               options={videoOptions}
               getOptionLabel={(o) => (o.title ? `${o.title} (id:${o.id})` : `id:${o.id}`)}
@@ -357,7 +479,8 @@ export default function ViralAnalysisPage() {
                   label="搜索已入库视频（标题）"
                   size="small"
                   placeholder="输入关键词筛选 DouyinVideo"
-                  helperText="选择后自动填入下方视频主键；也可手动填写"
+                  helperText={videoSearchError ? '视频搜索不可用，可继续手动填写视频主键' : '选择后自动填入下方视频主键；也可手动填写'}
+                  error={Boolean(videoSearchError)}
                 />
               )}
             />
@@ -380,6 +503,12 @@ export default function ViralAnalysisPage() {
               type="number"
               inputProps={{ min: 1 }}
             />
+            {videoSearchError ? (
+              <Alert data-testid="viral-analysis-video-search-error" data-no-local-video-search="true" severity="warning">
+                视频搜索失败（POST /douyin/video/search）：{videoSearchError}。视频 ID 输入会保留，可继续手动填写。
+              </Alert>
+            ) : null}
+            {triggerErrorText && <Alert data-testid="viral-analysis-trigger-error" data-input-retained="true" data-no-local-trigger="true" severity="error">{triggerErrorText}</Alert>}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -392,16 +521,18 @@ export default function ViralAnalysisPage() {
         </DialogActions>
       </Dialog>
 
-      <ConfirmDialog
-        open={deleteTargetId != null}
-        title="删除爆款分析"
-        content="确定删除该条拆解记录？此操作不可恢复。"
-        loading={deleteMutation.isPending}
-        onClose={() => setDeleteTargetId(null)}
-        onConfirm={() => {
-          if (deleteTargetId != null) deleteMutation.mutate(deleteTargetId)
-        }}
-      />
+      <Box data-testid="viral-analysis-delete-dialog-contract" data-ready-endpoint="/ai/evolution/viral/delete" data-no-local-delete-mutation="true">
+        <ConfirmDialog
+          open={deleteTargetId != null}
+          title="删除爆款分析"
+          content={deleteErrorText ? `${deleteErrorText}\n\n确定继续重试删除该条拆解记录？` : '确定删除该条拆解记录？此操作不可恢复。'}
+          loading={deleteMutation.isPending}
+          onClose={() => setDeleteTargetId(null)}
+          onConfirm={() => {
+            if (deleteTargetId != null) deleteMutation.mutate(deleteTargetId)
+          }}
+        />
+      </Box>
 
       <Dialog
         open={detailOpen}
@@ -413,11 +544,19 @@ export default function ViralAnalysisPage() {
         fullWidth
       >
         <DialogTitle>爆款拆解详情 {detail ? `#${detail.id}` : detailId != null ? `#${detailId}` : ''}</DialogTitle>
-        <DialogContent>
-          {detailLoading ? (
+        <DialogContent data-testid="viral-analysis-detail-dialog" data-ready-endpoint="/ai/evolution/viral/get" data-no-static-report="true">
+          {detailIsError ? (
+            <Box data-testid="viral-analysis-detail-error" data-no-static-report="true">
+              <ErrorAlert
+                title="详情加载失败"
+                message={`${getErrorMessage(detailError)}。请检查 POST /ai/evolution/viral/get?id=${detailId ?? ''} 和当前用户是否拥有该记录。`}
+                onRetry={() => refetchDetail()}
+              />
+            </Box>
+          ) : detailLoading ? (
             <Typography color="text.secondary">加载中…</Typography>
           ) : detail ? (
-            <Stack spacing={2} sx={{ pt: 1 }}>
+            <Stack data-testid="viral-analysis-detail-result" data-no-static-report="true" spacing={2} sx={{ pt: 1 }}>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip size="small" label={`videoId: ${detail.videoId ?? '—'}`} />
                 {detail.videoTitle ? (
@@ -435,15 +574,20 @@ export default function ViralAnalysisPage() {
                   </Typography>
                   <Box
                     component="pre"
-                    sx={{
+                    data-testid="viral-analysis-report-preview-surface"
+                    data-no-static-report="true"
+                    sx={(theme) => ({
                       fontSize: 12,
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
-                      bgcolor: 'grey.50',
+                      bgcolor: theme.palette.mode === 'dark'
+                        ? theme.palette.background.default
+                        : alpha(theme.palette.common.black, 0.025),
+                      border: `1px solid ${theme.palette.divider}`,
                       p: 2,
                       borderRadius: 1,
                       m: 0,
-                    }}
+                    })}
                   >
                     {(() => {
                       try {

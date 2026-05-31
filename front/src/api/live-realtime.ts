@@ -114,6 +114,19 @@ export interface SSEStreamCallbacks {
   onSlotCompleted?: (data: SSESlotCompletedEvent) => void
   /** 连接建立回调 */
   onConnected?: () => void
+  /** 重试诊断回调 */
+  onRetryScheduled?: (diagnostic: {
+    retryCount: number
+    maxRetries: number
+    retryDelayMs: number
+    error: Error
+  }) => void
+  /** 达到最大重试次数回调 */
+  onRetryExhausted?: (diagnostic: {
+    retryCount: number
+    maxRetries: number
+    error: Error
+  }) => void
   /** 错误事件回调 */
   onError?: (error: Error) => void
 }
@@ -130,13 +143,13 @@ export interface SSEStreamCallbacks {
  * ```typescript
  * const eventSource = subscribeToRealtimeStream(sessionId, {
  *   onDataUpdate: (data) => {
- *     console.log('实时数据更新:', data);
+ *     updateRealtimeCards(data);
  *   },
  *   onSlotChange: (slot) => {
- *     console.log('话术变化:', slot);
+ *     selectCurrentSlot(slot);
  *   },
  *   onError: (error) => {
- *     console.error('SSE 错误:', error);
+ *     showStreamDowngrade(error);
  *   }
  * });
  *
@@ -232,10 +245,10 @@ export function subscribeWithRetry(
 
         if (retryCount < maxRetries) {
           retryCount++
-          console.log(`SSE 连接失败，${retryDelayMs}ms 后重试 (${retryCount}/${maxRetries})`)
+          callbacks.onRetryScheduled?.({ retryCount, maxRetries, retryDelayMs, error })
           setTimeout(connect, retryDelayMs)
         } else {
-          console.error('SSE 连接失败，已达到最大重试次数')
+          callbacks.onRetryExhausted?.({ retryCount, maxRetries, error })
         }
       }
     })

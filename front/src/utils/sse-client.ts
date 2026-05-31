@@ -23,8 +23,76 @@ export interface SSEOptions {
 const DEFAULT_BACKPRESSURE = 50
 const MAX_RECONNECT_DELAY = 30000
 
+interface ParsedSseFrame {
+  eventType: string
+  dataStr: string
+  hasData: boolean
+}
+
 function getReconnectDelay(attempt: number): number {
   return Math.min(1000 * Math.pow(2, attempt), MAX_RECONNECT_DELAY)
+}
+
+function sseFieldValue(line: string, prefixLength: number): string {
+  const value = line.slice(prefixLength)
+  return value.startsWith(' ') ? value.slice(1) : value
+}
+
+function extractSseFrames(buffer: string): { frames: string[]; rest: string } {
+  const frames: string[] = []
+  let rest = buffer
+
+  while (rest.length > 0) {
+    const delimiters = [
+      { index: rest.indexOf('\r\n\r\n'), length: 4 },
+      { index: rest.indexOf('\n\n'), length: 2 },
+      { index: rest.indexOf('\r\r'), length: 2 },
+    ].filter((item) => item.index >= 0)
+
+    if (delimiters.length === 0) break
+    const next = delimiters.reduce((best, item) => (item.index < best.index ? item : best), delimiters[0])
+    frames.push(rest.slice(0, next.index))
+    rest = rest.slice(next.index + next.length)
+  }
+
+  return { frames, rest }
+}
+
+function parseSseFrame(raw: string): ParsedSseFrame {
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  let eventType = 'message'
+  let hasData = false
+  const dataLines: string[] = []
+  for (const line of lines) {
+    if (!line || line.startsWith(':')) continue
+    if (line.startsWith('event:')) {
+      eventType = sseFieldValue(line, 6).trim() || 'message'
+    } else if (line.startsWith('data:')) {
+      hasData = true
+      dataLines.push(sseFieldValue(line, 5))
+    }
+  }
+  return { eventType, dataStr: dataLines.join('\n'), hasData }
+}
+
+function statusToText(data: unknown): string {
+  if (typeof data === 'string') return data
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const row = data as Record<string, unknown>
+    const value = row.status ?? row.message ?? row.content ?? row.text
+    if (value !== undefined && value !== null) return String(value)
+  }
+  return data === undefined || data === null ? '' : JSON.stringify(data)
+}
+
+function chunkToText(data: unknown): string {
+  if (typeof data === 'string') return data
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const row = data as Record<string, unknown>
+    const value = row.content ?? row.delta ?? row.message ?? row.text ?? row.token
+    if (value !== undefined && value !== null) return String(value)
+  }
+  return data === undefined || data === null ? '' : JSON.stringify(data)
 }
 
 export function ssePost<T = unknown, D = unknown>(
@@ -46,6 +114,7 @@ export function ssePost<T = unknown, D = unknown>(
   let rafId: number | null = null
   let lastEventId: string | null = null
   let idleTimer: ReturnType<typeof setTimeout> | null = null
+  let completed = false
 
   function resetIdleTimer() {
     if (idleTimer) clearTimeout(idleTimer)
@@ -92,26 +161,35 @@ export function ssePost<T = unknown, D = unknown>(
       let buffer = ''
       let pendingCount = 0
 
-      while (true) {
+      let reading = true
+      while (reading) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          reading = false
+          continue
+        }
         resetIdleTimer()
         buffer += decoder.decode(value, { stream: true })
 
-        const events = buffer.split('\n\n')
-        buffer = events.pop() ?? ''
+        const { frames, rest } = extractSseFrames(buffer)
+        buffer = rest
 
-        for (const raw of events) {
+        for (const raw of frames) {
           if (!raw.trim()) continue
-          const lines = raw.split('\n')
-          let eventType = 'message'
-          let dataStr = ''
+          const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
           for (const line of lines) {
-            if (line.startsWith('event:')) eventType = line.slice(6).trim()
-            else if (line.startsWith('data:')) dataStr = line.slice(5).trim()
-            else if (line.startsWith('id:')) lastEventId = line.slice(3).trim()
+            if (line.startsWith('id:')) lastEventId = sseFieldValue(line, 3).trim()
           }
-          if (!dataStr || dataStr === '[DONE]') continue
+          const { eventType, dataStr, hasData } = parseSseFrame(raw)
+          if (dataStr === '[DONE]') {
+            if (!completed) {
+              completed = true
+              callbacks.onDone?.({ type: 'done' } as D)
+            }
+            if (idleTimer) clearTimeout(idleTimer)
+            continue
+          }
+          if (!hasData && eventType !== 'done') continue
           let parsed: unknown
           try { parsed = JSON.parse(dataStr) } catch { parsed = dataStr }
 
@@ -126,9 +204,12 @@ export function ssePost<T = unknown, D = unknown>(
               break
             }
             case 'done':
-              callbacks.onDone?.(parsed as D)
+              if (!completed) {
+                completed = true
+                callbacks.onDone?.(parsed as D)
+              }
               if (idleTimer) clearTimeout(idleTimer)
-              return
+              break
             case 'error': {
               const errObj = typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : null
               throw new Error(errObj
@@ -143,12 +224,16 @@ export function ssePost<T = unknown, D = unknown>(
               callbacks.onSlotFailed?.(parsed as Parameters<NonNullable<SSECallbacks['onSlotFailed']>>[0])
               break
             case 'chunk':
-              callbacks.onChunk?.(typeof parsed === 'string' ? parsed : JSON.stringify(parsed))
+              callbacks.onChunk?.(chunkToText(parsed))
               break
             case 'status':
-              callbacks.onStatus?.(typeof parsed === 'string' ? parsed : JSON.stringify(parsed))
+              callbacks.onStatus?.(statusToText(parsed))
               break
-            case 'skill_start': {
+            case 'message':
+              callbacks.onChunk?.(chunkToText(parsed))
+              break
+            case 'skill_start':
+            case 'tool_start': {
               const ssData = typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : null
               if (ssData) {
                 callbacks.onSkillStart?.({
@@ -158,7 +243,8 @@ export function ssePost<T = unknown, D = unknown>(
               }
               break
             }
-            case 'skill_end': {
+            case 'skill_end':
+            case 'tool_end': {
               const seData = typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : null
               if (seData) {
                 callbacks.onSkillEnd?.({
@@ -179,8 +265,12 @@ export function ssePost<T = unknown, D = unknown>(
         }
       }
       if (idleTimer) clearTimeout(idleTimer)
+      if (!completed && !controller.signal.aborted) {
+        callbacks.onError?.(new Error('SSE 连接已中断，未收到完成事件'))
+      }
     } catch (e: unknown) {
       if (idleTimer) clearTimeout(idleTimer)
+      if (completed) return
       if (controller.signal.aborted) return
       if (attempt < maxReconnectAttempts) {
         const delay = getReconnectDelay(attempt)

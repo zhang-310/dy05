@@ -10,16 +10,42 @@ import PeopleIcon from '@mui/icons-material/People'
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart'
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn'
 import SyncIcon from '@mui/icons-material/Sync'
-import FileDownloadIcon from '@mui/icons-material/FileDownload'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import { useCoreData } from '../contexts'
 import { liveApi } from '@/api/live'
 import type { LiveSessionData, LiveProductData } from '@/api/live'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/contexts/ToastContext'
+import { getErrorMessage } from '@/utils/errorHandler'
 
 interface SessionCompareData { prev?: LiveSessionData; curr?: LiveSessionData; [key: string]: unknown }
 interface SessionAnalysisReport { summary?: string; highlights?: string[]; issues?: string[]; suggestions?: string[]; rating?: unknown; [key: string]: unknown }
+
+const DATA_ANALYSIS_READY_ENDPOINTS = [
+  '/live/data/session',
+  '/live/data/session/with-compare',
+  '/live/data/product',
+  '/live/data/session/sync',
+  '/live/analysis/get',
+  '/live/analysis/generate',
+]
+
+const DATA_ANALYSIS_CONTEXT_ENDPOINTS = [
+  '/live/session/get',
+  '/live/product/by-session',
+  '/live/script/by-session',
+]
+
+const DATA_ANALYSIS_UNSUPPORTED_ACTIONS = [
+  'local-session-data-fallback',
+  'local-product-data-fallback',
+  'local-analysis-fallback',
+  'data-session-save',
+  'data-product-save',
+  'script-export',
+  'analysis-review',
+  'shortvideo-export',
+]
 
 function fmt(v: number | undefined, type: 'money' | 'count' | 'pct' = 'count'): string {
   if (v === undefined || v === null) return '-'
@@ -53,7 +79,13 @@ function KpiCard({ title, value, icon, color = 'primary', prev, fmtType }: {
   fmtType?: 'money' | 'count' | 'pct'
 }) {
   return (
-    <Card variant="outlined">
+    <Card
+      variant="outlined"
+      data-testid="live-data-analysis-kpi-card"
+      data-contract-source="/live/data/session"
+      data-kpi-title={title}
+      data-has-compare={prev !== undefined ? 'true' : 'false'}
+    >
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
           <Box sx={{ color: `${color}.main` }}>{icon}</Box>
@@ -75,29 +107,32 @@ export function DataAnalysisTab() {
   const toast = useToast()
   const qc = useQueryClient()
   const [showCompare, setShowCompare] = useState(false)
+  const isEnded = session?.status === 2
+  const isLive = session?.status === 1
+  const canLoadData = !!session?.id && (isEnded || isLive)
 
-  const { data: sessionData, isLoading: sdLoading } = useQuery({
+  const { data: sessionData, isLoading: sdLoading, isError: sdIsError, error: sdError } = useQuery({
     queryKey: ['wb-session-data', session?.id],
     queryFn: () => liveApi.dataSession(session!.id),
-    enabled: !!session?.id,
+    enabled: canLoadData,
   })
 
-  const { data: compareData } = useQuery({
+  const { data: compareData, isError: compareIsError, error: compareError } = useQuery({
     queryKey: ['wb-session-compare', session?.id],
     queryFn: () => liveApi.dataSessionWithCompare({ sessionId: session!.id }),
-    enabled: !!session?.id && showCompare,
+    enabled: canLoadData && showCompare,
   })
 
-  const { data: productData = [], isLoading: pdLoading } = useQuery({
+  const { data: productData = [], isLoading: pdLoading, isError: pdIsError, error: pdError } = useQuery({
     queryKey: ['wb-product-data', session?.id],
     queryFn: () => liveApi.dataProduct(session!.id),
-    enabled: !!session?.id,
+    enabled: canLoadData,
   })
 
-  const { data: analysis, isLoading: analysisLoading } = useQuery({
+  const { data: analysis, isLoading: analysisLoading, isError: analysisIsError, error: analysisError } = useQuery({
     queryKey: ['wb-analysis', session?.id],
     queryFn: () => liveApi.analysisGet({ sessionId: session!.id }),
-    enabled: !!session?.id,
+    enabled: canLoadData,
   })
 
   const syncMut = useMutation({
@@ -107,7 +142,7 @@ export function DataAnalysisTab() {
       qc.invalidateQueries({ queryKey: ['wb-product-data', session?.id] })
       toast('数据同步成功', 'success')
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e: Error) => toast(`/live/data/session/sync 数据同步失败：${e.message}`, 'error'),
   })
 
   const genAnalysisMut = useMutation({
@@ -116,30 +151,96 @@ export function DataAnalysisTab() {
       qc.invalidateQueries({ queryKey: ['wb-analysis', session?.id] })
       toast('AI 复盘分析已生成', 'success')
     },
-    onError: (e: Error) => toast(e.message, 'error'),
+    onError: (e: Error) => toast(`/live/analysis/generate AI 复盘分析失败：${e.message}`, 'error'),
   })
 
   const sd = sessionData as LiveSessionData | undefined
   const prev = compareData ? (compareData as SessionCompareData).prev : undefined
-  const isEnded = session?.status === 2
-  const isLive = session?.status === 1
+
+  const rootAttrs = {
+    'data-testid': 'live-data-analysis-workbench',
+    'data-contract-scope': 'live-session-data-review',
+    'data-ready-endpoints': DATA_ANALYSIS_READY_ENDPOINTS.join('|'),
+    'data-context-endpoints': DATA_ANALYSIS_CONTEXT_ENDPOINTS.join('|'),
+    'data-unsupported-actions': DATA_ANALYSIS_UNSUPPORTED_ACTIONS.join('|'),
+    'data-session-id': String(session?.id ?? ''),
+    'data-session-status': String(session?.status ?? ''),
+    'data-script-count': scripts.length,
+    'data-product-count': products.length,
+    'data-product-data-count': productData.length,
+    'data-show-compare': showCompare ? 'true' : 'false',
+    'data-no-local-session-data-fallback': 'true',
+    'data-no-local-product-data-fallback': 'true',
+    'data-no-local-analysis-fallback': 'true',
+  }
+
   if (!isEnded && !isLive) {
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 2, color: 'text.secondary' }}>
+      <Box
+        {...rootAttrs}
+        data-state="not-started"
+        sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
+      >
+        <Alert
+          severity="info"
+          data-testid="live-data-analysis-contract-alert"
+          data-contract-ready-endpoints={DATA_ANALYSIS_READY_ENDPOINTS.join('|')}
+          data-no-script-export="true"
+          sx={{ borderRadius: 0 }}
+        >
+          数据复盘只读取直播数据与 AI 复盘；话术导出、数据手工保存和短视频导出不在本页执行。
+        </Alert>
+        <Box
+          data-testid="live-data-analysis-unavailable-state"
+          data-contract-source="/live/session/get"
+          data-no-local-session-data-fallback="true"
+          sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, color: 'text.secondary' }}
+        >
         <TrendingUpIcon sx={{ fontSize: 48, opacity: 0.3 }} />
         <Typography variant="body2">直播开始后可查看实时数据，结束后生成完整复盘</Typography>
+        </Box>
       </Box>
     )
   }
 
   if (sdLoading) {
-    return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress /></Box>
+    return (
+      <Box
+        {...rootAttrs}
+        data-state="loading"
+        data-testid="live-data-analysis-loading"
+        data-contract-source="/live/data/session"
+        sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}
+      >
+        <CircularProgress />
+      </Box>
+    )
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'auto', p: 2, gap: 2 }}>
+    <Box
+      {...rootAttrs}
+      data-state={sdIsError ? 'session-data-error' : 'ready'}
+      sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'auto', p: 2, gap: 2 }}
+    >
+      <Alert
+        severity="info"
+        data-testid="live-data-analysis-contract-alert"
+        data-contract-ready-endpoints={DATA_ANALYSIS_READY_ENDPOINTS.join('|')}
+        data-no-script-export="true"
+        data-no-local-session-data-fallback="true"
+        data-no-local-product-data-fallback="true"
+      >
+        数据复盘只读取 `/live/data/session`、`/live/data/product` 和 `/live/analysis/get`；同步与生成分析失败不写入本地兜底数据。
+      </Alert>
+
       {/* Toolbar */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+      <Box
+        data-testid="live-data-analysis-toolbar"
+        data-contract-source="/live/data/session|/live/data/session/with-compare|/live/data/session/sync|/live/analysis/generate"
+        data-no-script-export="true"
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+      >
         <Typography variant="subtitle2" fontWeight={700}>数据复盘</Typography>
         {session && <Chip label={session.liveTitle} size="small" variant="outlined" sx={{ maxWidth: 180, fontSize: 11 }} />}
         <Chip
@@ -153,22 +254,60 @@ export function DataAnalysisTab() {
         <Box sx={{ flex: 1 }} />
         <Tooltip title="从抖音同步最新数据">
           <span>
-            <IconButton size="small" onClick={() => syncMut.mutate()} disabled={syncMut.isPending}>
+            <IconButton
+              size="small"
+              onClick={() => syncMut.mutate()}
+              disabled={syncMut.isPending}
+              data-testid="live-data-analysis-sync-button"
+              data-contract-source="/live/data/session/sync"
+            >
               {syncMut.isPending ? <CircularProgress size={16} /> : <SyncIcon fontSize="small" />}
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="导出话术">
-          <span>
-            <IconButton size="small" onClick={() => liveApi.scriptExport({ sessionId: session?.id }).then(() => toast('导出成功', 'success')).catch((e: Error) => toast(e.message, 'error'))}>
-              <FileDownloadIcon fontSize="small" />
             </IconButton>
           </span>
         </Tooltip>
       </Box>
 
+      {sdIsError && (
+        <Alert
+          severity="error"
+          data-testid="live-data-session-error"
+          data-contract-source="/live/data/session"
+          data-no-local-session-data-fallback="true"
+        >
+          /live/data/session 场次数据加载失败：{getErrorMessage(sdError)}
+        </Alert>
+      )}
+
+      {compareIsError && (
+        <Alert
+          severity="error"
+          data-testid="live-data-compare-error"
+          data-contract-source="/live/data/session/with-compare"
+          data-no-local-session-data-fallback="true"
+        >
+          /live/data/session/with-compare 环比数据加载失败：{getErrorMessage(compareError)}
+        </Alert>
+      )}
+
+      {pdIsError && (
+        <Alert
+          severity="error"
+          data-testid="live-product-data-error"
+          data-contract-source="/live/data/product"
+          data-no-local-product-data-fallback="true"
+        >
+          /live/data/product 商品销售明细加载失败：{getErrorMessage(pdError)}
+        </Alert>
+      )}
+
       {/* KPI 卡片 */}
-      <Grid container spacing={1.5}>
+      <Grid
+        container
+        spacing={1.5}
+        data-testid="live-data-analysis-kpi-grid"
+        data-contract-source="/live/data/session"
+        data-no-local-session-data-fallback="true"
+      >
         <Grid item xs={6} sm={3}>
           <KpiCard title="场次 GMV" value={sd?.gmv} icon={<MonetizationOnIcon />} color="success" prev={prev?.gmv} fmtType="money" />
         </Grid>
@@ -185,7 +324,12 @@ export function DataAnalysisTab() {
 
       {/* 商品销售明细表 */}
       {productData.length > 0 && (
-        <Card variant="outlined">
+        <Card
+          variant="outlined"
+          data-testid="live-product-data-table-card"
+          data-contract-source="/live/data/product"
+          data-no-local-product-data-fallback="true"
+        >
           <CardContent sx={{ p: 0 }}>
             <Box sx={{ px: 2, pt: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="subtitle2">商品销售明细</Typography>
@@ -207,7 +351,13 @@ export function DataAnalysisTab() {
                 </TableHead>
                 <TableBody>
                   {(productData as LiveProductData[]).map((pd) => (
-                    <TableRow key={pd.id} hover sx={{ '& td': { fontSize: 11 } }}>
+                    <TableRow
+                      key={pd.id}
+                      hover
+                      data-testid="live-product-data-row"
+                      data-contract-product-id={pd.productId}
+                      sx={{ '& td': { fontSize: 11 } }}
+                    >
                       <TableCell sx={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {pd.productName}
                       </TableCell>
@@ -229,8 +379,24 @@ export function DataAnalysisTab() {
         </Card>
       )}
 
+      {!pdLoading && !pdIsError && productData.length === 0 && (
+        <Alert
+          severity="info"
+          data-testid="live-product-data-empty-state"
+          data-contract-source="/live/data/product"
+          data-no-local-product-data-fallback="true"
+        >
+          本场暂无商品销售明细，页面不会注入静态销售数据。
+        </Alert>
+      )}
+
       {/* 汇总：话术 & 商品数量 */}
-      <Paper variant="outlined" sx={{ p: 1.5 }}>
+      <Paper
+        variant="outlined"
+        data-testid="live-data-context-summary"
+        data-contract-source="/live/product/by-session|/live/script/by-session"
+        sx={{ p: 1.5 }}
+      >
         <Stack direction="row" spacing={3} divider={<Divider orientation="vertical" flexItem />}>
           <Box>
             <Typography variant="caption" color="text.secondary">话术数</Typography>
@@ -250,7 +416,12 @@ export function DataAnalysisTab() {
       </Paper>
 
       {/* AI 复盘分析 */}
-      <Card variant="outlined">
+      <Card
+        variant="outlined"
+        data-testid="live-analysis-card"
+        data-contract-source="/live/analysis/get|/live/analysis/generate"
+        data-no-local-analysis-fallback="true"
+      >
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Typography variant="subtitle2">AI 复盘分析</Typography>
@@ -261,19 +432,43 @@ export function DataAnalysisTab() {
               onClick={() => genAnalysisMut.mutate()}
               disabled={genAnalysisMut.isPending || analysisLoading}
               variant="outlined"
+              data-testid="live-analysis-generate-button"
+              data-contract-source="/live/analysis/generate"
               sx={{ fontSize: 11 }}
             >
               {analysis ? '重新分析' : '生成分析'}
             </Button>
           </Box>
           {analysisLoading ? (
-            <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} /></Box>
+            <Box data-testid="live-analysis-loading" data-contract-source="/live/analysis/get" sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} /></Box>
+          ) : analysisIsError ? (
+            <Alert
+              severity="error"
+              data-testid="live-analysis-error"
+              data-contract-source="/live/analysis/get"
+              data-no-local-analysis-fallback="true"
+            >
+              /live/analysis/get AI 复盘分析加载失败：{getErrorMessage(analysisError)}
+            </Alert>
           ) : analysis ? (
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+            <Typography
+              variant="body2"
+              data-testid="live-analysis-summary"
+              data-contract-source="/live/analysis/get"
+              sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}
+            >
               {(analysis as SessionAnalysisReport).summary ?? '暂无分析结论'}
             </Typography>
           ) : (
-            <Alert severity="info" sx={{ fontSize: 12 }}>点击「生成分析」让 AI 自动复盘本场直播</Alert>
+            <Alert
+              severity="info"
+              data-testid="live-analysis-empty-state"
+              data-contract-source="/live/analysis/get"
+              data-no-local-analysis-fallback="true"
+              sx={{ fontSize: 12 }}
+            >
+              点击「生成分析」让 AI 自动复盘本场直播
+            </Alert>
           )}
         </CardContent>
       </Card>

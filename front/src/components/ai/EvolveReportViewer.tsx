@@ -1,6 +1,6 @@
 import { Box, Typography, Button, Paper } from '@mui/material'
 import { PictureAsPdf as PdfIcon } from '@mui/icons-material'
-import ReactMarkdown from 'react-markdown'
+import MarkdownViewer from '@/components/MarkdownViewer'
 
 export interface EvolveReportViewerProps {
   /** Markdown 内容 */
@@ -63,20 +63,9 @@ export function EvolveReportViewer({
           py: 2,
           maxHeight: typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight,
           overflow: 'auto',
-          '& h1': { fontSize: '1.5rem', mt: 2, mb: 1 },
-          '& h2': { fontSize: '1.25rem', mt: 2, mb: 1 },
-          '& h3': { fontSize: '1.1rem', mt: 1.5, mb: 0.5 },
-          '& p': { my: 1 },
-          '& ul, & ol': { pl: 2.5, my: 1 },
-          '& pre': { bgcolor: 'action.hover', p: 2, borderRadius: 1, overflow: 'auto', fontSize: '0.875rem' },
-          '& code': { bgcolor: 'action.hover', px: 0.5, borderRadius: 0.5, fontSize: '0.85em' },
-          '& pre code': { bgcolor: 'transparent', p: 0 },
-          '& table': { borderCollapse: 'collapse', width: '100%' },
-          '& th, & td': { border: '1px solid', borderColor: 'divider', p: 1, textAlign: 'left' },
-          '& th': { bgcolor: 'action.hover', fontWeight: 600 },
         }}
       >
-        <ReactMarkdown>{content || '暂无内容'}</ReactMarkdown>
+        <MarkdownViewer content={content} />
       </Box>
     </Paper>
   )

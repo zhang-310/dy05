@@ -45,6 +45,12 @@ export interface AiModelAdminVO {
   updateTime?: string
 }
 
+export interface AiModelConnectionTestResult {
+  success: boolean
+  errorMsg?: string | null
+  tokensUsed?: number
+}
+
 /** 与 AiModelSaveVO 对齐；endpoint 写入后端 model_version（非 Base URL） */
 export interface AiModelSavePayload {
   id?: number
@@ -308,6 +314,7 @@ export interface AiQuotaItemRow {
   feature: string
   limit: number
   used: number
+  hasLimit?: boolean
   unit?: string
   period?: string
 }
@@ -458,6 +465,11 @@ export interface AiDashboardStatsVO {
   monthTokens: number
   successRate: number
   avgQualityScore: number
+  qualityDocCount?: number
+  evaluatedQualityDocCount?: number
+  unevaluatedQualityDocCount?: number
+  lowQualityDocCount?: number
+  qualityEvaluationCoverage?: number
 }
 
 /** POST /ai/admin/infra/health 单项 */
@@ -474,6 +486,47 @@ export interface AiCacheStatsVO {
   total?: number
   hitRate?: number
   keyCount?: number
+  [key: string]: unknown
+}
+
+export interface AiRedisRuntimeStatsVO {
+  keyspaceHits?: number
+  keyspaceMisses?: number
+  globalHitRate?: number
+  expiredKeys?: number
+  evictedKeys?: number
+  usedMemoryHuman?: string
+  usedMemoryPeakHuman?: string
+  maxMemoryHuman?: string
+  memFragmentationRatio?: number
+  keyspace?: Record<string, Record<string, unknown>>
+}
+
+export interface AiCacheDiagnosticsScanVO {
+  scanned?: number
+  truncated?: boolean
+  error?: string
+  prefixCounts?: Record<string, number>
+  ttlBuckets?: Record<string, number>
+  examples?: string[]
+}
+
+/** POST /ai/admin/infra/cache/diagnostics */
+export interface AiCacheDiagnosticsVO {
+  ok?: boolean
+  host?: string
+  lastUpdate?: string
+  dbSize?: number
+  kbCacheTtlSeconds?: number
+  embeddingCacheTtlDays?: number
+  message?: string
+  redisStats?: AiRedisRuntimeStatsVO
+  businessStats?: AiCacheStatsVO & {
+    scope?: string
+    description?: string
+  }
+  scan?: AiCacheDiagnosticsScanVO
+  suggestions?: string[]
   [key: string]: unknown
 }
 
@@ -530,6 +583,10 @@ export interface AiInfraDetailFullVO {
 /** POST /ai/admin/infra/monitoring-config */
 export interface AiMonitoringConfigVO {
   grafanaUrl?: string
+  /** app.credit.enforce — 商业化扣费是否开启 */
+  creditEnforce?: boolean
+  /** app.gaifan.allow-header-identity — 是否允许 X-User-Id 联调身份 */
+  allowHeaderIdentity?: boolean
   [key: string]: unknown
 }
 
